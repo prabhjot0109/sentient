@@ -1,4 +1,5 @@
 import os
+import glob as glob_module
 from langchain_community.document_loaders import (
     TextLoader,
     DirectoryLoader,
@@ -29,17 +30,20 @@ class ArchivesIngestion:
                 source_path, glob="**/*.txt", loader_cls=TextLoader
             )
             docs.extend(txt_loader.load())
-            # Load pdf files
-            pdf_loader = DirectoryLoader(
-                source_path, glob="**/*.pdf", loader_cls=PyPDFLoader
+            # Load pdf files separately using glob pattern
+            pdf_files = glob_module.glob(
+                os.path.join(source_path, "**/*.pdf"), recursive=True
             )
-            docs.extend(pdf_loader.load())
+            for pdf_file in pdf_files:
+                pdf_loader = PyPDFLoader(pdf_file)
+                docs.extend(pdf_loader.load())
         else:
             if source_path.endswith(".pdf"):
                 loader = PyPDFLoader(source_path)
+                docs.extend(loader.load())
             else:
-                loader = TextLoader(source_path)
-            docs.extend(loader.load())
+                text_loader = TextLoader(source_path)
+                docs.extend(text_loader.load())
 
         if not docs:
             print("No documents found to ingest.")
@@ -49,8 +53,14 @@ class ArchivesIngestion:
         text_splitter = CharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
         splits = text_splitter.split_documents(docs)
 
-        # Create Vector Store
-        db = FAISS.from_documents(splits, self.embeddings)
+        # Load existing or create new Vector Store
+        if os.path.exists(self.index_path):
+            db = FAISS.load_local(
+                self.index_path, self.embeddings, allow_dangerous_deserialization=True
+            )
+            db.add_documents(splits)
+        else:
+            db = FAISS.from_documents(splits, self.embeddings)
 
         # Save local index
         db.save_local(self.index_path)

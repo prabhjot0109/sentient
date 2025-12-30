@@ -1,0 +1,21 @@
+[theme]
+base = "dark"
+backgroundColor = "#202020"
+secondaryBackgroundColor = "#2a2a2a"
+textColor = "#eaeaea"
+primaryColor = "#eaeaea"
+borderColor = "#3a3a3a"
+baseRadius = "medium"
+buttonRadius = "medium"
+showWidgetBorder = true
+
+[theme.sidebar]
+backgroundColor = "#181818"
+secondaryBackgroundColor = "#202020"
+textColor = "#eaeaea"
+borderColor = "#2a2a2a"
+baseRadius = "medium"
+
+[server]
+# Keeps the UI consistent on wide screens
+maxMessageSize = 200

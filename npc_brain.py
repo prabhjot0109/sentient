@@ -25,7 +25,7 @@ class NPCBrain:
             raise ValueError("API Key not found. Please provide one or set it in .env")
 
         self.llm = ChatOpenAI(
-            model=os.getenv("MODEL_NAME", "openai/gpt-3.5-turbo"),
+            model=os.getenv("MODEL_NAME", "openai/gpt-oss-120b:free"),
             openai_api_key=key,
             openai_api_base=base_url,
         )
