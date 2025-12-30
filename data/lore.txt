@@ -1,0 +1,4 @@
+The NeuralNPC project is an initiative to create advanced AI non-player characters.
+Sentinel is the guardian of the NeuralNPC project archives.
+The core technology involves Retrieval Augmented Generation (RAG).
+This text is part of the secret archives.
