@@ -8,7 +8,7 @@ st.set_page_config(
     layout="wide",
     page_title="Sentinel AI",
     page_icon="🔮",
-    initial_sidebar_state="collapsed",
+    initial_sidebar_state="expanded",
 )
 
 # 2. Modern ChatGPT-like CSS
@@ -31,36 +31,43 @@ st.markdown(
         --assistant-bubble: transparent;
     }
 
-    /* Hide Streamlit default elements */
-    #MainMenu, footer, header { visibility: hidden; }
-    .stDeployButton { display: none; }
+    /* Hide Streamlit default elements including sidebar */
+    [data-testid="stToolbar"], [data-testid="stDecoration"], header[data-testid="stHeader"] { 
+        display: none !important; 
+    }
     
-    /* Hide default sidebar toggle */
-    button[kind="header"] { display: none !important; }
-    [data-testid="collapsedControl"] { display: none !important; }
+    /* Hide default sidebar - we'll use columns instead */
+    section[data-testid="stSidebar"] {
+        display: none !important;
+    }
+    
+    /* Hide sidebar collapse controls */
+    [data-testid="stSidebarCollapsedControl"],
+    [data-testid="collapsedControl"] {
+        display: none !important;
+    }
 
     .stApp {
         font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
         background: var(--bg-primary);
     }
 
-    /* Custom sidebar styling */
-    section[data-testid="stSidebar"] {
-        background-color: var(--bg-secondary) !important;
+    /* Left panel styling */
+    .left-panel {
+        background-color: var(--bg-secondary);
         border-right: 1px solid var(--border-color);
-        width: 260px !important;
-    }
-
-    section[data-testid="stSidebar"] > div {
-        background-color: var(--bg-secondary) !important;
-        padding-top: 1rem;
+        padding: 1rem;
+        height: 100vh;
+        position: sticky;
+        top: 0;
+        overflow-y: auto;
     }
 
     /* Main container */
     .main .block-container {
-        max-width: 48rem;
-        padding: 0 1rem 6rem 1rem;
-        margin: 0 auto;
+        max-width: 100%;
+        padding: 0 !important;
+        margin: 0;
     }
 
     /* Top bar styling */
@@ -316,6 +323,20 @@ st.markdown(
         transition: all 0.2s !important;
     }
 
+    /* Ensure primary buttons (e.g., New Chat) remain clearly visible */
+    .stButton > button[kind="primary"],
+    .stButton > button[data-testid="baseButton-primary"] {
+        background: var(--accent) !important;
+        border-color: var(--accent) !important;
+        color: var(--text-primary) !important;
+    }
+
+    .stButton > button[kind="primary"]:hover,
+    .stButton > button[data-testid="baseButton-primary"]:hover {
+        background: var(--accent-hover) !important;
+        border-color: var(--accent-hover) !important;
+    }
+
     .stButton > button:hover {
         background: var(--border-color) !important;
         border-color: var(--text-muted) !important;
@@ -432,12 +453,6 @@ if "sources" not in st.session_state:
 if "api_key" not in st.session_state:
     st.session_state.api_key = ""
 
-if "sidebar_visible" not in st.session_state:
-    st.session_state.sidebar_visible = False
-
-if "show_settings" not in st.session_state:
-    st.session_state.show_settings = False
-
 
 # 4. Settings Dialog
 @st.dialog("⚙️ Settings", width="small")
@@ -469,62 +484,52 @@ def settings_dialog():
         if st.button("Save", use_container_width=True, type="primary"):
             st.session_state.api_key = new_api_key
             st.session_state.show_settings = False
+            # Initialize brain with new key if provided
+            if new_api_key:
+                try:
+                    st.session_state.brain = NPCBrain(api_key=new_api_key)
+                except Exception:
+                    pass
             st.rerun()
 
 
-# 5. Top Navigation Bar
-col_hamburger, col_title, col_settings = st.columns([1, 6, 1])
+# 5. Two-column layout with integrated sidebar
+left_col, right_col = st.columns([1, 3])
 
-with col_hamburger:
-    if st.button("☰", key="hamburger", help="Toggle sidebar"):
-        st.session_state.sidebar_visible = not st.session_state.sidebar_visible
-        if st.session_state.sidebar_visible:
-            st.query_params["sidebar"] = "open"
-        else:
-            st.query_params.pop("sidebar", None)
-        st.rerun()
+# LEFT PANEL - Documents and Controls
+with left_col:
+    st.markdown('<div class="left-panel">', unsafe_allow_html=True)
 
-with col_title:
+    # Logo Header
     st.markdown(
         """
-        <div style="display: flex; align-items: center; justify-content: center; gap: 8px; padding: 0.5rem 0;">
-            <span style="font-size: 1.25rem;">🔮</span>
-            <span style="font-size: 1.1rem; font-weight: 600; color: #ececec;">Sentinel</span>
+        <div style="display: flex; align-items: center; gap: 12px; padding: 0.5rem 0 1rem 0;">
+            <span style="font-size: 1.75rem;">🔮</span>
+            <span style="font-size: 1.25rem; font-weight: 600; color: #ececec;">Sentinel</span>
         </div>
         """,
         unsafe_allow_html=True,
     )
 
-with col_settings:
-    if st.button("⚙️", key="settings_btn", help="Settings"):
+    # New Chat Button - ChatGPT style
+    if st.button(
+        "➕ New Chat", key="new_chat", use_container_width=True, type="primary"
+    ):
+        st.session_state.messages = []
+        st.toast("✅ Started new chat!")
+        st.rerun()
+
+    # Settings Button
+    if st.button("⚙️ Settings", key="settings_btn", use_container_width=True):
         settings_dialog()
 
-st.markdown("<hr style='margin: 0.5rem 0 1rem 0;'>", unsafe_allow_html=True)
+    st.markdown("---")
 
-
-# 6. Sidebar with PDF list (using native Streamlit sidebar with toggle control)
-if st.session_state.sidebar_visible or st.query_params.get("sidebar") == "open":
-    st.session_state.sidebar_visible = True
-
-with st.sidebar:
-    # Sidebar Header
+    # Documents Section Header
     st.markdown(
-        """
-        <div style="padding: 0.5rem 0 1rem 0; border-bottom: 1px solid #424242; margin-bottom: 1rem;">
-            <div style="display: flex; align-items: center; justify-content: space-between;">
-                <span style="font-size: 0.875rem; font-weight: 600; color: #ececec; text-transform: uppercase; letter-spacing: 0.05em;">Documents</span>
-            </div>
-        </div>
-        """,
+        "<p style='font-size: 0.75rem; color: #8e8e8e; text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 0.5rem; font-weight: 600;'>📁 Documents</p>",
         unsafe_allow_html=True,
     )
-
-    # New Chat Button
-    if st.button("➕ New Chat", key="new_chat", use_container_width=True):
-        st.session_state.messages = []
-        st.rerun()
-
-    st.markdown("<br>", unsafe_allow_html=True)
 
     # File Uploader
     uploaded_files = st.file_uploader(
@@ -533,6 +538,7 @@ with st.sidebar:
         type=["pdf", "txt"],
         label_visibility="collapsed",
         key="file_uploader",
+        help="Upload PDF or TXT files to chat with them",
     )
 
     if uploaded_files:
@@ -614,76 +620,129 @@ with st.sidebar:
         )
 
     # Bottom section with API status
-    st.markdown("<div style='flex-grow: 1;'></div>", unsafe_allow_html=True)
-    st.divider()
-
     api_status = "🟢 Connected" if st.session_state.api_key else "🔴 No API Key"
     st.markdown(
-        f"<div style='font-size: 0.75rem; color: #8e8e8e; padding: 0.5rem;'>{api_status}</div>",
-        unsafe_allow_html=True,
-    )
-
-
-# 7. Main Chat Area
-if not st.session_state.messages:
-    # Empty State - ChatGPT style welcome
-    st.markdown(
-        """
-        <div class="empty-state">
-            <div class="empty-state-icon">
-                <span style="font-size: 2rem;">🔮</span>
+        f"""
+        <div style='background: #2f2f2f; border: 1px solid #424242; border-radius: 12px; padding: 12px; margin-top: 1rem;'>
+            <div style='display: flex; align-items: center; justify-content: space-between;'>
+                <span style='font-size: 0.75rem; color: #8e8e8e; font-weight: 500;'>API STATUS</span>
+                <span style='font-size: 0.75rem; color: {"#10a37f" if st.session_state.api_key else "#ef4444"};'>{api_status}</span>
             </div>
-            <h2>How can I help you today?</h2>
-            <p>Upload documents and ask questions about them. I'll help you find information and insights from your knowledge base.</p>
         </div>
         """,
         unsafe_allow_html=True,
     )
 
-    # Suggestion chips
-    suggestions = [
-        "What's in my documents?",
-        "Summarize the key points",
-        "Find specific information",
-        "Explain a concept",
-    ]
+    st.markdown("</div>", unsafe_allow_html=True)
 
-    cols = st.columns(len(suggestions))
-    for i, suggestion in enumerate(suggestions):
-        with cols[i]:
-            if st.button(suggestion, key=f"suggestion_{i}", use_container_width=True):
-                st.session_state.messages.append(
-                    {"role": "user", "content": suggestion}
-                )
-                st.rerun()
-else:
-    # Display chat messages
-    for message in st.session_state.messages:
-        avatar = "👤" if message["role"] == "user" else "🔮"
-        with st.chat_message(message["role"], avatar=avatar):
-            st.markdown(message["content"])
+# RIGHT PANEL - Main Chat Area
+with right_col:
+    # Header
+    st.markdown(
+        """
+        <div style="text-align: center; padding: 1rem 0 2rem 0;">
+            <h1 style="font-size: 2rem; font-weight: 700; color: #ececec; margin-bottom: 0.5rem;">🔮 Sentinel AI</h1>
+            <p style="color: #b4b4b4; font-size: 1rem;">Intelligent Document Assistant</p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
+    if not st.session_state.messages:
+        # Empty State - ChatGPT style welcome
+        st.markdown(
+            """
+            <div class="empty-state">
+                <div class="empty-state-icon">
+                    <span style="font-size: 2.5rem;">💬</span>
+                </div>
+                <h2>Start a conversation</h2>
+                <p>Upload documents using the panel on the left, then ask me questions about them. I'll analyze your files and provide intelligent answers.</p>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
 
-# 8. Chat Input (fixed at bottom)
-if prompt := st.chat_input("Message Sentinel...", key="chat_input"):
-    # Add user message
-    st.session_state.messages.append({"role": "user", "content": prompt})
+        # Suggestion chips
+        st.markdown("<br>", unsafe_allow_html=True)
+        suggestions = [
+            "📄 Summarize my docs",
+            "🔍 Find key points",
+            "💡 Explain concepts",
+            "📊 Compare info",
+        ]
 
-    # Generate response
-    if not st.session_state.brain:
-        if st.session_state.api_key:
-            try:
-                st.session_state.brain = NPCBrain(api_key=st.session_state.api_key)
-                response = st.session_state.brain.ask(prompt)
-            except Exception as e:
-                response = f"⚠️ Error: {e}"
-        else:
-            response = "👋 Please add your API key in the Settings (⚙️) to get started."
+        cols = st.columns(len(suggestions))
+        for i, suggestion in enumerate(suggestions):
+            with cols[i]:
+                if st.button(
+                    suggestion, key=f"suggestion_{i}", use_container_width=True
+                ):
+                    st.session_state.messages.append(
+                        {"role": "user", "content": suggestion}
+                    )
+                    st.rerun()
     else:
-        try:
-            response = st.session_state.brain.ask(prompt)
-        except Exception as e:
-            response = f"⚠️ Error: {e}"
+        # Display chat messages
+        for message in st.session_state.messages:
+            avatar = "👤" if message["role"] == "user" else "🔮"
+            with st.chat_message(message["role"], avatar=avatar):
+                st.markdown(message["content"])
 
-    st.session_state.messages.append({"role": "assistant", "content": response})
-    st.rerun()
+    # Chat Input
+    if prompt := st.chat_input(
+        "Ask anything about your documents...", key="chat_input"
+    ):
+        # Add user message
+        st.session_state.messages.append({"role": "user", "content": prompt})
+
+        # Display user message immediately
+        with st.chat_message("user", avatar="👤"):
+            st.markdown(prompt)
+
+        # Generate response
+        with st.chat_message("assistant", avatar="🔮"):
+            if not st.session_state.api_key:
+                response = "👋 **Welcome!** Please add your API key in **Settings** (left panel) to start chatting."
+                st.markdown(response)
+            elif not st.session_state.sources:
+                response = "📁 **No documents loaded.** Upload PDF or TXT files in the left panel first, then ask questions about them!"
+                st.markdown(response)
+            else:
+                # Initialize brain if needed
+                if not st.session_state.brain:
+                    try:
+                        with st.spinner("Initializing AI..."):
+                            st.session_state.brain = NPCBrain(
+                                api_key=st.session_state.api_key
+                            )
+                            # Process all sources
+                            for source in st.session_state.sources:
+                                with tempfile.NamedTemporaryFile(
+                                    delete=False,
+                                    suffix=".txt",
+                                    mode="w",
+                                    encoding="utf-8",
+                                ) as tmp:
+                                    tmp.write(source["content"])
+                                    tmp_path = tmp.name
+                                st.session_state.brain.learn_from_file(tmp_path)
+                                os.remove(tmp_path)
+                    except Exception as e:
+                        response = f"⚠️ **Error initializing:** {str(e)}"
+                        st.markdown(response)
+                        st.session_state.messages.append(
+                            {"role": "assistant", "content": response}
+                        )
+                        st.stop()
+
+                # Get response
+                with st.spinner("Thinking..."):
+                    try:
+                        response = st.session_state.brain.ask(prompt)
+                    except Exception as e:
+                        response = f"⚠️ **Error:** {str(e)}"
+
+                st.markdown(response)
+
+            st.session_state.messages.append({"role": "assistant", "content": response})

@@ -12,5 +12,6 @@ dependencies = [
     "langchain-openai",
     "pypdf",
     "python-dotenv",
+    "sentence-transformers>=5.2.0",
     "streamlit",
 ]
