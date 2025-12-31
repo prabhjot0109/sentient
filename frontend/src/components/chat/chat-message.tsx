@@ -1,16 +1,10 @@
 import { useState } from "react";
-import { 
-  Box, 
-  Typography, 
-  Avatar, 
-  IconButton, 
-  Tooltip,
-} from "@mui/material";
-import { 
-  ContentCopy as CopyIcon, 
+import { Box, Typography, Avatar, IconButton, Tooltip } from "@mui/material";
+import {
+  ContentCopy as CopyIcon,
   Check as CheckIcon,
   Person as UserIcon,
-  AutoAwesome as SparklesIcon
+  AutoAwesome as SparklesIcon,
 } from "@mui/icons-material";
 import type { Message } from "@/types";
 
@@ -29,91 +23,121 @@ export function ChatMessage({ message }: ChatMessageProps) {
   };
 
   return (
-    <Box sx={{ 
-      display: 'flex', 
-      gap: 3, 
-      flexDirection: isUser ? 'row-reverse' : 'row',
-      alignItems: 'flex-start'
-    }}>
+    <Box
+      sx={{
+        display: "flex",
+        gap: 3,
+        flexDirection: "row",
+        alignItems: "flex-start",
+      }}
+    >
       {/* Avatar Section */}
       <Avatar
         sx={{
           width: 36,
           height: 36,
-          borderRadius: 2,
-          bgcolor: isUser ? 'rgba(59, 130, 246, 0.1)' : 'rgba(255, 255, 255, 0.03)',
-          color: isUser ? 'primary.main' : 'primary.light',
-          border: '1px solid rgba(255, 255, 255, 0.05)',
-          boxShadow: isUser ? 'none' : '0 4px 12px rgba(0,0,0,0.5)',
-          flexShrink: 0
+          borderRadius: 1.5,
+          bgcolor: isUser ? "#27272a" : "transparent",
+          color: isUser ? "primary.main" : "primary.main",
+          border: "1px solid rgba(255, 255, 255, 0.08)",
+          boxShadow: isUser ? "none" : "none",
+          flexShrink: 0,
+          background: isUser
+            ? "none"
+            : "linear-gradient(135deg, rgba(59, 130, 246, 0.1) 0%, rgba(45, 212, 191, 0.1) 100%)",
         }}
       >
-        {isUser ? <UserIcon fontSize="small" /> : <SparklesIcon fontSize="small" />}
+        {isUser ? (
+          <UserIcon sx={{ fontSize: 18 }} />
+        ) : (
+          <SparklesIcon sx={{ fontSize: 18 }} />
+        )}
       </Avatar>
 
       {/* Content Section */}
-      <Box sx={{ 
-        maxWidth: '85%', 
-        display: 'flex', 
-        flexDirection: 'column',
-        alignItems: isUser ? 'flex-end' : 'flex-start'
-      }}>
-        <Typography 
-          variant="caption" 
-          sx={{ 
-            mb: 1, 
-            opacity: 0.3, 
-            fontWeight: 800, 
-            letterSpacing: 1,
-            textTransform: 'uppercase'
+      <Box
+        sx={{
+          flex: 1,
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "flex-start",
+        }}
+      >
+        <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, mb: 0.5 }}>
+          <Typography
+            variant="caption"
+            sx={{
+              opacity: 0.4,
+              fontWeight: 800,
+              letterSpacing: 1,
+              textTransform: "uppercase",
+              fontSize: "0.65rem",
+            }}
+          >
+            {isUser ? "Operator" : "AI Assistant"}
+          </Typography>
+          {!isUser && (
+            <Box
+              sx={{
+                width: 4,
+                height: 4,
+                borderRadius: "50%",
+                bgcolor: "primary.main",
+                opacity: 0.5,
+              }}
+            />
+          )}
+        </Box>
+
+        <Box
+          sx={{
+            position: "relative",
+            width: "100%",
+            "&:hover .message-ops": { opacity: 1 },
           }}
         >
-          {isUser ? 'Session Operator' : 'Cognitive Core'}
-        </Typography>
-
-        <Box sx={{ position: 'relative', '&:hover .message-ops': { opacity: 1 } }}>
-          <Box sx={{
-            px: 3,
-            py: 2,
-            borderRadius: 4,
-            backgroundColor: isUser ? 'primary.main' : 'rgba(255, 255, 255, 0.02)',
-            color: isUser ? 'white' : 'text.primary',
-            border: isUser ? 'none' : '1px solid rgba(255, 255, 255, 0.04)',
-            boxShadow: isUser ? '0 10px 20px rgba(59, 130, 246, 0.15)' : 'none',
-            fontSize: '0.95rem',
-            lineHeight: 1.7,
-            whiteSpace: 'pre-wrap',
-            fontFamily: 'Inter, sans-serif'
-          }}>
+          <Box
+            sx={{
+              color: "text.primary",
+              fontSize: "1rem",
+              lineHeight: 1.7,
+              whiteSpace: "pre-wrap",
+              fontFamily: "Inter, sans-serif",
+              fontWeight: 450,
+              py: 0.5,
+            }}
+          >
             {message.content}
           </Box>
 
           {!isUser && (
-            <Box 
+            <Box
               className="message-ops"
-              sx={{ 
-                position: 'absolute', 
-                right: -48, 
-                top: 0, 
-                opacity: 0, 
-                transition: 'opacity 0.2s',
-                display: 'flex',
-                flexDirection: 'column',
-                gap: 1
+              sx={{
+                position: "absolute",
+                right: 0,
+                bottom: -28,
+                opacity: 0,
+                transition: "opacity 0.2s",
+                display: "flex",
+                gap: 1,
               }}
             >
-              <Tooltip title="Copy to clipboard" placement="right">
-                <IconButton 
-                  size="small" 
+              <Tooltip title="Copy response">
+                <IconButton
+                  size="small"
                   onClick={handleCopy}
-                  sx={{ 
-                    bgcolor: 'background.paper',
-                    border: '1px solid rgba(255, 255, 255, 0.05)',
-                    p: 1,
-                    '&:hover': { bgcolor: 'rgba(255, 255, 255, 0.05)' }
+                  sx={{
+                    color: "text.secondary",
+                    p: 0.5,
+                    "&:hover": { color: "primary.main" },
                   }}
                 >
-                  {copied ? <CheckIcon fontSize="inherit" color="success" /> : <CopyIcon fontSize="inherit" />}
+                  {copied ? (
+                    <CheckIcon sx={{ fontSize: 14 }} color="success" />
+                  ) : (
+                    <CopyIcon sx={{ fontSize: 14 }} />
+                  )}
                 </IconButton>
               </Tooltip>
             </Box>

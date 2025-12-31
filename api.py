@@ -100,6 +100,7 @@ def chat_endpoint(payload: ChatInput):
         return ChatResponse(response=reply, success=True)
 
     except Exception as e:
+        print(f"Chat Endpoint Error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

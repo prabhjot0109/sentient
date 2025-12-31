@@ -19,13 +19,32 @@ class NPCBrain:
         # Prioritize passed api_key, then environment variables
 
         key = api_key or os.getenv("OPENROUTER_API_KEY") or os.getenv("OPENAI_API_KEY")
-        base_url = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
+        
+        # Helper to determine defaults
+        default_model = "openai/gpt-oss-120b:free"
+        default_base_url = "https://openrouter.ai/api/v1"
+
+        # Detect likely OpenAI key usage (if not using OpenRouter key/env)
+        # OpenRouter keys usually start with 'sk-or-'
+        is_openrouter = False
+        if key and key.startswith("sk-or-"):
+             is_openrouter = True
+        if os.getenv("OPENROUTER_API_KEY"):
+             is_openrouter = True
+        
+        # If likely OpenAI and no explicit OpenRouter URL set, default to OpenAI standards
+        if not is_openrouter and not os.getenv("OPENROUTER_BASE_URL"):
+             default_model = "gpt-4o-mini"
+             default_base_url = None
+        
+        base_url = os.getenv("OPENROUTER_BASE_URL", default_base_url)
+        model_name = os.getenv("MODEL_NAME", default_model)
 
         if not key:
             raise ValueError("API Key not found. Please provide one or set it in .env")
 
         self.llm = ChatOpenAI(
-            model=os.getenv("MODEL_NAME", "openai/gpt-oss-120b:free"),
+            model=model_name,
             openai_api_key=key,
             openai_api_base=base_url,
         )

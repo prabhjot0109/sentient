@@ -9,9 +9,9 @@ import {
   CircularProgress,
   Avatar,
   Badge,
+  Tooltip,
 } from "@mui/material";
 import {
-  Add as PlusIcon,
   Settings as SettingsIcon,
   AutoAwesome as SparklesIcon,
   Bolt as ZapIcon,
@@ -49,81 +49,111 @@ export function AppSidebar({
     }
   };
 
-  if (!isOpen) return null;
-
   return (
     <Box
       component="aside"
       sx={{
-        width: 320,
+        width: isOpen ? 320 : 88,
         height: "100vh",
         backgroundColor: "#0c0c0e",
         display: "flex",
         flexDirection: "column",
         zIndex: 30,
-        borderRight: "1px solid rgba(255, 255, 255, 0.05)",
+        borderRight: "1px solid rgba(255, 255, 255, 0.06)",
+        transition: "width 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
+        overflow: "hidden",
+        position: "relative",
       }}
     >
       {/* Brand Header */}
       <Box
         sx={{
-          p: 3,
+          p: isOpen ? 3 : 2,
           display: "flex",
           alignItems: "center",
-          justifyContent: "space-between",
+          justifyContent: isOpen ? "space-between" : "center",
+          minHeight: 88,
         }}
       >
-        <Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>
+        <Box
+          sx={{
+            display: "flex",
+            alignItems: "center",
+            gap: 2,
+            overflow: "hidden",
+          }}
+        >
           <Avatar
             sx={{
-              width: 40,
-              height: 40,
+              width: 44,
+              height: 44,
               bgcolor: "primary.main",
-              boxShadow: "0 8px 16px rgba(59, 130, 246, 0.25)",
+              boxShadow: "0 10px 20px rgba(59, 130, 246, 0.2)",
               background: "linear-gradient(135deg, #3b82f6 0%, #2dd4bf 100%)",
+              flexShrink: 0,
             }}
           >
-            <SparklesIcon sx={{ color: "white" }} />
+            <SparklesIcon sx={{ color: "white", fontSize: 24 }} />
           </Avatar>
-          <Typography
-            variant="h6"
-            sx={{ fontWeight: 800, letterSpacing: -1, fontFamily: "Outfit" }}
-          >
-            Sentient
-          </Typography>
+          {isOpen && (
+            <Typography
+              variant="h6"
+              sx={{
+                fontWeight: 800,
+                letterSpacing: -0.5,
+                fontFamily: "Outfit",
+                whiteSpace: "nowrap",
+              }}
+            >
+              Sentient
+            </Typography>
+          )}
         </Box>
-        <IconButton
-          onClick={onToggle}
-          size="small"
-          sx={{ color: "text.secondary" }}
-        >
-          <DrawerIcon sx={{ transform: "rotate(180deg)" }} />
-        </IconButton>
+        {isOpen && (
+          <IconButton
+            onClick={onToggle}
+            size="small"
+            sx={{
+              color: "text.secondary",
+              bgcolor: "rgba(255, 255, 255, 0.03)",
+              "&:hover": { bgcolor: "rgba(255, 255, 255, 0.08)" },
+            }}
+          >
+            <DrawerIcon sx={{ transform: "rotate(180deg)", fontSize: 20 }} />
+          </IconButton>
+        )}
       </Box>
 
       {/* Main Action - NotebookLM style "Add source" */}
-      <Box sx={{ px: 2, pb: 4 }}>
-        <Button
-          fullWidth
-          variant="contained"
-          size="large"
-          startIcon={
-            isUploading ? (
+      <Box sx={{ px: isOpen ? 2 : 1.5, pb: 4 }}>
+        <Tooltip title={!isOpen ? "Add Intelligence" : ""} placement="right">
+          <Button
+            fullWidth
+            variant="contained"
+            size="large"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={isUploading}
+            sx={{
+              py: isOpen ? 1.5 : 2,
+              minWidth: 0,
+              display: "flex",
+              justifyContent: isOpen ? "flex-start" : "center",
+              px: isOpen ? 2.5 : 0,
+              borderRadius: 4,
+            }}
+          >
+            {isUploading ? (
               <CircularProgress size={20} color="inherit" />
             ) : (
               <ZapIcon />
-            )
-          }
-          onClick={() => fileInputRef.current?.click()}
-          disabled={isUploading}
-          sx={{
-            py: 1.5,
-            fontSize: "0.9rem",
-            letterSpacing: 0.5,
-          }}
-        >
-          Add Intelligence
-        </Button>
+            )}
+            {isOpen && (
+              <Typography sx={{ ml: 1.5, fontWeight: 700, fontSize: "0.9rem" }}>
+                Add Intelligence
+              </Typography>
+            )}
+          </Button>
+        </Tooltip>
         <input
           ref={fileInputRef}
           type="file"
@@ -135,90 +165,107 @@ export function AppSidebar({
       </Box>
 
       {/* Sources Body */}
-      <Box sx={{ flex: 1, overflowY: "auto", px: 2 }}>
-        <Box
-          sx={{
-            px: 1,
-            mb: 2,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-          }}
-        >
-          <Typography
-            variant="overline"
+      <Box sx={{ flex: 1, overflowY: "auto", px: isOpen ? 2 : 1.5 }}>
+        {isOpen ? (
+          <Box
             sx={{
-              fontWeight: 900,
-              color: "text.secondary",
-              opacity: 0.5,
-              wordSpacing: 2,
-              fontSize: "0.65rem",
+              px: 1,
+              mb: 2,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
             }}
           >
-            Knowledge Assets
-          </Typography>
-          {sources.length > 0 && (
-            <Badge
-              badgeContent={sources.length}
-              color="primary"
+            <Typography
+              variant="overline"
               sx={{
-                "& .MuiBadge-badge": { fontSize: 10, height: 16, minWidth: 16 },
+                fontWeight: 900,
+                color: "text.secondary",
+                opacity: 0.4,
+                letterSpacing: 1,
+                fontSize: "0.65rem",
               }}
-            />
-          )}
-        </Box>
+            >
+              Knowledge Assets
+            </Typography>
+            {sources.length > 0 && (
+              <Badge
+                badgeContent={sources.length}
+                color="primary"
+                sx={{
+                  "& .MuiBadge-badge": {
+                    fontSize: 10,
+                    height: 16,
+                    minWidth: 16,
+                  },
+                }}
+              />
+            )}
+          </Box>
+        ) : (
+          <Box sx={{ display: "flex", justifyContent: "center", mb: 2 }}>
+            <Divider sx={{ width: 24, borderColor: "rgba(255,255,255,0.1)" }} />
+          </Box>
+        )}
 
         {isLoading ? (
           <Box sx={{ textAlign: "center", py: 8, opacity: 0.3 }}>
             <CircularProgress size={24} sx={{ mb: 2 }} />
-            <Typography variant="caption" display="block">
-              Scanning cognitive core...
-            </Typography>
           </Box>
         ) : sources.length === 0 ? (
-          <Box
-            onClick={() => fileInputRef.current?.click()}
+          isOpen && (
+            <Box
+              onClick={() => fileInputRef.current?.click()}
+              sx={{
+                p: 4,
+                textAlign: "center",
+                border: "1px dashed rgba(255, 255, 255, 0.1)",
+                borderRadius: 5,
+                cursor: "pointer",
+                transition: "all 0.2s",
+                "&:hover": {
+                  backgroundColor: "rgba(255, 255, 255, 0.02)",
+                  borderColor: "primary.main",
+                  transform: "scale(0.98)",
+                },
+              }}
+            >
+              <UploadIcon
+                sx={{
+                  fontSize: 32,
+                  color: "text.secondary",
+                  mb: 1.5,
+                  opacity: 0.3,
+                }}
+              />
+              <Typography
+                variant="body2"
+                sx={{
+                  color: "text.secondary",
+                  fontWeight: 700,
+                  fontSize: "0.8rem",
+                }}
+              >
+                Ingest
+              </Typography>
+            </Box>
+          )
+        ) : (
+          <List
             sx={{
-              p: 4,
-              textAlign: "center",
-              border: "1px dashed rgba(255, 255, 255, 0.1)",
-              borderRadius: 4,
-              cursor: "pointer",
-              transition: "0.3s",
-              "&:hover": {
-                backgroundColor: "rgba(255, 255, 255, 0.02)",
-                borderColor: "primary.main",
-              },
+              p: 0,
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              gap: 1,
             }}
           >
-            <UploadIcon
-              sx={{
-                fontSize: 40,
-                color: "text.secondary",
-                mb: 2,
-                opacity: 0.2,
-              }}
-            />
-            <Typography
-              variant="body2"
-              sx={{ color: "text.secondary", fontWeight: 600 }}
-            >
-              Ingest Document
-            </Typography>
-            <Typography
-              variant="caption"
-              sx={{ color: "text.secondary", opacity: 0.5 }}
-            >
-              PDF or TXT up to 10MB
-            </Typography>
-          </Box>
-        ) : (
-          <List sx={{ p: 0 }}>
             {sources.map((source) => (
               <SourceItem
                 key={source.path}
                 source={source}
                 onDelete={() => remove(source.path)}
+                isCollapsed={!isOpen}
               />
             ))}
           </List>
@@ -226,68 +273,100 @@ export function AppSidebar({
       </Box>
 
       {/* Footer Settings */}
-      <Box sx={{ p: 2, borderTop: "1px solid rgba(255, 255, 255, 0.05)" }}>
-        <Button
-          fullWidth
-          onClick={onOpenSettings}
-          sx={{
-            justifyContent: "flex-start",
-            py: 1.5,
-            px: 2,
-            backgroundColor: "rgba(255, 255, 255, 0.03)",
-            color: "text.primary",
-            "&:hover": { backgroundColor: "rgba(255, 255, 255, 0.06)" },
-          }}
-        >
-          <Box sx={{ position: "relative", mr: 2 }}>
-            <Avatar
-              sx={{
-                width: 32,
-                height: 32,
-                bgcolor: hasApiKey
-                  ? "rgba(59, 130, 246, 0.1)"
-                  : "rgba(239, 68, 68, 0.1)",
-                color: hasApiKey ? "primary.main" : "error.main",
-                fontSize: 14,
-                fontWeight: 800,
-              }}
-            >
-              {hasApiKey ? "OK" : "!"}
-            </Avatar>
-            {!hasApiKey && (
-              <Box
+      <Box
+        sx={{
+          p: isOpen ? 2 : 1.5,
+          borderTop: "1px solid rgba(255, 255, 255, 0.06)",
+        }}
+      >
+        <Tooltip title={!isOpen ? "Workspace Settings" : ""} placement="right">
+          <Button
+            fullWidth
+            onClick={onOpenSettings}
+            sx={{
+              justifyContent: isOpen ? "flex-start" : "center",
+              py: 2,
+              px: isOpen ? 2 : 0,
+              borderRadius: 4,
+              backgroundColor: "rgba(255, 255, 255, 0.04)",
+              color: "text.primary",
+              minWidth: 0,
+              "&:hover": { backgroundColor: "rgba(255, 255, 255, 0.08)" },
+            }}
+          >
+            <Box sx={{ position: "relative", mr: isOpen ? 2 : 0 }}>
+              <Avatar
                 sx={{
-                  position: "absolute",
-                  top: -2,
-                  right: -2,
-                  width: 10,
-                  height: 10,
-                  bgcolor: "error.main",
-                  borderRadius: "50%",
-                  border: "2px solid #0c0c0e",
+                  width: 36,
+                  height: 36,
+                  bgcolor: hasApiKey
+                    ? "rgba(59, 130, 246, 0.15)"
+                    : "rgba(239, 68, 68, 0.15)",
+                  color: hasApiKey ? "primary.main" : "#ef4444",
+                  fontSize: 14,
+                  fontWeight: 800,
+                  border: `1px solid ${
+                    hasApiKey
+                      ? "rgba(59, 130, 246, 0.2)"
+                      : "rgba(239, 68, 68, 0.2)"
+                  }`,
                 }}
+              >
+                {hasApiKey ? "OK" : "!"}
+              </Avatar>
+            </Box>
+            {isOpen && (
+              <Box sx={{ flex: 1, textAlign: "left", overflow: "hidden" }}>
+                <Typography
+                  sx={{
+                    fontSize: "0.85rem",
+                    fontWeight: 800,
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  Workspace
+                </Typography>
+                <Typography
+                  sx={{
+                    fontSize: "0.7rem",
+                    color: "text.secondary",
+                    fontWeight: 600,
+                    opacity: 0.6,
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {hasApiKey ? "Core Synchronized" : "Action Required"}
+                </Typography>
+              </Box>
+            )}
+            {isOpen && (
+              <SettingsIcon
+                sx={{ fontSize: 18, color: "text.secondary", opacity: 0.4 }}
               />
             )}
-          </Box>
-          <Box sx={{ flex: 1, textAlign: "left" }}>
-            <Typography sx={{ fontSize: "0.8rem", fontWeight: 700 }}>
-              Workspace
-            </Typography>
-            <Typography
-              sx={{
-                fontSize: "0.65rem",
-                color: "text.secondary",
-                fontWeight: 600,
-              }}
-            >
-              {hasApiKey ? "Core Synchronized" : "Action Required"}
-            </Typography>
-          </Box>
-          <SettingsIcon
-            sx={{ fontSize: 18, color: "text.secondary", opacity: 0.5 }}
-          />
-        </Button>
+          </Button>
+        </Tooltip>
       </Box>
+
+      {/* Collapse Toggle when closed - floating feel */}
+      {!isOpen && (
+        <IconButton
+          onClick={onToggle}
+          size="small"
+          sx={{
+            position: "absolute",
+            top: 104, // Below the Add button
+            left: "50%",
+            transform: "translateX(-50%)",
+            color: "text.secondary",
+            bgcolor: "rgba(255, 255, 255, 0.03)",
+            zIndex: 40,
+            "&:hover": { bgcolor: "rgba(255, 255, 255, 0.08)" },
+          }}
+        >
+          <DrawerIcon sx={{ fontSize: 16 }} />
+        </IconButton>
+      )}
     </Box>
   );
 }

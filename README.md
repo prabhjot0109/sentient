@@ -27,21 +27,21 @@ sentient/
 
 ### 1. Backend Setup
 
-```bash
-# Create virtual environment
-python -m venv .venv
-.venv\Scripts\activate  # Windows
-# source .venv/bin/activate  # Linux/Mac
+### 1. Backend Setup
 
-# Install dependencies
-pip install -r requirements.txt
+```bash
+# Install dependencies using uv (Recommended)
+uv sync
+
+# OR using pip
+# pip install fastapi uvicorn python-multipart python-dotenv langchain-openai langchain-community faiss-cpu sentence-transformers
 
 # Set environment variables
 cp .env.example .env
-# Edit .env with your API keys
+# Edit .env with your API keys (OPENAI_API_KEY or OPENROUTER_API_KEY)
 
 # Start backend server
-uvicorn api:app --reload --port 8000
+uv run uvicorn api:app --reload
 ```
 
 ### 2. Frontend Setup
@@ -53,12 +53,12 @@ cd frontend
 bun install
 
 # Start development server
-bun dev
+bun run dev
 ```
 
 ### 3. Open App
 
-Visit [http://localhost:3000](http://localhost:3000)
+Visit [http://localhost:5173](http://localhost:5173)
 
 ## Environment Variables
 
