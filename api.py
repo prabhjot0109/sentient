@@ -114,6 +114,8 @@ async def upload_file(file: UploadFile = File(...)):
         os.makedirs("data", exist_ok=True)
 
         # Save the uploaded file
+        if not file.filename:
+            raise HTTPException(status_code=400, detail="Filename is required")
         file_path = os.path.join("data", file.filename)
         with open(file_path, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)

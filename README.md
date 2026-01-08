@@ -1,6 +1,27 @@
-# Sentient AI
+# Sentient
 
-A modern RAG (Retrieval-Augmented Generation) powered AI assistant with a NotebookLM-inspired interface.
+Sentient is a sophisticated RAG (Retrieval-Augmented Generation) based AI NPC system. It empowers developers to bring their game worlds to life by uploading game manuals, custom instructions, and dialogue style PDFs. This data is processed by a robust RAG engine and made accessible via a RESTful API, allowing NPCs to deliver personalized, conversational dialogues that remain contextually accurate to the game's lore and character personas.
+
+## Key Features
+
+- 📁 **Dynamic Document Upload** - Easily ingest game manuals and custom style PDFs to expand NPC knowledge.
+- 💬 **Context-Aware Dialogues** - Generation of responses via RESTful API that are grounded in your uploaded documentation.
+- 🎮 **Real-time Integration** - Seamlessly connects with live game instances for interactive NPC experiences.
+- 🔍 **Semantic Search** - Powerful retrieval using FAISS vector store to find the most relevant lore instantly.
+- 🧠 **Personalized Personas** - RAG-driven intelligence that shapes unique character voices and behaviors.
+
+## Tech Stack
+
+- **Backend:** FastAPI (Python), LangChain, FAISS
+- **Frontend:** Next.js (TypeScript), Tailwind CSS, shadcn/ui
+- **Infrastructure:** RESTful API, Docker-ready
+
+## Achievements & Impact
+
+- **Achievements:** Advanced RAG-based NPC Interaction.
+- **Impact:** Revolutionizing In-game NPC Conversationality.
+
+---
 
 ## Architecture
 
@@ -15,7 +36,6 @@ sentient/
 ├── data/                   # Document storage & FAISS index
 └── frontend/               # Next.js + shadcn UI
     ├── src/
-    │   ├── app/            # Next.js App Router
     │   ├── components/     # React components
     │   ├── hooks/          # Custom hooks
     │   ├── lib/            # Utilities & API client
@@ -24,8 +44,6 @@ sentient/
 ```
 
 ## Quick Start
-
-### 1. Backend Setup
 
 ### 1. Backend Setup
 
@@ -38,7 +56,7 @@ uv sync
 
 # Set environment variables
 cp .env.example .env
-# Edit .env with your API keys (OPENAI_API_KEY or OPENROUTER_API_KEY)
+# Edit .env with your API keys (OPENROUTER_API_KEY is preferred)
 
 # Start backend server
 uv run uvicorn api:app --reload
@@ -50,15 +68,15 @@ uv run uvicorn api:app --reload
 cd frontend
 
 # Install dependencies
-bun install
+npm install  # (or bun install / yarn)
 
 # Start development server
-bun run dev
+npm run dev
 ```
 
 ### 3. Open App
 
-Visit [http://localhost:5173](http://localhost:5173)
+Visit [http://localhost:5173](http://localhost:5173) (if using Vite) or [http://localhost:3000](http://localhost:3000) (if using Next.js).
 
 ## Environment Variables
 
@@ -66,14 +84,7 @@ Visit [http://localhost:5173](http://localhost:5173)
 
 ```env
 OPENROUTER_API_KEY=your_api_key
-OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
 MODEL_NAME=openai/gpt-4o-mini
-```
-
-### Frontend (frontend/.env.local)
-
-```env
-NEXT_PUBLIC_API_URL=http://localhost:8000
 ```
 
 ## API Endpoints
@@ -85,30 +96,6 @@ NEXT_PUBLIC_API_URL=http://localhost:8000
 | POST   | `/v1/upload`             | Upload document (PDF/TXT) |
 | GET    | `/v1/sources`            | List uploaded sources     |
 | DELETE | `/v1/sources/{filename}` | Delete a source           |
-
-## Features
-
-- 📁 **Document Upload** - PDF and TXT file support
-- 🔍 **Semantic Search** - FAISS vector store with HuggingFace embeddings
-- 💬 **Conversational AI** - LangChain RAG pipeline
-- 🎨 **Modern UI** - NotebookLM-inspired dark theme
-- ⚡ **Fast** - Next.js 16 + Bun runtime
-
-## Tech Stack
-
-**Backend:**
-
-- FastAPI
-- LangChain
-- FAISS
-- HuggingFace Embeddings
-
-**Frontend:**
-
-- Next.js 16 (App Router)
-- Tailwind CSS
-- shadcn/ui
-- Bun
 
 ## License
 
