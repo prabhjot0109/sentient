@@ -7,12 +7,12 @@ Sentient is a sophisticated RAG (Retrieval-Augmented Generation) based AI NPC sy
 - 📁 **Dynamic Document Upload** - Easily ingest game manuals and custom style PDFs to expand NPC knowledge.
 - 💬 **Context-Aware Dialogues** - Generation of responses via RESTful API that are grounded in your uploaded documentation.
 - 🎮 **Real-time Integration** - Seamlessly connects with live game instances for interactive NPC experiences.
-- 🔍 **Semantic Search** - Powerful retrieval using FAISS vector store to find the most relevant lore instantly.
+- 🔍 **Semantic Search** - FAISS-backed retrieval with normalized BGE embeddings and document chunking tuned for RAG.
 - 🧠 **Personalized Personas** - RAG-driven intelligence that shapes unique character voices and behaviors.
 
 ## Tech Stack
 
-- **Backend:** FastAPI (Python), LangChain, FAISS
+- **Backend:** FastAPI (Python), LangChain, OpenRouter, FAISS
 - **Frontend:** Next.js (TypeScript), Tailwind CSS, shadcn/ui
 - **Infrastructure:** RESTful API, Docker-ready
 
@@ -84,10 +84,16 @@ Visit [http://localhost:5173](http://localhost:5173) (if using Vite) or [http://
 
 ```env
 OPENROUTER_API_KEY=your_api_key
+OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
 MODEL_NAME=openai/gpt-4o-mini
+EMBEDDING_MODEL_NAME=BAAI/bge-base-en-v1.5
 SUPABASE_URL=your_supabase_project_url
 SUPABASE_SERVICE_ROLE_KEY=your_supabase_service_role_key
 ```
+
+The backend defaults to OpenRouter-compatible chat completion with `openai/gpt-4o-mini`, uses `BAAI/bge-base-en-v1.5` for embeddings, and stores vectors in a local FAISS index under `data/faiss_index`.
+
+Uploads and deletions rebuild the FAISS index from the current files under `data/`, which prevents duplicate chunks and keeps retrieval aligned with the actual source documents.
 
 ### Supabase Chat Storage
 

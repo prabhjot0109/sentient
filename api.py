@@ -1,6 +1,7 @@
 from fastapi import FastAPI, HTTPException, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
+from logic.ingestion import ArchivesIngestion
 from npc_brain import NPCBrain
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
@@ -15,7 +16,7 @@ except ImportError:
     create_client = None
 
 # Global brain instance
-brain = None
+brain: Optional[NPCBrain] = None
 supabase_client: Optional[Client] = None
 
 
@@ -27,14 +28,6 @@ async def lifespan(app: FastAPI):
         default_key = os.getenv("OPENROUTER_API_KEY") or os.getenv("OPENAI_API_KEY")
         if default_key:
             brain = NPCBrain(api_key=default_key)
-            # Pre-load any existing data files
-            data_dir = "data"
-            if os.path.exists(data_dir):
-                for file in os.listdir(data_dir):
-                    if file.endswith((".pdf", ".txt")):
-                        file_path = os.path.join(data_dir, file)
-                        brain.learn_from_file(file_path)
-                        print(f"Loaded: {file}")
         else:
             print("No default API key found. Brain will be initialized per-request.")
     except Exception as e:
@@ -159,33 +152,48 @@ def current_timestamp() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def get_archives() -> ArchivesIngestion:
+    return ArchivesIngestion()
+
+
+def get_or_create_brain(api_key: Optional[str] = None) -> NPCBrain:
+    global brain
+
+    resolved_key = (
+        api_key or os.getenv("OPENROUTER_API_KEY") or os.getenv("OPENAI_API_KEY")
+    )
+    if not resolved_key:
+        raise ValueError("API Key not found. Please provide one or set it in .env")
+
+    if brain is None or (api_key and brain.api_key != api_key):
+        brain = NPCBrain(api_key=resolved_key)
+
+    return brain
+
+
 @app.get("/health")
 def health_check():
-    return {"status": "online", "brain_loaded": brain is not None}
+    archives = get_archives()
+    return {
+        "status": "online",
+        "brain_loaded": brain is not None,
+        "index_loaded": archives.load_index() is not None,
+        "source_count": len(archives.list_sources()),
+    }
 
 
 @app.post("/v1/chat", response_model=ChatResponse)
 def chat_endpoint(payload: ChatInput):
-    global brain
-
     try:
-        if not brain:
-            if payload.api_key:
-                brain = NPCBrain(api_key=payload.api_key)
-                # Load any existing data files
-                data_dir = "data"
-                if os.path.exists(data_dir):
-                    for file in os.listdir(data_dir):
-                        if file.endswith((".pdf", ".txt")):
-                            brain.learn_from_file(os.path.join(data_dir, file))
-            else:
-                return ChatResponse(
-                    response="Please provide an API key or set it in the environment.",
-                    success=False,
-                )
-
-        reply = brain.ask(payload.message)
+        active_brain = get_or_create_brain(payload.api_key)
+        reply = active_brain.ask(payload.message)
         return ChatResponse(response=reply, success=True)
+
+    except ValueError:
+        return ChatResponse(
+            response="Please provide an API key or set it in the environment.",
+            success=False,
+        )
 
     except Exception as e:
         print(f"Chat Endpoint Error: {e}")
@@ -204,25 +212,29 @@ async def upload_file(file: UploadFile = File(...)):
         # Save the uploaded file
         if not file.filename:
             raise HTTPException(status_code=400, detail="Filename is required")
-        file_path = os.path.join("data", file.filename)
+        safe_name = os.path.basename(file.filename)
+        if not safe_name.endswith((".pdf", ".txt")):
+            raise HTTPException(
+                status_code=400, detail="Only PDF and TXT files are supported"
+            )
+
+        file_path = os.path.join("data", safe_name)
         with open(file_path, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
 
-        # Learn from the file if brain is initialized
-        if brain:
-            brain.learn_from_file(file_path)
-            return {
-                "success": True,
-                "message": f"File '{file.filename}' uploaded and processed.",
-                "filename": file.filename,
-            }
-        else:
-            return {
-                "success": True,
-                "message": f"File '{file.filename}' uploaded. Will be processed when API key is set.",
-                "filename": file.filename,
-            }
+        get_archives().ingest(file_path)
 
+        if brain:
+            brain.refresh_knowledge()
+
+        return {
+            "success": True,
+            "message": f"File '{safe_name}' uploaded and indexed.",
+            "filename": safe_name,
+        }
+
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -230,35 +242,28 @@ async def upload_file(file: UploadFile = File(...)):
 @app.get("/v1/sources")
 def list_sources():
     """List all uploaded source documents."""
-    sources = []
-    data_dir = "data"
-
-    if os.path.exists(data_dir):
-        for file in os.listdir(data_dir):
-            if file.endswith((".pdf", ".txt")):
-                file_path = os.path.join(data_dir, file)
-                sources.append(
-                    {
-                        "name": file,
-                        "path": file_path,
-                        "size": os.path.getsize(file_path),
-                    }
-                )
-
+    sources = get_archives().list_sources()
     return {"sources": sources, "count": len(sources)}
 
 
 @app.delete("/v1/sources/{filename}")
 def delete_source(filename: str):
     """Delete a source document."""
-    file_path = os.path.join("data", filename)
+    global brain
+    safe_name = os.path.basename(filename)
+    file_path = os.path.join("data", safe_name)
 
     if not os.path.exists(file_path):
         raise HTTPException(status_code=404, detail="File not found")
 
     try:
         os.remove(file_path)
-        return {"success": True, "message": f"File '{filename}' deleted."}
+        get_archives().rebuild_index()
+
+        if brain:
+            brain.refresh_knowledge()
+
+        return {"success": True, "message": f"File '{safe_name}' deleted."}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
