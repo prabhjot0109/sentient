@@ -25,7 +25,7 @@ Sentient is a sophisticated RAG (Retrieval-Augmented Generation) based AI NPC sy
 
 ## Architecture
 
-```
+```text
 sentient/
 ├── api.py                  # FastAPI backend server
 ├── npc_brain.py            # Core brain logic
@@ -85,7 +85,32 @@ Visit [http://localhost:5173](http://localhost:5173) (if using Vite) or [http://
 ```env
 OPENROUTER_API_KEY=your_api_key
 MODEL_NAME=openai/gpt-4o-mini
+SUPABASE_URL=your_supabase_project_url
+SUPABASE_SERVICE_ROLE_KEY=your_supabase_service_role_key
 ```
+
+### Supabase Chat Storage
+
+Create a `chat_sessions` table before using persistent chat history:
+
+```sql
+create extension if not exists pgcrypto;
+
+create table if not exists public.chat_sessions (
+    id uuid primary key default gen_random_uuid(),
+    client_id text not null,
+    title text not null,
+    preview text not null default '',
+    messages jsonb not null default '[]'::jsonb,
+    created_at timestamptz not null default now(),
+    updated_at timestamptz not null default now()
+);
+
+create index if not exists chat_sessions_client_id_updated_at_idx
+    on public.chat_sessions (client_id, updated_at desc);
+```
+
+The frontend stores a browser-scoped `client_id` locally and uses it to list and reopen previous chats through the backend.
 
 ## API Endpoints
 
@@ -96,6 +121,11 @@ MODEL_NAME=openai/gpt-4o-mini
 | POST   | `/v1/upload`             | Upload document (PDF/TXT) |
 | GET    | `/v1/sources`            | List uploaded sources     |
 | DELETE | `/v1/sources/{filename}` | Delete a source           |
+| GET    | `/v1/chats`              | List saved chats          |
+| GET    | `/v1/chats/{chat_id}`    | Load one saved chat       |
+| POST   | `/v1/chats`              | Create a saved chat       |
+| PUT    | `/v1/chats/{chat_id}`    | Update a saved chat       |
+| DELETE | `/v1/chats/{chat_id}`    | Delete a saved chat       |
 
 ## License
 

@@ -1,5 +1,6 @@
 import { StrictMode, Suspense, lazy } from "react";
 import { createRoot } from "react-dom/client";
+import { Box, CircularProgress, Typography } from "@mui/material";
 import { ThemeProvider } from "@mui/material/styles";
 import CssBaseline from "@mui/material/CssBaseline";
 import { theme } from "./theme";
@@ -9,12 +10,22 @@ const App = lazy(() => import("./App"));
 
 function LoadingFallback() {
   return (
-    <div className="flex items-center justify-center h-screen bg-background">
-      <div className="flex flex-col items-center gap-4">
-        <div className="w-10 h-10 border-4 border-primary/30 border-t-primary rounded-full animate-spin" />
-        <p className="text-muted-foreground text-sm">Loading...</p>
-      </div>
-    </div>
+    <Box
+      sx={{
+        minHeight: "100vh",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        px: 3,
+      }}
+    >
+      <Box sx={{ display: "grid", justifyItems: "center", gap: 2.5 }}>
+        <CircularProgress size={32} thickness={4} />
+        <Typography variant="body2" sx={{ color: "text.secondary" }}>
+          Loading workspace
+        </Typography>
+      </Box>
+    </Box>
   );
 }
 

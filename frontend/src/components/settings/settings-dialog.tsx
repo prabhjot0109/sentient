@@ -1,25 +1,23 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
-  Dialog,
-  DialogContent,
-  DialogActions,
-  Typography,
-  TextField,
+  Alert,
+  Box,
   Button,
+  Dialog,
+  DialogActions,
+  DialogContent,
   IconButton,
   InputAdornment,
-  Box,
-  Avatar,
   Stack,
-  Alert,
+  TextField,
+  Typography,
 } from "@mui/material";
 import {
-  Visibility as Eye,
-  VisibilityOff as EyeOff,
-  CheckCircle as Check,
-  InfoOutlined as AlertCircle,
-  ShieldOutlined as ShieldCheck,
-  VpnKeyOutlined as Key,
+  CheckCircleOutlined as CheckIcon,
+  InfoOutlined as InfoIcon,
+  KeyOutlined as KeyIcon,
+  Visibility as EyeIcon,
+  VisibilityOff as EyeOffIcon,
 } from "@mui/icons-material";
 
 interface SettingsDialogProps {
@@ -38,6 +36,13 @@ export function SettingsDialog({
   const [inputValue, setInputValue] = useState(apiKey);
   const [showKey, setShowKey] = useState(false);
   const [saved, setSaved] = useState(false);
+
+  useEffect(() => {
+    if (open) {
+      setInputValue(apiKey);
+      setSaved(false);
+    }
+  }, [apiKey, open]);
 
   const handleClose = () => {
     setInputValue(apiKey);
@@ -60,30 +65,40 @@ export function SettingsDialog({
       PaperProps={{
         sx: {
           width: "100%",
-          maxWidth: 450,
-          p: 2,
-          borderRadius: 6,
-          backgroundColor: "#121215",
-          border: "1px solid rgba(255, 255, 255, 0.08)",
+          maxWidth: 500,
+          p: 1,
         },
       }}
     >
       <DialogContent>
-        <Stack spacing={4} sx={{ alignItems: "center", textAlign: "center" }}>
-          <Avatar
-            sx={{ width: 64, height: 64, bgcolor: "primary.main", mb: 1 }}
-          >
-            <ShieldCheck sx={{ fontSize: 32, color: "white" }} />
-          </Avatar>
-
-          <Box>
-            <Typography variant="h5" sx={{ fontWeight: 800, mb: 1 }}>
-              Secure Authentication
-            </Typography>
-            <Typography variant="body2" sx={{ color: "text.secondary" }}>
-              Interface with the Sentient Neural Engine by providing your OpenAI
-              API credentials.
-            </Typography>
+        <Stack spacing={3}>
+          <Box sx={{ display: "flex", justifyContent: "space-between", gap: 2 }}>
+            <Box>
+              <Typography variant="h5" sx={{ fontWeight: 700, mb: 1 }}>
+                Workspace settings
+              </Typography>
+              <Typography
+                variant="body2"
+                sx={{ color: "text.secondary", maxWidth: 360 }}
+              >
+                Store your OpenAI API key locally in this browser so Sentient can
+                send chat requests.
+              </Typography>
+            </Box>
+            <Box
+              sx={{
+                width: 48,
+                height: 48,
+                display: "grid",
+                placeItems: "center",
+                borderRadius: 2,
+                bgcolor: "rgba(255, 255, 255, 0.02)",
+                color: apiKey ? "text.primary" : "text.secondary",
+                flexShrink: 0,
+              }}
+            >
+              <KeyIcon />
+            </Box>
           </Box>
 
           <TextField
@@ -100,81 +115,64 @@ export function SettingsDialog({
             InputProps={{
               startAdornment: (
                 <InputAdornment position="start">
-                  <Key sx={{ color: "text.secondary", opacity: 0.5 }} />
+                  <KeyIcon sx={{ color: "text.secondary", opacity: 0.7 }} />
                 </InputAdornment>
               ),
               endAdornment: (
                 <InputAdornment position="end">
                   <IconButton
-                    onClick={() => setShowKey(!showKey)}
+                    onClick={() => setShowKey((value) => !value)}
                     edge="end"
                     size="small"
                   >
-                    {showKey ? <EyeOff /> : <Eye />}
+                    {showKey ? <EyeOffIcon /> : <EyeIcon />}
                   </IconButton>
                 </InputAdornment>
               ),
               sx: {
-                borderRadius: 4,
-                fontFamily: "monospace",
-                fontSize: "0.8rem",
+                borderRadius: 2,
+                fontFamily: '"IBM Plex Mono", monospace',
+                fontSize: "0.82rem",
               },
             }}
           />
 
-          <Alert
-            icon={<AlertCircle fontSize="inherit" />}
-            severity="info"
-            sx={{
-              width: "100%",
-              borderRadius: 3,
-              backgroundColor: "rgba(59, 130, 246, 0.05)",
-              color: "primary.light",
-              "& .MuiAlert-icon": { color: "primary.light" },
-            }}
-          >
-            Keys are stored offline in your browser's local state and are never
-            exposed to external servers.
+          <Alert icon={<InfoIcon fontSize="inherit" />} severity="info">
+            Your key is stored locally in browser storage. It is not persisted by
+            this frontend to any external service.
           </Alert>
 
           {saved && (
-            <Alert
-              icon={<Check />}
-              severity="success"
-              sx={{ width: "100%", borderRadius: 3 }}
-            >
-              Credentials encrypted and saved.
+            <Alert icon={<CheckIcon />} severity="success">
+              API key saved locally.
             </Alert>
           )}
         </Stack>
       </DialogContent>
 
-      <DialogActions sx={{ p: 4, pt: 0, justifyContent: "space-between" }}>
+      <DialogActions sx={{ p: 3, pt: 0, justifyContent: "space-between" }}>
         <Button
-          color="error"
-          size="small"
+          color="inherit"
           onClick={() => {
             setInputValue("");
             onSaveApiKey("");
+            setSaved(false);
           }}
-          sx={{ fontWeight: 700, opacity: 0.6 }}
+          sx={{ color: "text.secondary" }}
         >
-          Purge Key
+          Remove key
         </Button>
         <Box sx={{ display: "flex", gap: 1.5 }}>
-          <Button
-            onClick={handleClose}
-            sx={{ color: "text.secondary", fontWeight: 700 }}
-          >
+          <Button onClick={handleClose} sx={{ color: "text.secondary" }}>
             Cancel
           </Button>
           <Button
             variant="contained"
             onClick={handleSave}
             disabled={!inputValue || saved}
-            sx={{ borderRadius: 3, px: 4 }}
+            sx={{ px: 3 }}
           >
-            {saved ? "Linked" : "Connect"}
+            {saved ? "Saved" : "Save key"}
           </Button>
         </Box>
       </DialogActions>

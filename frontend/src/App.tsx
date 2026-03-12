@@ -1,92 +1,125 @@
-import { useState } from "react";
-import { Box } from "@mui/material";
+import { useEffect, useState } from "react";
+import { Box, Drawer, useMediaQuery, useTheme } from "@mui/material";
 import { AppSidebar } from "@/components/sidebar";
 import { ChatContainer } from "@/components/chat";
 import { SettingsDialog } from "@/components/settings";
+import { useChat } from "@/hooks/use-chat";
 import { useSettings } from "@/hooks/use-settings";
 
 export default function App() {
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const muiTheme = useTheme();
+  const isMobile = useMediaQuery(muiTheme.breakpoints.down("md"));
+  const [sidebarOpen, setSidebarOpen] = useState(!isMobile);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const { apiKey, setApiKey, hasApiKey } = useSettings();
+  const {
+    chats,
+    activeChatId,
+    messages,
+    isLoading,
+    isHistoryLoading,
+    error,
+    sendMessage,
+    clearMessages,
+    loadChat,
+    removeChat,
+  } = useChat();
+
+  useEffect(() => {
+    setSidebarOpen(!isMobile);
+  }, [isMobile]);
 
   return (
     <Box
       sx={{
         display: "flex",
-        height: "100vh",
+        height: "100dvh",
         bgcolor: "background.default",
         color: "text.primary",
         overflow: "hidden",
-        position: "relative",
       }}
     >
-      {/* Background Ambience */}
-      <Box
-        sx={{
-          position: "fixed",
-          inset: 0,
-          pointerEvents: "none",
-          opacity: 0.2,
-          zIndex: 0,
-          overflow: "hidden",
-        }}
-      >
-        <Box
-          sx={{
-            position: "absolute",
-            top: "-10%",
-            left: "-10%",
-            width: "50%",
-            height: "50%",
-            borderRadius: "50%",
-            background:
-              "radial-gradient(circle, rgba(59, 130, 246, 0.2) 0%, transparent 70%)",
-            filter: "blur(100px)",
-          }}
+      {!isMobile && (
+        <AppSidebar
+          isOpen={sidebarOpen}
+          onToggle={() => setSidebarOpen((open) => !open)}
+          onOpenSettings={() => setSettingsOpen(true)}
+          hasApiKey={hasApiKey}
+          chats={chats}
+          activeChatId={activeChatId}
+          isChatLoading={isHistoryLoading}
+          onNewChat={clearMessages}
+          onSelectChat={loadChat}
+          onDeleteChat={removeChat}
         />
-        <Box
-          sx={{
-            position: "absolute",
-            bottom: "-10%",
-            right: "-10%",
-            width: "50%",
-            height: "50%",
-            borderRadius: "50%",
-            background:
-              "radial-gradient(circle, rgba(45, 212, 191, 0.15) 0%, transparent 70%)",
-            filter: "blur(100px)",
+      )}
+
+      {isMobile && (
+        <Drawer
+          open={sidebarOpen}
+          onClose={() => setSidebarOpen(false)}
+          PaperProps={{
+            sx: {
+              width: 288,
+              maxWidth: "100vw",
+              backgroundColor: "var(--surface-raised)",
+              boxShadow: "none",
+              p: 0,
+            },
           }}
-        />
-      </Box>
+        >
+          <AppSidebar
+            isOpen
+            isMobile
+            onClose={() => setSidebarOpen(false)}
+            onToggle={() => setSidebarOpen(false)}
+            onOpenSettings={() => setSettingsOpen(true)}
+            hasApiKey={hasApiKey}
+            chats={chats}
+            activeChatId={activeChatId}
+            isChatLoading={isHistoryLoading}
+            onNewChat={() => {
+              clearMessages();
+              setSidebarOpen(false);
+            }}
+            onSelectChat={async (chatId) => {
+              await loadChat(chatId);
+              setSidebarOpen(false);
+            }}
+            onDeleteChat={removeChat}
+          />
+        </Drawer>
+      )}
 
-      {/* Sidebar Area */}
-      <AppSidebar
-        isOpen={sidebarOpen}
-        onToggle={() => setSidebarOpen(!sidebarOpen)}
-        onOpenSettings={() => setSettingsOpen(true)}
-        hasApiKey={hasApiKey}
-      />
-
-      {/* Main Content Area */}
       <Box
         component="main"
         sx={{
           flex: 1,
           display: "flex",
-          flexDirection: "column",
+          minWidth: 0,
+          minHeight: 0,
           height: "100%",
-          position: "relative",
-          zIndex: 1,
+          overflow: "hidden",
         }}
       >
         <ChatContainer
           apiKey={apiKey}
-          onToggleSidebar={() => setSidebarOpen(!sidebarOpen)}
+          hasApiKey={hasApiKey}
+          isMobile={isMobile}
+          onOpenSettings={() => setSettingsOpen(true)}
+          onToggleSidebar={() => setSidebarOpen((open) => !open)}
+          messages={messages}
+          isLoading={isLoading}
+          isHistoryLoading={isHistoryLoading}
+          error={error}
+          onSend={sendMessage}
+          activeChatId={activeChatId}
+          activeChatTitle={
+            chats.find((chat) => chat.id === activeChatId)?.title ?? "Sentient"
+          }
         />
       </Box>
 
-      {/* Settings Dialog */}
       <SettingsDialog
         open={settingsOpen}
         onOpenChange={setSettingsOpen}

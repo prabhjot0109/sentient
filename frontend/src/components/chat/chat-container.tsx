@@ -1,41 +1,61 @@
 import { useEffect, useRef } from "react";
 import {
+  Alert,
   Box,
-  Typography,
-  IconButton,
-  Container,
-  Paper,
-  Stack,
   Button,
-  Avatar,
+  CircularProgress,
+  Container,
+  Divider,
+  IconButton,
+  Stack,
+  Typography,
 } from "@mui/material";
 import {
-  HistoryEdu as HistoryIcon,
   MenuOpen as MenuIcon,
-  AutoAwesome as SparklesIcon,
 } from "@mui/icons-material";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { ChatMessage } from "./chat-message";
 import { ChatInput } from "./chat-input";
-import { useChat } from "@/hooks/use-chat";
+import type { Message } from "@/types";
 
 interface ChatContainerProps {
   apiKey?: string;
+  hasApiKey: boolean;
+  isMobile: boolean;
+  onOpenSettings: () => void;
   onToggleSidebar: () => void;
+  messages: Message[];
+  isLoading: boolean;
+  isHistoryLoading: boolean;
+  error: string | null;
+  onSend: (message: string, apiKey?: string) => void;
+  activeChatId: string | null;
+  activeChatTitle: string;
 }
 
-export function ChatContainer({ apiKey, onToggleSidebar }: ChatContainerProps) {
-  const { messages, isLoading, sendMessage } = useChat();
+export function ChatContainer({
+  apiKey,
+  hasApiKey,
+  isMobile,
+  onOpenSettings,
+  onToggleSidebar,
+  messages,
+  isLoading,
+  isHistoryLoading,
+  error,
+  onSend,
+  activeChatId,
+  activeChatTitle,
+}: ChatContainerProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
-  }, [messages]);
+  }, [messages, isLoading]);
 
   const handleSend = (message: string) => {
-    sendMessage(message, apiKey);
+    onSend(message, apiKey);
   };
 
   return (
@@ -43,144 +63,143 @@ export function ChatContainer({ apiKey, onToggleSidebar }: ChatContainerProps) {
       sx={{
         display: "flex",
         flexDirection: "column",
+        flex: 1,
+        minWidth: 0,
+        minHeight: 0,
         height: "100%",
-        position: "relative",
-        background:
-          "radial-gradient(circle at 50% 0%, rgba(59, 130, 246, 0.05) 0%, transparent 50%)",
+        overflow: "hidden",
+        backgroundColor: "var(--surface-base)",
       }}
     >
-      {/* App Bar / Header */}
       <Box
         sx={{
-          height: 72,
+          minHeight: 56,
           display: "flex",
           alignItems: "center",
-          px: 3,
-          borderBottom: "1px solid rgba(255, 255, 255, 0.06)",
-          zIndex: 20,
-          backgroundColor: "rgba(9, 9, 11, 0.7)",
-          backdropFilter: "blur(20px)",
+          justifyContent: "space-between",
+          gap: 2,
+          px: { xs: 2, md: 2.5 },
+          py: 1.5,
+          borderBottom: "1px solid var(--stroke-subtle)",
         }}
       >
-        <IconButton
-          onClick={onToggleSidebar}
-          size="small"
-          sx={{
-            mr: 2,
-            color: "text.secondary",
-            bgcolor: "rgba(255, 255, 255, 0.03)",
-            "&:hover": { bgcolor: "rgba(255, 255, 255, 0.08)" },
-          }}
-        >
-          <MenuIcon sx={{ fontSize: 20 }} />
-        </IconButton>
-
-        <Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>
-          <Box
-            sx={{
-              p: 0.8,
-              borderRadius: 2.5,
-              bgcolor: "rgba(59, 130, 246, 0.1)",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-            }}
-          >
-            <HistoryIcon sx={{ color: "primary.main", fontSize: 18 }} />
-          </Box>
-          <Box>
-            <Typography
-              variant="subtitle2"
-              sx={{
-                fontWeight: 850,
-                letterSpacing: -0.2,
-                fontSize: "0.9rem",
-                color: "white",
-              }}
-            >
-              Intelligent Notebook
-            </Typography>
-            <Typography
-              variant="caption"
+        <Box sx={{ display: "flex", alignItems: "center", gap: 1.25, minWidth: 0 }}>
+          {isMobile && (
+            <IconButton
+              onClick={onToggleSidebar}
+              size="small"
               sx={{
                 color: "text.secondary",
-                fontWeight: 600,
-                opacity: 0.5,
-                display: "block",
-                mt: -0.5,
+                "&:hover": { bgcolor: "rgba(255, 255, 255, 0.06)" },
               }}
             >
-              Powered by Sentient Neural Core
+              <MenuIcon sx={{ fontSize: 18 }} />
+            </IconButton>
+          )}
+          <Box sx={{ minWidth: 0 }}>
+            <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
+              {activeChatTitle}
+            </Typography>
+            <Typography variant="body2" sx={{ color: "text.secondary" }}>
+              {activeChatId
+                ? `${messages.length} messages`
+                : "Start a new conversation"}
             </Typography>
           </Box>
         </Box>
       </Box>
 
-      {/* Messages Viewport */}
-      <Box sx={{ flex: 1, overflow: "hidden", position: "relative" }}>
-        <ScrollArea className="h-full" ref={scrollRef}>
-          {messages.length === 0 ? (
-            <EmptyState onSuggestionClick={handleSend} />
-          ) : (
-            <Container maxWidth="md" sx={{ py: 8, pb: 32 }}>
-              <Stack spacing={5}>
-                {messages.map((message) => (
-                  <ChatMessage key={message.id} message={message} />
-                ))}
-                {isLoading && <TypingIndicator />}
-              </Stack>
-            </Container>
-          )}
-        </ScrollArea>
-      </Box>
+      {!hasApiKey && (
+        <Box sx={{ px: { xs: 2, md: 3 }, pt: 2 }}>
+          <Alert
+            severity="info"
+            action={
+              <Button color="inherit" size="small" onClick={onOpenSettings}>
+                Add key
+              </Button>
+            }
+          >
+            Add your OpenAI API key to use chat.
+          </Alert>
+        </Box>
+      )}
 
-      {/* Input Section - Floating style */}
+      {error && (
+        <Box sx={{ px: { xs: 2, md: 3 }, pt: 2 }}>
+          <Alert severity="error">{error}</Alert>
+        </Box>
+      )}
+
       <Box
+        ref={scrollRef}
         sx={{
-          position: "absolute",
-          bottom: 0,
-          left: 0,
-          right: 0,
-          pb: 4,
-          pt: 10,
-          background: "linear-gradient(to top, #09090b 80%, transparent)",
-          zIndex: 30,
-          pointerEvents: "none",
+          flex: 1,
+          minHeight: 0,
+          overflowY: "auto",
         }}
       >
-        <Container maxWidth="md" sx={{ pointerEvents: "auto" }}>
-          <Paper
-            elevation={0}
+        {isHistoryLoading ? (
+          <Container
+            maxWidth="md"
             sx={{
-              p: 1.5,
-              borderRadius: 5,
-              backgroundColor: "rgba(18, 18, 21, 0.8)",
-              backdropFilter: "blur(20px)",
-              border: "1px solid rgba(255, 255, 255, 0.1)",
-              boxShadow: "0 32px 64px -16px rgba(0, 0, 0, 0.8)",
+              minHeight: "100%",
+              display: "grid",
+              placeItems: "center",
+              py: 6,
             }}
           >
-            <ChatInput onSend={handleSend} isLoading={isLoading} />
-          </Paper>
+            <Box sx={{ display: "grid", justifyItems: "center", gap: 1.5 }}>
+              <CircularProgress size={24} />
+              <Typography variant="body2" sx={{ color: "text.secondary" }}>
+                Loading chat history
+              </Typography>
+            </Box>
+          </Container>
+        ) : messages.length === 0 ? (
+          <EmptyState
+            hasApiKey={hasApiKey}
+            onOpenSettings={onOpenSettings}
+            onSuggestionClick={handleSend}
+          />
+        ) : (
+          <Container maxWidth="md" sx={{ py: { xs: 3, md: 4 }, pb: 4 }}>
+            <Stack spacing={3}>
+              {messages.map((message) => (
+                <ChatMessage key={message.id} message={message} />
+              ))}
+              {isLoading && <TypingIndicator />}
+            </Stack>
+          </Container>
+        )}
+      </Box>
+
+      <Divider />
+
+      <Box
+        sx={{
+          px: { xs: 1.5, md: 2.5 },
+          py: { xs: 1.5, md: 1.75 },
+          bgcolor: "var(--surface-base)",
+        }}
+      >
+        <Container maxWidth="md" disableGutters>
+          <ChatInput
+            onSend={handleSend}
+            isLoading={isLoading}
+            placeholder={
+              hasApiKey ? "Message NPC" : "Add your API key, then ask a question"
+            }
+          />
           <Box
             sx={{
               display: "flex",
               justifyContent: "center",
-              gap: 4,
-              mt: 3,
-              opacity: 0.4,
+              alignItems: "center",
+              mt: 1,
             }}
           >
-            <Typography
-              variant="caption"
-              sx={{
-                fontWeight: 800,
-                letterSpacing: 1.5,
-                fontSize: "0.6rem",
-                color: "text.secondary",
-              }}
-            >
-              NEURAL RAG • CORE V1.0
+            <Typography variant="caption" sx={{ color: "text.secondary" }}>
+              Sentient can make mistakes. Verify important details.
             </Typography>
           </Box>
         </Container>
@@ -190,15 +209,19 @@ export function ChatContainer({ apiKey, onToggleSidebar }: ChatContainerProps) {
 }
 
 function EmptyState({
+  hasApiKey,
+  onOpenSettings,
   onSuggestionClick,
 }: {
+  hasApiKey: boolean;
+  onOpenSettings: () => void;
   onSuggestionClick: (text: string) => void;
 }) {
   const suggestions = [
-    "Summarize these findings",
-    "Identify critical themes",
-    "List technical specifications",
-    "Draft a synthesis report",
+    "Summarize the key findings",
+    "List the most important risks",
+    "Compare the main themes",
+    "Draft a short briefing",
   ];
 
   return (
@@ -209,97 +232,49 @@ function EmptyState({
         alignItems: "center",
         justifyContent: "center",
         minHeight: "100%",
-        py: 4,
-        pb: 20, // Reduced bottom padding to prevent push-up
+        py: { xs: 6, md: 8 },
         px: 4,
         textAlign: "center",
       }}
     >
-      <Box sx={{ position: "relative", mb: 6 }}>
-        <Box
-          sx={{
-            width: 100,
-            height: 100,
-            borderRadius: 6,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            background: "linear-gradient(135deg, #3b82f6 0%, #2dd4bf 100%)",
-            boxShadow: "0 24px 48px rgba(59, 130, 246, 0.4)",
-          }}
-        >
-          <SparklesIcon sx={{ fontSize: 48, color: "white" }} />
-        </Box>
-        <Box
-          sx={{
-            position: "absolute",
-            inset: -20,
-            border: "1px solid rgba(59, 130, 246, 0.1)",
-            borderRadius: 8,
-            zIndex: -1,
-            animation: "pulse 3s infinite",
-          }}
-        />
-      </Box>
-
       <Typography
         variant="h2"
-        gutterBottom
         sx={{
-          fontWeight: 850,
-          letterSpacing: -1.5,
-          color: "white",
-          fontSize: { xs: "2rem", md: "3rem" },
+          fontWeight: 800,
+          color: "text.primary",
+          fontSize: { xs: "2.5rem", md: "3rem" },
+          letterSpacing: "-0.02em",
         }}
       >
-        Think deeper with your{" "}
-        <Box
-          component="span"
-          sx={{
-            background: "linear-gradient(135deg, #3b82f6 0%, #2dd4bf 100%)",
-            WebkitBackgroundClip: "text",
-            WebkitTextFillColor: "transparent",
-          }}
-        >
-          knowledge
-        </Box>
-        .
+        Sentient
       </Typography>
       <Typography
         variant="body1"
         sx={{
           color: "text.secondary",
-          maxWidth: 600,
-          mb: 8,
-          fontSize: "1.2rem",
+          maxWidth: 500,
+          mt: 1.5,
+          mb: 5,
+          fontSize: "1.1rem",
           fontWeight: 500,
-          lineHeight: 1.6,
-          opacity: 0.7,
         }}
       >
-        SENTIENT synthesizes complex documents into conversational intelligence.
-        Upload your sources and start exploring the core insights today.
+        An AI NPC that retrieves context from the lore of the game.
       </Typography>
 
       <Box sx={{ width: "100%", maxWidth: 800 }}>
         <Typography
           variant="overline"
-          sx={{
-            display: "block",
-            mb: 3,
-            fontWeight: 900,
-            opacity: 0.4,
-            letterSpacing: 2,
-          }}
+          sx={{ display: "block", mb: 2.5, color: "text.secondary" }}
         >
-          Suggested Inquiries
+          Try one of these
         </Typography>
         <Box
           sx={{
             display: "flex",
             flexWrap: "wrap",
             justifyContent: "center",
-            gap: 2,
+            gap: 1.5,
           }}
         >
           {suggestions.map((text) => (
@@ -308,18 +283,17 @@ function EmptyState({
               onClick={() => onSuggestionClick(text)}
               variant="outlined"
               sx={{
-                py: 1.5,
-                px: 3,
-                borderColor: "rgba(255, 255, 255, 0.06)",
-                backgroundColor: "rgba(255, 255, 255, 0.03)",
+                py: 1.1,
+                px: 2,
+                borderColor: "var(--stroke-subtle)",
+                backgroundColor: "rgba(255, 255, 255, 0.02)",
                 color: "text.primary",
-                borderRadius: 3,
-                fontWeight: 700,
+                borderRadius: 2,
+                fontWeight: 600,
                 fontSize: "0.85rem",
                 "&:hover": {
-                  borderColor: "primary.main",
-                  backgroundColor: "rgba(59, 130, 246, 0.08)",
-                  transform: "translateY(-2px)",
+                  borderColor: "rgba(255, 255, 255, 0.18)",
+                  backgroundColor: "rgba(255, 255, 255, 0.04)",
                 },
               }}
             >
@@ -334,18 +308,8 @@ function EmptyState({
 
 function TypingIndicator() {
   return (
-    <Box sx={{ display: "flex", gap: 2, alignItems: "flex-start" }}>
-      <Avatar
-        sx={{
-          width: 32,
-          height: 32,
-          bgcolor: "background.paper",
-          border: "1px solid rgba(255, 255, 255, 0.1)",
-        }}
-      >
-        <SparklesIcon sx={{ fontSize: 16, color: "primary.main" }} />
-      </Avatar>
-      <Box sx={{ pt: 1, display: "flex", gap: 0.5 }}>
+    <Box sx={{ display: "inline-flex", alignItems: "center", gap: 0.75, px: 0.5, py: 0.5 }}>
+      <Box sx={{ display: "flex", gap: 0.75 }}>
         {[0, 1, 2].map((i) => (
           <Box
             key={i}
@@ -353,9 +317,9 @@ function TypingIndicator() {
               width: 6,
               height: 6,
               borderRadius: "50%",
-              backgroundColor: "rgba(255, 255, 255, 0.3)",
-              animation: "pulse 1.4s ease-in-out infinite",
-              animationDelay: `${i * 0.2}s`,
+              backgroundColor: "rgba(255, 255, 255, 0.36)",
+              animation: "pulse 1.2s ease-in-out infinite",
+              animationDelay: `${i * 0.14}s`,
             }}
           />
         ))}
