@@ -23,6 +23,7 @@ import { useSources } from "@/hooks/use-sources";
 import type { ChatSessionSummary } from "@/types";
 
 interface AppSidebarProps {
+  apiKey?: string;
   isOpen: boolean;
   isMobile?: boolean;
   onClose?: () => void;
@@ -38,6 +39,7 @@ interface AppSidebarProps {
 }
 
 export function AppSidebar({
+  apiKey,
   isOpen,
   isMobile = false,
   onClose,
@@ -52,7 +54,7 @@ export function AppSidebar({
   onDeleteChat,
 }: AppSidebarProps) {
   const { sources, isLoading, isUploading, error, upload, remove } =
-    useSources();
+    useSources(apiKey);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const expanded = isMobile || isOpen;
   const sidebarWidth = expanded ? 268 : 64;

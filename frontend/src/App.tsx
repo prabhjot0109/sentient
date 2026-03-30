@@ -41,6 +41,7 @@ export default function App() {
     >
       {!isMobile && (
         <AppSidebar
+          apiKey={apiKey}
           isOpen={sidebarOpen}
           onToggle={() => setSidebarOpen((open) => !open)}
           onOpenSettings={() => setSettingsOpen(true)}
@@ -69,6 +70,7 @@ export default function App() {
           }}
         >
           <AppSidebar
+            apiKey={apiKey}
             isOpen
             isMobile
             onClose={() => setSidebarOpen(false)}

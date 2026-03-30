@@ -7,13 +7,13 @@ Sentient is a sophisticated RAG (Retrieval-Augmented Generation) based AI NPC sy
 - 📁 **Dynamic Document Upload** - Easily ingest game manuals and custom style PDFs to expand NPC knowledge.
 - 💬 **Context-Aware Dialogues** - Generation of responses via RESTful API that are grounded in your uploaded documentation.
 - 🎮 **Real-time Integration** - Seamlessly connects with live game instances for interactive NPC experiences.
-- 🔍 **Semantic Search** - FAISS-backed retrieval with normalized BGE embeddings and document chunking tuned for RAG.
+- 🔍 **Semantic Search** - FAISS-backed retrieval with configurable OpenRouter/OpenAI/HuggingFace embeddings and document chunking tuned for RAG.
 - 🧠 **Personalized Personas** - RAG-driven intelligence that shapes unique character voices and behaviors.
 
 ## Tech Stack
 
 - **Backend:** FastAPI (Python), LangChain, OpenRouter, FAISS
-- **Frontend:** Next.js (TypeScript), Tailwind CSS, shadcn/ui
+- **Frontend:** Vite + React (TypeScript), MUI
 - **Infrastructure:** RESTful API, Docker-ready
 
 ## Achievements & Impact
@@ -33,8 +33,8 @@ sentient/
 │   ├── ingestion.py        # Document ingestion with FAISS
 │   ├── persona.py          # AI persona configuration
 │   └── rag_engine.py       # RAG engine implementation
-├── data/                   # Document storage & FAISS index
-└── frontend/               # Next.js + shadcn UI
+├── data/                   # Document storage, FAISS index, local chat fallback
+└── frontend/               # Vite + React UI
     ├── src/
     │   ├── components/     # React components
     │   ├── hooks/          # Custom hooks
@@ -85,15 +85,20 @@ Visit [http://localhost:5173](http://localhost:5173) (if using Vite) or [http://
 ```env
 OPENROUTER_API_KEY=your_api_key
 OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
+LLM_PROVIDER=auto
+EMBEDDING_PROVIDER=auto
 MODEL_NAME=openai/gpt-4o-mini
-EMBEDDING_MODEL_NAME=BAAI/bge-base-en-v1.5
+EMBEDDING_MODEL_NAME=openai/text-embedding-3-small
+RAG_TOP_K=4
+RAG_FETCH_K=12
+RAG_MMR_LAMBDA=0.65
 SUPABASE_URL=your_supabase_project_url
 SUPABASE_SERVICE_ROLE_KEY=your_supabase_service_role_key
 ```
 
-The backend defaults to OpenRouter-compatible chat completion with `openai/gpt-4o-mini`, uses `BAAI/bge-base-en-v1.5` for embeddings, and stores vectors in a local FAISS index under `data/faiss_index`.
+The backend defaults to OpenRouter-compatible chat completion with `openai/gpt-4o-mini`, uses OpenRouter embeddings by default when an OpenRouter key is available, falls back to OpenAI embeddings for OpenAI keys, and falls back to local HuggingFace embeddings when no hosted embedding provider is configured. Vectors are stored in a local FAISS index under `data/faiss_index`.
 
-Uploads and deletions rebuild the FAISS index from the current files under `data/`, which prevents duplicate chunks and keeps retrieval aligned with the actual source documents.
+Uploads and deletions rebuild the FAISS index from the current files under `data/`, write an index manifest, and keep retrieval aligned with the actual source documents and embedding configuration.
 
 ### Supabase Chat Storage
 
@@ -116,7 +121,7 @@ create index if not exists chat_sessions_client_id_updated_at_idx
     on public.chat_sessions (client_id, updated_at desc);
 ```
 
-The frontend stores a browser-scoped `client_id` locally and uses it to list and reopen previous chats through the backend.
+The frontend stores a browser-scoped `client_id` locally and uses it to list and reopen previous chats through the backend. If Supabase is not configured, the backend transparently falls back to local JSON chat storage under `data/chat_sessions.json`.
 
 ## API Endpoints
 
@@ -124,6 +129,7 @@ The frontend stores a browser-scoped `client_id` locally and uses it to list and
 | ------ | ------------------------ | ------------------------- |
 | GET    | `/health`                | Health check              |
 | POST   | `/v1/chat`               | Send chat message         |
+| POST   | `/v1/retrieve`           | Inspect retrieved chunks  |
 | POST   | `/v1/upload`             | Upload document (PDF/TXT) |
 | GET    | `/v1/sources`            | List uploaded sources     |
 | DELETE | `/v1/sources/{filename}` | Delete a source           |
@@ -132,6 +138,8 @@ The frontend stores a browser-scoped `client_id` locally and uses it to list and
 | POST   | `/v1/chats`              | Create a saved chat       |
 | PUT    | `/v1/chats/{chat_id}`    | Update a saved chat       |
 | DELETE | `/v1/chats/{chat_id}`    | Delete a saved chat       |
+
+`/health` now reports the active LLM provider, embedding provider, retrieval mode, local vs Supabase chat storage, and index manifest metadata so you can confirm the runtime configuration quickly.
 
 ## License
 

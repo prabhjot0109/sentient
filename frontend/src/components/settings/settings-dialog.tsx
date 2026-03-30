@@ -81,8 +81,8 @@ export function SettingsDialog({
                 variant="body2"
                 sx={{ color: "text.secondary", maxWidth: 360 }}
               >
-                Store your OpenAI API key locally in this browser so Sentient can
-                send chat requests.
+                Store your OpenRouter or OpenAI API key locally in this browser so
+                Sentient can send chat and retrieval requests.
               </Typography>
             </Box>
             <Box
@@ -109,7 +109,7 @@ export function SettingsDialog({
               setInputValue(e.target.value);
               setSaved(false);
             }}
-            label="OpenAI API Key"
+            label="OpenRouter / OpenAI API Key"
             placeholder="sk-..."
             variant="outlined"
             InputProps={{

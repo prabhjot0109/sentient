@@ -119,7 +119,7 @@ export function ChatContainer({
               </Button>
             }
           >
-            Add your OpenAI API key to use chat.
+            Add your OpenRouter or OpenAI API key to use chat.
           </Alert>
         </Box>
       )}
@@ -157,8 +157,6 @@ export function ChatContainer({
           </Container>
         ) : messages.length === 0 ? (
           <EmptyState
-            hasApiKey={hasApiKey}
-            onOpenSettings={onOpenSettings}
             onSuggestionClick={handleSend}
           />
         ) : (
@@ -209,12 +207,8 @@ export function ChatContainer({
 }
 
 function EmptyState({
-  hasApiKey,
-  onOpenSettings,
   onSuggestionClick,
 }: {
-  hasApiKey: boolean;
-  onOpenSettings: () => void;
   onSuggestionClick: (text: string) => void;
 }) {
   const suggestions = [

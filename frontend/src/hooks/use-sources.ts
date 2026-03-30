@@ -2,7 +2,7 @@ import { useState, useCallback, useEffect } from "react";
 import { getSources, uploadFile, deleteSource } from "@/lib/api";
 import type { Source } from "@/types";
 
-export function useSources() {
+export function useSources(apiKey?: string) {
   const [sources, setSources] = useState<Source[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
@@ -30,7 +30,7 @@ export function useSources() {
       setError(null);
 
       try {
-        await uploadFile(file);
+        await uploadFile(file, apiKey);
         await fetchSources();
       } catch (err) {
         const errorMessage =
@@ -41,7 +41,7 @@ export function useSources() {
         setIsUploading(false);
       }
     },
-    [fetchSources]
+    [apiKey, fetchSources]
   );
 
   const remove = useCallback(
@@ -49,7 +49,7 @@ export function useSources() {
       setError(null);
 
       try {
-        await deleteSource(filename);
+        await deleteSource(filename, apiKey);
         await fetchSources();
       } catch (err) {
         const errorMessage =
@@ -58,7 +58,7 @@ export function useSources() {
         throw err;
       }
     },
-    [fetchSources]
+    [apiKey, fetchSources]
   );
 
   useEffect(() => {
