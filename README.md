@@ -19,9 +19,11 @@ Sentient is a sophisticated RAG (Retrieval-Augmented Generation) based AI NPC sy
 ## Achievements & Impact
 
 - **Achievements:** Advanced RAG-based NPC Interaction.
-- **Impact:** Revolutionizing In-game NPC Conversationality.
+- **Impact:** Revolutionizing In-game NPC Conversations with Dynamic Knowledge Integration.
 
----
+## System Design
+
+![System Design](sentient.png)
 
 ## Architecture
 

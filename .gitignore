@@ -6,7 +6,7 @@ __pycache__/
 # C extensions
 
 #Vs Code
-.vscode
+/.vscode
 
 *.so
 
