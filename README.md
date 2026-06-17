@@ -7,12 +7,12 @@ Sentient is a sophisticated RAG (Retrieval-Augmented Generation) based AI NPC sy
 - 📁 **Dynamic Document Upload** - Easily ingest game manuals and custom style PDFs to expand NPC knowledge.
 - 💬 **Context-Aware Dialogues** - Generation of responses via RESTful API that are grounded in your uploaded documentation.
 - 🎮 **Real-time Integration** - Seamlessly connects with live game instances for interactive NPC experiences.
-- 🔍 **Semantic Search** - FAISS-backed retrieval with configurable OpenRouter/OpenAI/HuggingFace embeddings and document chunking tuned for RAG.
+- 🔍 **Semantic Search** - FAISS-backed retrieval with configurable Google Gemini/OpenAI/HuggingFace embeddings and document chunking tuned for RAG.
 - 🧠 **Personalized Personas** - RAG-driven intelligence that shapes unique character voices and behaviors.
 
 ## Tech Stack
 
-- **Backend:** FastAPI (Python), LangChain, OpenRouter, FAISS
+- **Backend:** FastAPI (Python), LangChain, Google Gemini, FAISS
 - **Frontend:** Vite + React (TypeScript), MUI
 - **Infrastructure:** RESTful API, Docker-ready
 
@@ -58,7 +58,7 @@ uv sync
 
 # Set environment variables
 cp .env.example .env
-# Edit .env with your API keys (OPENROUTER_API_KEY is preferred)
+# Edit .env with your API keys (GOOGLE_API_KEY is preferred)
 
 # Start backend server
 uv run uvicorn api:app --reload
@@ -85,12 +85,13 @@ Visit [http://localhost:5173](http://localhost:5173) (if using Vite) or [http://
 ### Backend (.env)
 
 ```env
-OPENROUTER_API_KEY=your_api_key
-OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
+GOOGLE_API_KEY=your_api_key
+OPENAI_API_KEY=your_api_key
+HUGGINGFACEHUB_API_TOKEN=your_api_key
 LLM_PROVIDER=auto
 EMBEDDING_PROVIDER=auto
-MODEL_NAME=openai/gpt-4o-mini
-EMBEDDING_MODEL_NAME=openai/text-embedding-3-small
+MODEL_NAME=gemini-2.5-flash
+EMBEDDING_MODEL_NAME=models/gemini-embedding-001
 RAG_TOP_K=4
 RAG_FETCH_K=12
 RAG_MMR_LAMBDA=0.65
@@ -98,7 +99,7 @@ SUPABASE_URL=your_supabase_project_url
 SUPABASE_SERVICE_ROLE_KEY=your_supabase_service_role_key
 ```
 
-The backend defaults to OpenRouter-compatible chat completion with `openai/gpt-4o-mini`, uses OpenRouter embeddings by default when an OpenRouter key is available, falls back to OpenAI embeddings for OpenAI keys, and falls back to local HuggingFace embeddings when no hosted embedding provider is configured. Vectors are stored in a local FAISS index under `data/faiss_index`.
+The backend defaults to Google Gemini for both chat completion (`gemini-2.5-flash`) and embeddings (`models/gemini-embedding-001`) when `GOOGLE_API_KEY` is set, falls back to OpenAI when `OPENAI_API_KEY` is set instead, and falls back to HuggingFace when no hosted provider key is configured — embeddings run locally (no key needed) and chat runs through HuggingFace's hosted inference router (keyless and rate-limited, or with `HUGGINGFACEHUB_API_TOKEN`). Vectors are stored in a local FAISS index under `data/faiss_index`.
 
 Uploads and deletions rebuild the FAISS index from the current files under `data/`, write an index manifest, and keep retrieval aligned with the actual source documents and embedding configuration.
 

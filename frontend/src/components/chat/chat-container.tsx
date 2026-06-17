@@ -119,7 +119,7 @@ export function ChatContainer({
               </Button>
             }
           >
-            Add your OpenRouter or OpenAI API key to use chat.
+            Add your Google Gemini API key to use chat.
           </Alert>
         </Box>
       )}

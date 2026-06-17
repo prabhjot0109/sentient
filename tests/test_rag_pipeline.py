@@ -26,6 +26,67 @@ class FakeEmbeddings(Embeddings):
         return [self.embed_query(text) for text in texts]
 
 
+class BuildEmbeddingsProviderTests(unittest.TestCase):
+    def test_google_provider_constructs_google_embeddings(self):
+        import logic.ingestion as ingestion_module
+
+        ingestion_module.build_embeddings.cache_clear()
+        with patch.object(ingestion_module, "GoogleGenerativeAIEmbeddings") as mock_cls:
+            mock_cls.return_value = "google-embeddings-instance"
+            result = ingestion_module.build_embeddings(
+                "google", "models/gemini-embedding-001", None, "AIzaTest"
+            )
+
+        mock_cls.assert_called_once_with(
+            model="models/gemini-embedding-001",
+            google_api_key="AIzaTest",
+        )
+        self.assertEqual(result, "google-embeddings-instance")
+        ingestion_module.build_embeddings.cache_clear()
+
+
+class BuildChatModelProviderTests(unittest.TestCase):
+    def test_google_provider_constructs_chat_google_generative_ai(self):
+        import logic.rag_engine as rag_engine_module
+
+        rag_engine_module.build_chat_model.cache_clear()
+        with patch.object(rag_engine_module, "ChatGoogleGenerativeAI") as mock_cls:
+            mock_cls.return_value = "google-chat-instance"
+            result = rag_engine_module.build_chat_model(
+                "google", "gemini-2.5-flash", None, "AIzaTest", 60.0
+            )
+
+        mock_cls.assert_called_once_with(
+            model="gemini-2.5-flash",
+            google_api_key="AIzaTest",
+            timeout=60.0,
+        )
+        self.assertEqual(result, "google-chat-instance")
+        rag_engine_module.build_chat_model.cache_clear()
+
+    def test_huggingface_provider_allows_no_api_key(self):
+        import logic.rag_engine as rag_engine_module
+
+        rag_engine_module.build_chat_model.cache_clear()
+        with patch.object(rag_engine_module, "ChatHuggingFace") as mock_chat_cls, patch.object(
+            rag_engine_module, "HuggingFaceEndpoint"
+        ) as mock_endpoint_cls:
+            mock_endpoint_cls.return_value = "endpoint-instance"
+            mock_chat_cls.return_value = "hf-chat-instance"
+            result = rag_engine_module.build_chat_model(
+                "huggingface", "Qwen/Qwen2.5-7B-Instruct", None, None, 60.0
+            )
+
+        mock_endpoint_cls.assert_called_once_with(
+            repo_id="Qwen/Qwen2.5-7B-Instruct",
+            huggingfacehub_api_token=None,
+            timeout=60.0,
+        )
+        mock_chat_cls.assert_called_once_with(llm="endpoint-instance")
+        self.assertEqual(result, "hf-chat-instance")
+        rag_engine_module.build_chat_model.cache_clear()
+
+
 class SentientRAGTests(unittest.TestCase):
     def setUp(self):
         self.temp_dir = tempfile.TemporaryDirectory()
@@ -52,20 +113,28 @@ class SentientRAGTests(unittest.TestCase):
         self.env_patcher.stop()
         self.temp_dir.cleanup()
 
-    def test_openrouter_settings_enable_openrouter_embeddings_and_llm(self):
+    def test_google_settings_enable_google_embeddings_and_llm(self):
         with patch.dict(
             os.environ,
             {
-                "OPENROUTER_API_KEY": "sk-or-test",
+                "GOOGLE_API_KEY": "AIzaTest",
             },
             clear=False,
         ):
             settings = load_rag_settings()
 
-        self.assertEqual(settings.llm_provider, "openrouter")
-        self.assertEqual(settings.embedding_provider, "openrouter")
-        self.assertEqual(settings.llm_model, "openai/gpt-4o-mini")
-        self.assertEqual(settings.embedding_model, "openai/text-embedding-3-small")
+        self.assertEqual(settings.llm_provider, "google")
+        self.assertEqual(settings.embedding_provider, "google")
+        self.assertEqual(settings.llm_model, "gemini-2.5-flash")
+        self.assertEqual(settings.embedding_model, "models/gemini-embedding-001")
+
+    def test_no_key_settings_fall_back_to_huggingface(self):
+        settings = load_rag_settings()
+
+        self.assertEqual(settings.llm_provider, "huggingface")
+        self.assertEqual(settings.embedding_provider, "huggingface")
+        self.assertEqual(settings.llm_model, "Qwen/Qwen2.5-7B-Instruct")
+        self.assertEqual(settings.embedding_model, "BAAI/bge-base-en-v1.5")
 
     def test_upload_retrieve_and_delete_pipeline(self):
         lore_text = (

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from functools import lru_cache
 from typing import Any
 
 from dotenv import load_dotenv
@@ -7,6 +8,8 @@ from langchain.chains import create_retrieval_chain
 from langchain.chains.combine_documents import create_stuff_documents_chain
 from langchain_core.documents import Document
 from langchain_core.prompts import ChatPromptTemplate, HumanMessagePromptTemplate, PromptTemplate
+from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_huggingface import ChatHuggingFace, HuggingFaceEndpoint
 from langchain_openai import ChatOpenAI
 
 from logic.config import load_rag_settings
@@ -16,24 +19,57 @@ from logic.persona import SENTINEL_SYSTEM_PROMPT
 load_dotenv()
 
 
+@lru_cache(maxsize=16)
+def build_chat_model(
+    provider: str,
+    model_name: str,
+    base_url: str | None,
+    api_key: str | None,
+    timeout: float,
+):
+    if provider == "google":
+        return ChatGoogleGenerativeAI(
+            model=model_name,
+            google_api_key=api_key,
+            timeout=timeout,
+        )
+
+    if provider == "huggingface":
+        return ChatHuggingFace(
+            llm=HuggingFaceEndpoint(
+                repo_id=model_name,
+                huggingfacehub_api_token=api_key,
+                timeout=timeout,
+            )
+        )
+
+    return ChatOpenAI(
+        model=model_name,
+        api_key=api_key,
+        base_url=base_url,
+        timeout=timeout,
+    )
+
+
 class NPCBrain:
     def __init__(self, api_key: str | None = None):
         self.settings = load_rag_settings(api_key)
         self.ingestion = ArchivesIngestion(api_key=api_key, settings=self.settings)
         self.vector_store = self.ingestion.ensure_index()
 
-        if not self.settings.llm_api_key:
+        if self.settings.llm_provider in ("google", "openai") and not self.settings.llm_api_key:
             raise ValueError("API Key not found. Please provide one or set it in .env")
 
         self.api_key = self.settings.llm_api_key
         self.model_name = self.settings.llm_model
         self.base_url = self.settings.llm_base_url
 
-        self.llm = ChatOpenAI(
-            model=self.model_name,
-            api_key=self.api_key,
-            base_url=self.base_url,
-            timeout=self.settings.request_timeout,
+        self.llm = build_chat_model(
+            self.settings.llm_provider,
+            self.model_name,
+            self.base_url,
+            self.api_key,
+            self.settings.request_timeout,
         )
 
         self.prompt = ChatPromptTemplate.from_messages(

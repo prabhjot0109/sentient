@@ -33,7 +33,7 @@ async def lifespan(app: FastAPI):
     """Lifespan context manager for startup/shutdown events."""
     global brain
     try:
-        default_key = os.getenv("OPENROUTER_API_KEY") or os.getenv("OPENAI_API_KEY")
+        default_key = os.getenv("GOOGLE_API_KEY") or os.getenv("OPENAI_API_KEY")
         if default_key:
             brain = NPCBrain(api_key=default_key)
         else:
@@ -305,7 +305,7 @@ def delete_chat_record(chat_id: str, client_id: str) -> dict | None:
 def get_or_create_brain(api_key: Optional[str] = None) -> NPCBrain:
     global brain
 
-    resolved_key = api_key or os.getenv("OPENROUTER_API_KEY") or os.getenv("OPENAI_API_KEY")
+    resolved_key = api_key or os.getenv("GOOGLE_API_KEY") or os.getenv("OPENAI_API_KEY")
     if not resolved_key:
         raise ValueError("API Key not found. Please provide one or set it in .env")
 

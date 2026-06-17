@@ -10,6 +10,7 @@ from typing import Any
 from langchain_community.document_loaders import PyPDFLoader, TextLoader
 from langchain_community.vectorstores import FAISS
 from langchain_core.documents import Document
+from langchain_google_genai import GoogleGenerativeAIEmbeddings
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_openai import OpenAIEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
@@ -35,6 +36,12 @@ def build_embeddings(
         raise ValueError(
             f"{provider.title()} embeddings require an API key. Set it in the environment "
             "or send it from the client."
+        )
+
+    if provider == "google":
+        return GoogleGenerativeAIEmbeddings(
+            model=model_name,
+            google_api_key=api_key,
         )
 
     return OpenAIEmbeddings(

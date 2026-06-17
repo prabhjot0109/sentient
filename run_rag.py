@@ -22,9 +22,9 @@ def main():
     )
 
     # Check for API Key
-    if not os.getenv("OPENROUTER_API_KEY") and not os.getenv("OPENAI_API_KEY"):
+    if not os.getenv("GOOGLE_API_KEY") and not os.getenv("OPENAI_API_KEY"):
         print(
-            "[!] No API Key found in env. Please set OPENROUTER_API_KEY or OPENAI_API_KEY in .env"
+            "[!] No API Key found in env. Please set GOOGLE_API_KEY or OPENAI_API_KEY in .env"
         )
         print("    Running retrieval-only verification.")
 

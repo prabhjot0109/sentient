@@ -5,10 +5,8 @@ from dataclasses import dataclass
 from typing import Literal
 
 
-Provider = Literal["openrouter", "openai", "huggingface"]
+Provider = Literal["google", "openai", "huggingface"]
 SearchType = Literal["mmr", "similarity"]
-
-OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 
 
 def _env_int(name: str, default: int, minimum: int = 1) -> int:
@@ -47,7 +45,7 @@ def _normalize_provider(value: str | None, *, default: str = "auto") -> str:
         return default
 
     normalized = value.strip().lower()
-    if normalized in {"openrouter", "openai", "huggingface", "auto"}:
+    if normalized in {"google", "openai", "huggingface", "auto"}:
         return normalized
     return default
 
@@ -57,10 +55,6 @@ def _normalize_search_type(value: str | None) -> SearchType:
     if normalized in {"mmr", "similarity"}:
         return normalized  # type: ignore[return-value]
     return "mmr"
-
-
-def is_openrouter_key(api_key: str | None) -> bool:
-    return bool(api_key and api_key.startswith("sk-or-"))
 
 
 def resolve_provider(
@@ -74,17 +68,21 @@ def resolve_provider(
     if normalized != "auto":
         return normalized  # type: ignore[return-value]
 
-    if is_openrouter_key(api_key):
-        return "openrouter"
-
     if api_key:
+        if api_key.startswith("AIza"):
+            return "google"
+        if api_key.startswith("hf_"):
+            return "huggingface"
         return "openai"
 
-    if os.getenv("OPENROUTER_API_KEY"):
-        return "openrouter"
+    if os.getenv("GOOGLE_API_KEY"):
+        return "google"
 
     if os.getenv("OPENAI_API_KEY"):
         return "openai"
+
+    if os.getenv("HUGGINGFACEHUB_API_TOKEN") or os.getenv("HF_TOKEN"):
+        return "huggingface"
 
     return fallback
 
@@ -117,18 +115,24 @@ def load_rag_settings(api_key: str | None = None) -> RAGSettings:
     llm_provider = resolve_provider(
         os.getenv("LLM_PROVIDER"),
         api_key=api_key,
-        fallback="openrouter",
+        fallback="huggingface",
     )
-    llm_api_key = api_key or os.getenv("OPENROUTER_API_KEY") or os.getenv("OPENAI_API_KEY")
+    llm_api_key = (
+        api_key
+        or os.getenv("GOOGLE_API_KEY")
+        or os.getenv("OPENAI_API_KEY")
+        or os.getenv("HUGGINGFACEHUB_API_TOKEN")
+        or os.getenv("HF_TOKEN")
+    )
     llm_model = os.getenv(
         "MODEL_NAME",
-        "openai/gpt-4o-mini" if llm_provider == "openrouter" else "gpt-4o-mini",
+        {
+            "google": "gemini-2.5-flash",
+            "openai": "gpt-4o-mini",
+            "huggingface": "Qwen/Qwen2.5-7B-Instruct",
+        }[llm_provider],
     )
-    llm_base_url = (
-        os.getenv("OPENROUTER_BASE_URL", OPENROUTER_BASE_URL)
-        if llm_provider == "openrouter"
-        else os.getenv("OPENAI_BASE_URL")
-    )
+    llm_base_url = os.getenv("OPENAI_BASE_URL") if llm_provider == "openai" else None
 
     embedding_provider = resolve_provider(
         os.getenv("EMBEDDING_PROVIDER"),
@@ -136,20 +140,22 @@ def load_rag_settings(api_key: str | None = None) -> RAGSettings:
         fallback="huggingface",
     )
     embedding_api_key = (
-        api_key or os.getenv("OPENROUTER_API_KEY") or os.getenv("OPENAI_API_KEY")
+        api_key
+        or os.getenv("GOOGLE_API_KEY")
+        or os.getenv("OPENAI_API_KEY")
+        or os.getenv("HUGGINGFACEHUB_API_TOKEN")
+        or os.getenv("HF_TOKEN")
     )
     embedding_model = os.getenv(
         "EMBEDDING_MODEL_NAME",
         {
-            "openrouter": "openai/text-embedding-3-small",
+            "google": "models/gemini-embedding-001",
             "openai": "text-embedding-3-small",
             "huggingface": "BAAI/bge-base-en-v1.5",
         }[embedding_provider],
     )
     embedding_base_url = (
-        os.getenv("OPENROUTER_BASE_URL", OPENROUTER_BASE_URL)
-        if embedding_provider == "openrouter"
-        else os.getenv("OPENAI_BASE_URL")
+        os.getenv("OPENAI_BASE_URL") if embedding_provider == "openai" else None
     )
 
     chunk_size = _env_int("RAG_CHUNK_SIZE", 900)

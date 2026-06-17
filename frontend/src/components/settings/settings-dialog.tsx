@@ -81,7 +81,7 @@ export function SettingsDialog({
                 variant="body2"
                 sx={{ color: "text.secondary", maxWidth: 360 }}
               >
-                Store your OpenRouter or OpenAI API key locally in this browser so
+                Store your Google Gemini API key locally in this browser so
                 Sentient can send chat and retrieval requests.
               </Typography>
             </Box>
@@ -109,8 +109,8 @@ export function SettingsDialog({
               setInputValue(e.target.value);
               setSaved(false);
             }}
-            label="OpenRouter / OpenAI API Key"
-            placeholder="sk-..."
+            label="Google Gemini API Key"
+            placeholder="AIza..."
             variant="outlined"
             InputProps={{
               startAdornment: (
