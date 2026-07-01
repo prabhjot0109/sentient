@@ -23,13 +23,11 @@ import { useSources } from "@/hooks/use-sources";
 import type { ChatSessionSummary } from "@/types";
 
 interface AppSidebarProps {
-  apiKey?: string;
   isOpen: boolean;
   isMobile?: boolean;
   onClose?: () => void;
   onToggle: () => void;
   onOpenSettings: () => void;
-  hasApiKey: boolean;
   chats: ChatSessionSummary[];
   activeChatId: string | null;
   isChatLoading: boolean;
@@ -39,13 +37,11 @@ interface AppSidebarProps {
 }
 
 export function AppSidebar({
-  apiKey,
   isOpen,
   isMobile = false,
   onClose,
   onToggle,
   onOpenSettings,
-  hasApiKey,
   chats,
   activeChatId,
   isChatLoading,
@@ -54,7 +50,7 @@ export function AppSidebar({
   onDeleteChat,
 }: AppSidebarProps) {
   const { sources, isLoading, isUploading, error, upload, remove } =
-    useSources(apiKey);
+    useSources();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const expanded = isMobile || isOpen;
   const sidebarWidth = expanded ? 268 : 64;
@@ -237,6 +233,9 @@ export function AppSidebar({
           px: expanded ? 1.5 : 1.25,
           pb: 1.5,
           minHeight: 0,
+          display: "flex",
+          flexDirection: "column",
+          flex: expanded ? 1 : "0 0 auto",
         }}
       >
         {expanded ? (
@@ -269,7 +268,9 @@ export function AppSidebar({
               display: "flex",
               flexDirection: "column",
               gap: 0.5,
-              maxHeight: expanded ? 220 : 0,
+              flex: 1,
+              minHeight: 0,
+              maxHeight: expanded ? "none" : 0,
               overflowY: expanded ? "auto" : "hidden",
             }}
           >
@@ -443,7 +444,7 @@ export function AppSidebar({
               py: expanded ? 1 : 0,
               px: expanded ? 1 : 0,
               borderRadius: 2.5,
-              color: hasApiKey ? "text.primary" : "text.secondary",
+              color: "text.primary",
               border: expanded ? "none" : "1px solid var(--stroke-subtle)",
               backgroundColor: expanded ? "transparent" : "rgba(255, 255, 255, 0.03)",
               "&:hover": { backgroundColor: "rgba(255, 255, 255, 0.05)" },
@@ -456,7 +457,7 @@ export function AppSidebar({
                   Settings
                 </Typography>
                 <Typography sx={{ fontSize: "0.74rem", color: "text.secondary" }}>
-                  {hasApiKey ? "API key connected" : "API key needed"}
+                  Workspace status
                 </Typography>
               </Box>
             )}

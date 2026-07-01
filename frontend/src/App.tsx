@@ -4,14 +4,12 @@ import { AppSidebar } from "@/components/sidebar";
 import { ChatContainer } from "@/components/chat";
 import { SettingsDialog } from "@/components/settings";
 import { useChat } from "@/hooks/use-chat";
-import { useSettings } from "@/hooks/use-settings";
 
 export default function App() {
   const muiTheme = useTheme();
   const isMobile = useMediaQuery(muiTheme.breakpoints.down("md"));
   const [sidebarOpen, setSidebarOpen] = useState(!isMobile);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const { apiKey, setApiKey, hasApiKey } = useSettings();
   const {
     chats,
     activeChatId,
@@ -41,11 +39,9 @@ export default function App() {
     >
       {!isMobile && (
         <AppSidebar
-          apiKey={apiKey}
           isOpen={sidebarOpen}
           onToggle={() => setSidebarOpen((open) => !open)}
           onOpenSettings={() => setSettingsOpen(true)}
-          hasApiKey={hasApiKey}
           chats={chats}
           activeChatId={activeChatId}
           isChatLoading={isHistoryLoading}
@@ -70,13 +66,11 @@ export default function App() {
           }}
         >
           <AppSidebar
-            apiKey={apiKey}
             isOpen
             isMobile
             onClose={() => setSidebarOpen(false)}
             onToggle={() => setSidebarOpen(false)}
             onOpenSettings={() => setSettingsOpen(true)}
-            hasApiKey={hasApiKey}
             chats={chats}
             activeChatId={activeChatId}
             isChatLoading={isHistoryLoading}
@@ -105,10 +99,7 @@ export default function App() {
         }}
       >
         <ChatContainer
-          apiKey={apiKey}
-          hasApiKey={hasApiKey}
           isMobile={isMobile}
-          onOpenSettings={() => setSettingsOpen(true)}
           onToggleSidebar={() => setSidebarOpen((open) => !open)}
           messages={messages}
           isLoading={isLoading}
@@ -122,12 +113,7 @@ export default function App() {
         />
       </Box>
 
-      <SettingsDialog
-        open={settingsOpen}
-        onOpenChange={setSettingsOpen}
-        apiKey={apiKey}
-        onSaveApiKey={setApiKey}
-      />
+      <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
     </Box>
   );
 }

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import io
 import json
+import os
 import shutil
 from datetime import datetime, timezone
 from functools import lru_cache
@@ -16,6 +18,20 @@ from langchain_openai import OpenAIEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 from logic.config import RAGSettings, load_rag_settings
+
+# OCR is optional: scanned/image-only PDFs need it, but text PDFs don't, and the
+# Tesseract binary may not be installed. Import lazily so ingestion never hard-fails.
+try:
+    import pymupdf
+    import pytesseract
+    from PIL import Image
+
+    _OCR_IMPORT_ERROR: Exception | None = None
+except Exception as exc:  # pragma: no cover - depends on the environment
+    pymupdf = None  # type: ignore[assignment]
+    pytesseract = None  # type: ignore[assignment]
+    Image = None  # type: ignore[assignment]
+    _OCR_IMPORT_ERROR = exc
 
 
 @lru_cache(maxsize=16)
@@ -55,6 +71,9 @@ def build_embeddings(
 class ArchivesIngestion:
     SUPPORTED_EXTENSIONS = (".txt", ".pdf")
     MANIFEST_FILE = "manifest.json"
+    # A page with fewer real characters than this is treated as scanned/empty and
+    # sent through OCR. Keeps genuinely sparse pages from triggering needless OCR.
+    OCR_MIN_CHARS = 10
 
     def __init__(
         self,
@@ -136,9 +155,59 @@ class ArchivesIngestion:
             for path in self._resolve_source_files()
         ]
 
+    def _ocr_pdf_pages(self, path: Path, documents: list[Document]) -> None:
+        """Fill in page contents that came back empty (scanned pages) via OCR.
+
+        Mutates the documents in place. Best-effort: if OCR deps or the Tesseract
+        binary are missing, log once and leave the extracted text untouched.
+        """
+        pages_needing_ocr = [
+            document
+            for document in documents
+            if len((document.page_content or "").strip()) < self.OCR_MIN_CHARS
+        ]
+        if not pages_needing_ocr:
+            return
+
+        if pymupdf is None or pytesseract is None or Image is None:
+            print(
+                f"OCR skipped for '{path.name}': OCR dependencies unavailable "
+                f"({_OCR_IMPORT_ERROR}). Install pymupdf, pytesseract and the "
+                "Tesseract binary to read scanned PDFs."
+            )
+            return
+
+        tesseract_cmd = os.getenv("TESSERACT_CMD")
+        if tesseract_cmd:
+            pytesseract.pytesseract.tesseract_cmd = tesseract_cmd
+
+        try:
+            pdf = pymupdf.open(str(path))
+        except Exception as exc:
+            print(f"OCR skipped for '{path.name}': could not open for rendering ({exc}).")
+            return
+
+        try:
+            for document in pages_needing_ocr:
+                page_index = document.metadata.get("page")
+                if page_index is None or page_index >= pdf.page_count:
+                    continue
+                try:
+                    pixmap = pdf[page_index].get_pixmap(dpi=200)
+                    image = Image.open(io.BytesIO(pixmap.tobytes("png")))
+                    text = pytesseract.image_to_string(image)
+                except Exception as exc:
+                    print(f"OCR failed on page {page_index + 1} of '{path.name}': {exc}")
+                    continue
+                if text.strip():
+                    document.page_content = text
+        finally:
+            pdf.close()
+
     def _load_file(self, path: Path) -> list[Document]:
         if path.suffix.lower() == ".pdf":
             documents = PyPDFLoader(str(path)).load()
+            self._ocr_pdf_pages(path, documents)
         else:
             documents = TextLoader(
                 str(path), encoding="utf-8", autodetect_encoding=True
@@ -172,11 +241,37 @@ class ArchivesIngestion:
             chunk.metadata["chunk_size"] = len(chunk.page_content)
         return chunks
 
+    def _infer_persona(self, chunks: list[Document]) -> str:
+        """Derive a one-line persona from the corpus so the standalone chat voice
+        fits whatever was uploaded. Best-effort: falls back to a generic persona."""
+        # Imported lazily to avoid a circular import (rag_engine imports ingestion).
+        from logic.persona import GENERIC_PERSONA, infer_persona_descriptor
+
+        if not chunks:
+            return GENERIC_PERSONA
+
+        sample = "\n\n".join(chunk.page_content for chunk in chunks[:8])
+        try:
+            from logic.rag_engine import build_chat_model
+
+            llm = build_chat_model(
+                self.settings.llm_provider,
+                self.settings.llm_model,
+                self.settings.llm_base_url,
+                self.settings.llm_api_key,
+                self.settings.request_timeout,
+            )
+            return infer_persona_descriptor(llm, sample)
+        except Exception as exc:
+            print(f"Persona inference failed, using generic persona: {exc}")
+            return GENERIC_PERSONA
+
     def _write_manifest(
         self,
         *,
         source_files: list[Path],
         chunks: list[Document],
+        persona: str,
     ) -> dict[str, Any]:
         manifest = {
             "embedding_provider": self.settings.embedding_provider,
@@ -186,6 +281,7 @@ class ArchivesIngestion:
             "source_count": len(source_files),
             "chunk_count": len(chunks),
             "sources": [path.name for path in source_files],
+            "persona": persona,
             "updated_at": datetime.now(timezone.utc).isoformat(),
         }
         self.manifest_path.write_text(
@@ -212,7 +308,8 @@ class ArchivesIngestion:
         db = FAISS.from_documents(chunks, self.embeddings)
         self.index_path.mkdir(parents=True, exist_ok=True)
         db.save_local(str(self.index_path))
-        self._write_manifest(source_files=source_files, chunks=chunks)
+        persona = self._infer_persona(chunks)
+        self._write_manifest(source_files=source_files, chunks=chunks, persona=persona)
         self._vector_store = db
         print(f"Archives updated. Index saved to {self.index_path}")
         return db
@@ -250,6 +347,7 @@ class ArchivesIngestion:
         fetch_k: int | None = None,
         search_type: str | None = None,
         lambda_mult: float | None = None,
+        min_score: float | None = None,
     ) -> list[tuple[Document, float | None]]:
         vector_store = self.ensure_index()
         if vector_store is None:
@@ -259,16 +357,21 @@ class ArchivesIngestion:
         resolved_fetch_k = max(fetch_k or self.settings.fetch_k, resolved_k)
         resolved_search_type = (search_type or self.settings.search_type).lower()
         resolved_lambda_mult = lambda_mult or self.settings.lambda_mult
+        threshold = self.settings.score_threshold if min_score is None else min_score
 
         if resolved_search_type == "similarity":
             try:
-                return vector_store.similarity_search_with_relevance_scores(
+                scored = vector_store.similarity_search_with_relevance_scores(
                     query,
                     k=resolved_k,
                 )
             except Exception:
                 documents = vector_store.similarity_search(query, k=resolved_k)
                 return [(document, None) for document in documents]
+
+            if threshold > 0:
+                scored = [(doc, score) for doc, score in scored if score >= threshold]
+            return scored
 
         documents = vector_store.max_marginal_relevance_search(
             query,

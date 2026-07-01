@@ -4,7 +4,6 @@ from functools import lru_cache
 from typing import Any
 
 from dotenv import load_dotenv
-from langchain.chains import create_retrieval_chain
 from langchain.chains.combine_documents import create_stuff_documents_chain
 from langchain_core.documents import Document
 from langchain_core.prompts import ChatPromptTemplate, HumanMessagePromptTemplate, PromptTemplate
@@ -14,7 +13,7 @@ from langchain_openai import ChatOpenAI
 
 from logic.config import load_rag_settings
 from logic.ingestion import ArchivesIngestion
-from logic.persona import SENTINEL_SYSTEM_PROMPT
+from logic.persona import build_system_prompt
 
 load_dotenv()
 
@@ -28,10 +27,14 @@ def build_chat_model(
     timeout: float,
 ):
     if provider == "google":
+        # Gemini Flash "thinks" before replying by default, which adds latency we
+        # don't want for short, spoken in-character answers. thinking_budget=0
+        # skips that reasoning pass and returns the answer directly.
         return ChatGoogleGenerativeAI(
             model=model_name,
             google_api_key=api_key,
             timeout=timeout,
+            thinking_budget=0,
         )
 
     if provider == "huggingface":
@@ -72,49 +75,37 @@ class NPCBrain:
             self.settings.request_timeout,
         )
 
-        self.prompt = ChatPromptTemplate.from_messages(
-            [
-                SENTINEL_SYSTEM_PROMPT,
-                HumanMessagePromptTemplate.from_template(
-                    "Question: {input}\n\nAnswer using only the archive context above."
-                ),
-            ]
-        )
         self.document_prompt = PromptTemplate.from_template(
             "[Source: {source}{page_label} | chunk {chunk_id}]\n{page_content}"
         )
+        self._rebuild_prompt()
 
-    def _build_chain(self, top_k: int | None = None):
+    def _rebuild_prompt(self):
+        """(Re)build the chat prompt around the persona inferred from the current
+        Archives, so the voice tracks whatever documents are loaded."""
+        metadata = self.ingestion.get_index_metadata()
+        descriptor = metadata.get("persona") if metadata else None
+        self.prompt = ChatPromptTemplate.from_messages(
+            [
+                build_system_prompt(descriptor),
+                HumanMessagePromptTemplate.from_template("Question: {input}"),
+            ]
+        )
+
+    def _build_document_chain(self):
         if not self.vector_store:
             return None
 
-        document_chain = create_stuff_documents_chain(
+        return create_stuff_documents_chain(
             self.llm,
             self.prompt,
             document_prompt=self.document_prompt,
             document_separator="\n\n---\n\n",
         )
 
-        resolved_top_k = max(top_k or self.settings.top_k, 1)
-        search_kwargs: dict[str, Any] = {"k": resolved_top_k}
-        search_type = self.settings.search_type
-
-        if search_type == "mmr":
-            search_kwargs.update(
-                {
-                    "fetch_k": max(self.settings.fetch_k, resolved_top_k),
-                    "lambda_mult": self.settings.lambda_mult,
-                }
-            )
-
-        retriever = self.vector_store.as_retriever(
-            search_type=search_type,
-            search_kwargs=search_kwargs,
-        )
-        return create_retrieval_chain(retriever, document_chain)
-
     def refresh_knowledge(self):
         self.vector_store = self.ingestion.ensure_index()
+        self._rebuild_prompt()
 
     def rebuild_knowledge(self, source_path: str | None = None):
         self.vector_store = self.ingestion.rebuild_index(source_path)
@@ -138,6 +129,13 @@ class NPCBrain:
         matches = self.ingestion.retrieve(question, k=k)
         return [self._serialize_match(document, score) for document, score in matches]
 
+    def _answer_without_context(self, question: str) -> str:
+        """Answer from general knowledge when the Archives have nothing to ground on.
+        We never refuse — the persona simply answers and flags it isn't from sources."""
+        prompt_value = self.prompt.format_prompt(input=question, context="")
+        result = self.llm.invoke(prompt_value.to_messages())
+        return str(result.content)
+
     def ask_with_context(
         self,
         question: str,
@@ -147,26 +145,22 @@ class NPCBrain:
         if not self.vector_store:
             self.refresh_knowledge()
 
-        if not self.vector_store:
-            return {
-                "answer": "The Archives are empty. Please upload game manuals to specify my knowledge.",
-                "sources": [],
-                "top_k": top_k or self.settings.top_k,
-            }
+        # Retrieve once, with relevance scores, then ground generation on those exact
+        # chunks. This keeps the reported sources (and their scores) identical to what
+        # the model actually read, and lets the frontend show retrieval quality.
+        matches = self.ingestion.retrieve(question, k=top_k) if self.vector_store else []
+        documents = [document for document, _ in matches]
 
-        chain = self._build_chain(top_k)
-        if chain is None:
-            return {
-                "answer": "The Archives are empty. Please upload game manuals to specify my knowledge.",
-                "sources": [],
-                "top_k": top_k or self.settings.top_k,
-            }
+        document_chain = self._build_document_chain()
+        if document_chain is not None and documents:
+            answer = document_chain.invoke({"input": question, "context": documents})
+        else:
+            # No Archives yet, or nothing relevant retrieved: still answer.
+            answer = self._answer_without_context(question)
 
-        response = chain.invoke({"input": question})
-        context_documents = response.get("context", [])
-        sources = [self._serialize_match(document) for document in context_documents]
+        sources = [self._serialize_match(document, score) for document, score in matches]
         return {
-            "answer": response["answer"],
+            "answer": answer,
             "sources": sources,
             "top_k": top_k or self.settings.top_k,
         }

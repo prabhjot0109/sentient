@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   createChatSession,
   deleteChatSession,
@@ -33,6 +33,7 @@ function serializeMessages(messages: Message[]): StoredMessage[] {
     role: message.role,
     content: message.content,
     timestamp: message.timestamp.toISOString(),
+    sources: message.sources,
   }));
 }
 
@@ -40,6 +41,7 @@ function deserializeMessages(messages: StoredMessage[]): Message[] {
   return messages.map((message) => ({
     ...message,
     timestamp: new Date(message.timestamp),
+    sources: message.sources,
   }));
 }
 
@@ -107,41 +109,45 @@ export function useChat() {
     [clientId, upsertSessionSummary]
   );
 
-  const refreshChats = useCallback(
-    async (chatIdToOpen?: string | null) => {
-      setIsHistoryLoading(true);
-      setError(null);
+  // Runs once on mount: load the chat list and open the most recent conversation.
+  // Deliberately does NOT depend on activeChatId — otherwise clicking "New chat"
+  // (which sets activeChatId to null) would recreate this callback, re-fire the
+  // init effect, and immediately re-open the latest chat, undoing the new one.
+  const loadInitialHistory = useCallback(async () => {
+    setIsHistoryLoading(true);
+    setError(null);
 
-      try {
-        const sessions = await listChatSessions(clientId);
-        const sortedSessions = sortSessions(sessions);
-        setChats(sortedSessions);
+    try {
+      const sessions = await listChatSessions(clientId);
+      const sortedSessions = sortSessions(sessions);
+      setChats(sortedSessions);
 
-        const targetChatId = chatIdToOpen ?? activeChatId ?? sortedSessions[0]?.id ?? null;
+      const targetChatId = sortedSessions[0]?.id ?? null;
 
-        if (targetChatId) {
-          const session = await getChatSession(targetChatId, clientId);
-          setActiveChatId(session.id);
-          setMessages(deserializeMessages(session.messages));
-          upsertSessionSummary(toChatSessionSummaryFromDetail(session));
-        } else {
-          setActiveChatId(null);
-          setMessages([]);
-        }
-      } catch (err) {
-        const errorMessage =
-          err instanceof Error ? err.message : "Failed to load chat history";
-        setError(errorMessage);
-      } finally {
-        setIsHistoryLoading(false);
+      if (targetChatId) {
+        const session = await getChatSession(targetChatId, clientId);
+        setActiveChatId(session.id);
+        setMessages(deserializeMessages(session.messages));
+        upsertSessionSummary(toChatSessionSummaryFromDetail(session));
+      } else {
+        setActiveChatId(null);
+        setMessages([]);
       }
-    },
-    [activeChatId, clientId, upsertSessionSummary]
-  );
+    } catch (err) {
+      const errorMessage =
+        err instanceof Error ? err.message : "Failed to load chat history";
+      setError(errorMessage);
+    } finally {
+      setIsHistoryLoading(false);
+    }
+  }, [clientId, upsertSessionSummary]);
 
+  const didInit = useRef(false);
   useEffect(() => {
-    refreshChats(null);
-  }, [refreshChats]);
+    if (didInit.current) return;
+    didInit.current = true;
+    loadInitialHistory();
+  }, [loadInitialHistory]);
 
   const persistMessages = useCallback(
     async (nextMessages: Message[], chatId: string | null) => {
@@ -167,7 +173,7 @@ export function useChat() {
   );
 
   const sendUserMessage = useCallback(
-    async (content: string, apiKey?: string) => {
+    async (content: string) => {
       if (!content.trim()) return;
 
       const userMessage: Message = {
@@ -184,7 +190,7 @@ export function useChat() {
       setError(null);
 
       try {
-        const response = await sendMessage(content, apiKey);
+        const response = await sendMessage(content);
 
         let nextMessages = userMessages;
 
@@ -194,6 +200,7 @@ export function useChat() {
             role: "assistant",
             content: response.response,
             timestamp: new Date(),
+            sources: response.sources,
           };
           nextMessages = [...userMessages, assistantMessage];
           setMessages(nextMessages);

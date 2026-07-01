@@ -42,11 +42,13 @@ export function ChatInput({
         display: "flex",
         alignItems: "flex-end",
         gap: 1,
-        borderRadius: 3,
-        px: 1,
+        borderRadius: "28px",
+        pl: 2.5,
+        pr: 1,
         py: 0.75,
         border: "1px solid var(--stroke-subtle)",
         backgroundColor: "#303030",
+        boxShadow: "0 2px 12px rgba(0, 0, 0, 0.25)",
         transition: "border-color 160ms ease, background-color 160ms ease",
         "&:focus-within": {
           borderColor: "rgba(255, 255, 255, 0.24)",
@@ -64,11 +66,10 @@ export function ChatInput({
         disabled={isLoading || disabled}
         sx={{
           flex: 1,
-          px: 0.5,
-          py: 0.5,
+          py: 1,
           color: "text.primary",
-          fontSize: "0.97rem",
-          lineHeight: 1.65,
+          fontSize: "1rem",
+          lineHeight: 1.6,
           "& .MuiInputBase-input": {
             "&::placeholder": {
               color: "text.secondary",
@@ -78,19 +79,22 @@ export function ChatInput({
         }}
         inputProps={{
           ref: inputRef,
-          style: { maxHeight: "180px" },
+          style: { maxHeight: "200px" },
         }}
       />
 
       <IconButton
         onClick={handleSubmit}
         disabled={!canSend}
+        aria-label="Send message"
         sx={{
-          width: 34,
-          height: 34,
+          flexShrink: 0,
+          width: 36,
+          height: 36,
           borderRadius: "50%",
           backgroundColor: canSend ? "primary.main" : "rgba(255, 255, 255, 0.05)",
           color: canSend ? "primary.contrastText" : "rgba(255, 255, 255, 0.28)",
+          transition: "background-color 140ms ease",
           "&:hover": {
             backgroundColor: canSend ? "primary.light" : "rgba(255, 255, 255, 0.08)",
           },

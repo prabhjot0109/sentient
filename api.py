@@ -10,11 +10,22 @@ from typing import Any, List, Optional
 
 from fastapi import FastAPI, File, Form, Header, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
-from logic.chat_store import LocalChatStore
 from logic.config import load_rag_settings
 from logic.ingestion import ArchivesIngestion
+from logic.openai_adapter import (
+    ChatCompletionRequest,
+    build_completion_response,
+    format_lore,
+    inject_lore,
+    last_user_text,
+    stream_completion,
+    to_langchain,
+)
+from logic.rag_engine import build_chat_model
+from logic.sqlite_chat_store import SQLiteChatStore
 from npc_brain import NPCBrain
 
 try:
@@ -104,6 +115,7 @@ class StoredMessage(BaseModel):
     role: str
     content: str
     timestamp: str
+    sources: Optional[List[dict]] = None
 
 
 class ChatSessionPayload(BaseModel):
@@ -132,9 +144,9 @@ def get_default_archives() -> ArchivesIngestion:
 
 
 @lru_cache(maxsize=1)
-def get_local_chat_store() -> LocalChatStore:
+def get_local_chat_store() -> SQLiteChatStore:
     settings = load_rag_settings()
-    return LocalChatStore(os.path.join(settings.data_dir, "chat_sessions.json"))
+    return SQLiteChatStore(os.path.join(settings.data_dir, "chat_sessions.db"))
 
 
 def current_timestamp() -> str:
@@ -333,6 +345,7 @@ def health_check():
         "search_type": settings.search_type,
         "top_k": settings.top_k,
         "chat_storage": "supabase" if has_supabase_chat_store() else "local",
+        "persona": index_metadata.get("persona") if index_metadata else None,
         "index_metadata": index_metadata,
     }
 
@@ -388,6 +401,72 @@ def retrieve_endpoint(payload: RetrievalInput):
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/v1/chat/completions")
+def openai_chat_completions(request: ChatCompletionRequest):
+    """OpenAI-compatible endpoint for external clients like the Mantella Skyrim mod.
+
+    The caller supplies the NPC persona and conversation history; Sentient grounds
+    the reply in retrieved lore and streams it back in OpenAI's response format.
+    The LLM provider/model/key come from the server's environment (.env).
+    """
+    try:
+        settings = load_rag_settings()
+        model_name = settings.llm_model
+
+        query = last_user_text(request.messages)
+        chunks: list = []
+        if query.strip():
+            try:
+                # Grounding wants the most *relevant* lore (similarity), not the
+                # diversity MMR optimizes for, and should drop weak matches.
+                chunks = get_archives().retrieve(
+                    query,
+                    k=settings.top_k,
+                    search_type="similarity",
+                    min_score=settings.score_threshold,
+                )
+            except Exception as e:
+                print(f"Lore retrieval failed (answering without grounding): {e}")
+
+        messages = inject_lore(to_langchain(request.messages), format_lore(chunks))
+
+        llm = build_chat_model(
+            settings.llm_provider,
+            model_name,
+            settings.llm_base_url,
+            settings.llm_api_key,
+            settings.request_timeout,
+        )
+
+        if request.stream:
+            return StreamingResponse(
+                stream_completion(llm, messages, model_name),
+                media_type="text/event-stream",
+            )
+
+        result = llm.invoke(messages)
+        return build_completion_response(str(result.content), model_name)
+    except Exception as e:
+        print(f"Chat Completions Error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/v1/models")
+def list_models():
+    """Minimal model list so OpenAI-compatible clients can populate their UI."""
+    settings = load_rag_settings()
+    return {
+        "object": "list",
+        "data": [
+            {
+                "id": settings.llm_model,
+                "object": "model",
+                "owned_by": "sentient",
+            }
+        ],
+    }
 
 
 @app.post("/v1/upload")

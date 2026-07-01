@@ -35,7 +35,7 @@ sentient/
 │   ├── ingestion.py        # Document ingestion with FAISS
 │   ├── persona.py          # AI persona configuration
 │   └── rag_engine.py       # RAG engine implementation
-├── data/                   # Document storage, FAISS index, local chat fallback
+├── data/                   # Source PDFs (tracked) + generated FAISS index & local chat DB (gitignored)
 └── frontend/               # Vite + React UI
     ├── src/
     │   ├── components/     # React components
@@ -124,7 +124,16 @@ create index if not exists chat_sessions_client_id_updated_at_idx
     on public.chat_sessions (client_id, updated_at desc);
 ```
 
-The frontend stores a browser-scoped `client_id` locally and uses it to list and reopen previous chats through the backend. If Supabase is not configured, the backend transparently falls back to local JSON chat storage under `data/chat_sessions.json`.
+The frontend stores a browser-scoped `client_id` locally and uses it to list and reopen previous chats through the backend. Supabase is **optional** — leave `SUPABASE_URL`/`SUPABASE_SERVICE_ROLE_KEY` blank and the backend transparently falls back to a local SQLite database under `data/chat_sessions.db` (this is the default; no setup required). Set both env vars and run the SQL above to switch chat history to Supabase — `has_supabase_chat_store()` in `api.py` checks both vars on every request, so it's live as soon as they're set, no restart-only caveat beyond the client being cached per key.
+
+### Scanned PDF OCR
+
+Image-only/scanned PDFs (no selectable text) are read with OCR. Pages that come back empty from normal text extraction are rendered with PyMuPDF and passed through Tesseract. This needs the **Tesseract binary** installed on the machine (the `pymupdf`, `pytesseract`, and `pillow` Python packages come in via `uv sync`):
+
+- **Windows:** install the [UB-Mannheim Tesseract build](https://github.com/UB-Mannheim/tesseract/wiki). If it isn't on your `PATH`, point the app at it with `TESSERACT_CMD=C:\Program Files\Tesseract-OCR\tesseract.exe`.
+- **macOS:** `brew install tesseract` — **Linux:** `apt install tesseract-ocr`.
+
+If Tesseract is missing, scanned PDFs simply ingest as empty with a warning in the server log — text PDFs are unaffected.
 
 ## API Endpoints
 
@@ -133,6 +142,8 @@ The frontend stores a browser-scoped `client_id` locally and uses it to list and
 | GET    | `/health`                | Health check              |
 | POST   | `/v1/chat`               | Send chat message         |
 | POST   | `/v1/retrieve`           | Inspect retrieved chunks  |
+| POST   | `/v1/chat/completions`   | OpenAI-compatible endpoint for external clients (e.g. the Mantella Skyrim mod) |
+| GET    | `/v1/models`             | Minimal model list for OpenAI-compatible clients |
 | POST   | `/v1/upload`             | Upload document (PDF/TXT) |
 | GET    | `/v1/sources`            | List uploaded sources     |
 | DELETE | `/v1/sources/{filename}` | Delete a source           |

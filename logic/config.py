@@ -51,10 +51,10 @@ def _normalize_provider(value: str | None, *, default: str = "auto") -> str:
 
 
 def _normalize_search_type(value: str | None) -> SearchType:
-    normalized = (value or "mmr").strip().lower()
+    normalized = (value or "similarity").strip().lower()
     if normalized in {"mmr", "similarity"}:
         return normalized  # type: ignore[return-value]
-    return "mmr"
+    return "similarity"
 
 
 def resolve_provider(
@@ -105,6 +105,7 @@ class RAGSettings:
     fetch_k: int
     lambda_mult: float
     search_type: SearchType
+    score_threshold: float
     request_timeout: float
 
 
@@ -181,5 +182,6 @@ def load_rag_settings(api_key: str | None = None) -> RAGSettings:
         fetch_k=fetch_k,
         lambda_mult=_env_float("RAG_MMR_LAMBDA", 0.65),
         search_type=_normalize_search_type(os.getenv("RAG_SEARCH_TYPE")),
+        score_threshold=_env_float("RAG_SCORE_THRESHOLD", 0.0),
         request_timeout=request_timeout,
     )

@@ -1,3 +1,10 @@
+# Local chat history (runtime data, regenerated per user)
+data/chat_sessions.db
+data/chat_sessions.json
+
+# Generated FAISS index (rebuilt automatically from data/*.pdf on ingestion)
+data/faiss_index/
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
