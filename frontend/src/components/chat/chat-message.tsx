@@ -37,7 +37,7 @@ const markdownSx = {
   "& li": { my: 0.4 },
   "& li::marker": { color: "text.secondary" },
   "& a": {
-    color: "#7eb6ff",
+    color: "#ffffff",
     textDecoration: "underline",
     textUnderlineOffset: "2px",
   },
@@ -51,13 +51,14 @@ const markdownSx = {
   "& code": {
     fontFamily: '"IBM Plex Mono", ui-monospace, monospace',
     fontSize: "0.86em",
-    backgroundColor: "rgba(255, 255, 255, 0.08)",
+    backgroundColor: "rgba(255, 255, 255, 0.06)",
     borderRadius: "5px",
     px: "0.4em",
     py: "0.15em",
+    color: "#ffffff",
   },
   "& pre": {
-    backgroundColor: "#0d0d0d",
+    backgroundColor: "var(--surface-inset)",
     border: "1px solid var(--stroke-subtle)",
     borderRadius: "12px",
     p: 2,
@@ -98,22 +99,63 @@ export function ChatMessage({ message }: ChatMessageProps) {
 
   if (isUser) {
     return (
-      <Box sx={{ display: "flex", justifyContent: "flex-end", width: "100%" }}>
+      <Box
+        sx={{
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "flex-end",
+          width: "100%",
+          mb: 1,
+          "&:hover .message-actions": { opacity: 1 },
+        }}
+      >
         <Box
           sx={{
-            maxWidth: "85%",
+            maxWidth: "75%",
             borderRadius: "20px",
-            backgroundColor: "#303030",
-            px: 2,
+            backgroundColor: "rgba(255, 255, 255, 0.06)",
+            border: "1px solid rgba(255, 255, 255, 0.08)",
+            px: 2.5,
             py: 1.25,
-            color: "text.primary",
-            fontSize: "1rem",
-            lineHeight: 1.7,
+            color: "#ffffff",
+            fontSize: "0.975rem",
+            lineHeight: 1.6,
             whiteSpace: "pre-wrap",
             wordBreak: "break-word",
           }}
         >
           {message.content}
+        </Box>
+
+        <Box
+          className="message-actions"
+          sx={{
+            mt: 0.5,
+            opacity: 0,
+            transition: "opacity 140ms ease",
+            "@media (hover: none)": { opacity: 1 },
+          }}
+        >
+          <Tooltip title={copied ? "Copied" : "Copy"} placement="bottom">
+            <IconButton
+              size="small"
+              onClick={handleCopy}
+              aria-label="Copy message"
+              sx={{
+                color: copied ? "success.main" : "text.secondary",
+                "&:hover": {
+                  color: "#ffffff",
+                  backgroundColor: "rgba(255, 255, 255, 0.06)",
+                },
+              }}
+            >
+              {copied ? (
+                <CheckIcon sx={{ fontSize: 14 }} />
+              ) : (
+                <CopyIcon sx={{ fontSize: 14 }} />
+              )}
+            </IconButton>
+          </Tooltip>
         </Box>
       </Box>
     );
@@ -123,52 +165,87 @@ export function ChatMessage({ message }: ChatMessageProps) {
     <Box
       sx={{
         width: "100%",
-        // reveal the action row when hovering anywhere over the message
+        display: "flex",
+        flexDirection: "column",
+        gap: 1.25,
+        mb: 2.5,
         "&:hover .message-actions": { opacity: 1 },
       }}
     >
-      <Box sx={markdownSx}>
-        <ReactMarkdown remarkPlugins={[remarkGfm]}>
-          {message.content}
-        </ReactMarkdown>
+      {/* Assistant Header Row */}
+      <Box sx={{ display: "flex", alignItems: "center", gap: 1.25, mt: 1 }}>
+        <Box
+          sx={{
+            width: 24,
+            height: 24,
+            borderRadius: "50%",
+            backgroundColor: "#ffffff",
+            color: "#000000",
+            display: "grid",
+            placeItems: "center",
+            fontWeight: 700,
+            fontSize: "0.75rem",
+          }}
+        >
+          S
+        </Box>
+        <Typography
+          variant="subtitle2"
+          sx={{
+            color: "#ffffff",
+            fontWeight: 650,
+            fontSize: "0.9rem",
+          }}
+        >
+          Sentient
+        </Typography>
       </Box>
 
-      {message.sources && message.sources.length > 0 && (
-        <>
-          <SourceTags sources={message.sources} />
-          <RetrievedLore sources={message.sources} />
-        </>
-      )}
+      {/* Message Content */}
+      <Box sx={{ pl: 0, pr: { md: 4 } }}>
+        <Box sx={markdownSx}>
+          <ReactMarkdown remarkPlugins={[remarkGfm]}>
+            {message.content}
+          </ReactMarkdown>
+        </Box>
 
-      <Box
-        className="message-actions"
-        sx={{
-          mt: 0.5,
-          opacity: 0,
-          transition: "opacity 140ms ease",
-          "@media (hover: none)": { opacity: 1 },
-        }}
-      >
-        <Tooltip title={copied ? "Copied" : "Copy"} placement="bottom">
-          <IconButton
-            size="small"
-            onClick={handleCopy}
-            aria-label="Copy response"
-            sx={{
-              color: copied ? "success.main" : "text.secondary",
-              "&:hover": {
-                color: "text.primary",
-                backgroundColor: "rgba(255, 255, 255, 0.06)",
-              },
-            }}
-          >
-            {copied ? (
-              <CheckIcon sx={{ fontSize: 16 }} />
-            ) : (
-              <CopyIcon sx={{ fontSize: 16 }} />
-            )}
-          </IconButton>
-        </Tooltip>
+        {message.sources && message.sources.length > 0 && (
+          <>
+            <SourceTags sources={message.sources} />
+            <RetrievedLore sources={message.sources} />
+          </>
+        )}
+
+        <Box
+          className="message-actions"
+          sx={{
+            mt: 1,
+            opacity: 0,
+            transition: "opacity 140ms ease",
+            "@media (hover: none)": { opacity: 1 },
+          }}
+        >
+          <Tooltip title={copied ? "Copied" : "Copy"} placement="bottom">
+            <IconButton
+              size="small"
+              onClick={handleCopy}
+              aria-label="Copy response"
+              sx={{
+                color: copied ? "success.main" : "text.secondary",
+                "&:hover": {
+                  color: "#ffffff",
+                  backgroundColor: "rgba(255, 255, 255, 0.06)",
+                },
+              }}
+            >
+              {copied ? (
+                <CheckIcon sx={{ fontSize: 14 }} />
+              ) : (
+                <CopyIcon sx={{ fontSize: 14 }} />
+              )}
+            </IconButton>
+          </Tooltip>
+        </Box>
       </Box>
     </Box>
   );
@@ -192,19 +269,19 @@ function SourceTags({ sources }: { sources: RetrievedSource[] }) {
   }
 
   return (
-    <Box sx={{ mt: 1.25, display: "flex", flexWrap: "wrap", gap: 0.75, alignItems: "center" }}>
+    <Box sx={{ mt: 1.5, display: "flex", flexWrap: "wrap", gap: 0.75, alignItems: "center" }}>
       <Typography variant="caption" sx={{ color: "text.secondary", mr: 0.25 }}>
         Sources
       </Typography>
       {tags.map((label) => (
         <Chip
           key={label}
-          icon={<SourceIcon sx={{ fontSize: 14 }} />}
+          icon={<SourceIcon sx={{ fontSize: 13 }} />}
           label={label}
           size="small"
           sx={{
             height: 24,
-            borderRadius: "8px",
+            borderRadius: "6px",
             border: "1px solid var(--stroke-subtle)",
             backgroundColor: "rgba(255, 255, 255, 0.03)",
             color: "text.secondary",
@@ -223,7 +300,7 @@ function RetrievedLore({ sources }: { sources: RetrievedSource[] }) {
   const [open, setOpen] = useState(false);
 
   return (
-    <Box sx={{ mt: 1.25 }}>
+    <Box sx={{ mt: 1.5 }}>
       <Box
         component="button"
         onClick={() => setOpen((value) => !value)}
@@ -236,77 +313,112 @@ function RetrievedLore({ sources }: { sources: RetrievedSource[] }) {
           cursor: "pointer",
           p: 0,
           color: "text.secondary",
-          fontSize: "0.8rem",
-          fontWeight: 500,
-          "&:hover": { color: "text.primary" },
+          fontFamily: "var(--font-display)",
+          fontSize: "0.75rem",
+          fontWeight: 600,
+          letterSpacing: "0.06em",
+          textTransform: "uppercase",
+          "&:hover": { color: "#ffffff" },
         }}
       >
         <ExpandMoreIcon
           sx={{
-            fontSize: 18,
+            fontSize: 16,
             transition: "transform 140ms ease",
             transform: open ? "rotate(180deg)" : "none",
           }}
         />
-        Retrieved lore ({sources.length})
+        Lore Entries ({sources.length})
       </Box>
 
       <Collapse in={open}>
         <Box sx={{ mt: 1, display: "flex", flexDirection: "column", gap: 1 }}>
-          {sources.map((source, index) => (
-            <Box
-              key={source.chunk_id ?? index}
-              sx={{
-                border: "1px solid var(--stroke-subtle)",
-                borderRadius: "10px",
-                p: 1.25,
-                backgroundColor: "rgba(255, 255, 255, 0.02)",
-              }}
-            >
+          {sources.map((source, index) => {
+            const relevancePct =
+              typeof source.score === "number"
+                ? Math.round(Math.max(0, Math.min(1, source.score)) * 100)
+                : null;
+
+            return (
               <Box
+                key={source.chunk_id ?? index}
                 sx={{
-                  display: "flex",
-                  justifyContent: "space-between",
-                  gap: 1,
-                  mb: 0.5,
+                  borderLeft: "2px solid var(--accent-amber)",
+                  borderRadius: "4px",
+                  p: 1.25,
+                  backgroundColor: "var(--surface-inset)",
                 }}
               >
-                <Typography
-                  variant="caption"
-                  sx={{ color: "text.secondary", fontWeight: 600 }}
+                <Box
+                  sx={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    gap: 1,
+                    mb: 0.5,
+                  }}
                 >
-                  {source.source}
-                  {source.page_label}
+                  <Typography
+                    variant="caption"
+                    sx={{
+                      fontFamily: "var(--font-display)",
+                      color: "text.secondary",
+                      fontWeight: 600,
+                      letterSpacing: "0.02em",
+                    }}
+                  >
+                    {source.source}
+                    {source.page_label}
+                  </Typography>
+                  {relevancePct !== null && (
+                    <Tooltip title="Relevance score (higher = closer match)" placement="left">
+                      <Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>
+                        <Box
+                          sx={{
+                            width: 40,
+                            height: 4,
+                            borderRadius: "999px",
+                            backgroundColor: "rgba(255, 255, 255, 0.08)",
+                            overflow: "hidden",
+                          }}
+                        >
+                          <Box
+                            sx={{
+                              width: `${relevancePct}%`,
+                              height: "100%",
+                              backgroundColor: "var(--accent-amber)",
+                            }}
+                          />
+                        </Box>
+                        <Typography
+                          variant="caption"
+                          sx={{
+                            color: "text.secondary",
+                            fontFamily: '"IBM Plex Mono", ui-monospace, monospace',
+                            whiteSpace: "nowrap",
+                          }}
+                        >
+                          {source.score!.toFixed(3)}
+                        </Typography>
+                      </Box>
+                    </Tooltip>
+                  )}
+                </Box>
+                <Typography
+                  variant="body2"
+                  sx={{
+                    color: "text.secondary",
+                    fontSize: "0.85rem",
+                    lineHeight: 1.6,
+                    whiteSpace: "pre-wrap",
+                    wordBreak: "break-word",
+                  }}
+                >
+                  {source.content}
                 </Typography>
-                {typeof source.score === "number" && (
-                  <Tooltip title="Relevance score (higher = closer match)" placement="left">
-                    <Typography
-                      variant="caption"
-                      sx={{
-                        color: "text.secondary",
-                        fontFamily: '"IBM Plex Mono", ui-monospace, monospace',
-                        whiteSpace: "nowrap",
-                      }}
-                    >
-                      ◇ {source.score.toFixed(3)}
-                    </Typography>
-                  </Tooltip>
-                )}
               </Box>
-              <Typography
-                variant="body2"
-                sx={{
-                  color: "text.secondary",
-                  fontSize: "0.85rem",
-                  lineHeight: 1.6,
-                  whiteSpace: "pre-wrap",
-                  wordBreak: "break-word",
-                }}
-              >
-                {source.content}
-              </Typography>
-            </Box>
-          ))}
+            );
+          })}
         </Box>
       </Collapse>
     </Box>

@@ -12,7 +12,7 @@ Sentient is a sophisticated RAG (Retrieval-Augmented Generation) based AI NPC sy
 
 ## Tech Stack
 
-- **Backend:** FastAPI (Python), LangChain, Google Gemini, FAISS
+- **Backend:** FastAPI (Python), LangChain, FAISS, Google Gemini / OpenAI / HuggingFace (auto-selected or explicit)
 - **Frontend:** Vite + React (TypeScript), MUI
 - **Infrastructure:** RESTful API, Docker-ready
 
@@ -31,10 +31,14 @@ Sentient is a sophisticated RAG (Retrieval-Augmented Generation) based AI NPC sy
 sentient/
 ├── api.py                  # FastAPI backend server
 ├── npc_brain.py            # Core brain logic
+├── run_rag.py              # Manual CLI smoke-test for the RAG pipeline (not part of the API)
 ├── logic/
+│   ├── config.py           # Env-driven settings & provider resolution
 │   ├── ingestion.py        # Document ingestion with FAISS
+│   ├── openai_adapter.py   # OpenAI-compatible /v1/chat/completions adapter
 │   ├── persona.py          # AI persona configuration
-│   └── rag_engine.py       # RAG engine implementation
+│   ├── rag_engine.py       # RAG engine implementation
+│   └── sqlite_chat_store.py # Local chat history fallback (used when Supabase isn't configured)
 ├── data/                   # Source PDFs (tracked) + generated FAISS index & local chat DB (gitignored)
 └── frontend/               # Vite + React UI
     ├── src/
@@ -88,20 +92,50 @@ Visit [http://localhost:5173](http://localhost:5173) (if using Vite) or [http://
 GOOGLE_API_KEY=your_api_key
 OPENAI_API_KEY=your_api_key
 HUGGINGFACEHUB_API_TOKEN=your_api_key
+OPENAI_BASE_URL=
 LLM_PROVIDER=auto
 EMBEDDING_PROVIDER=auto
 MODEL_NAME=gemini-2.5-flash
-EMBEDDING_MODEL_NAME=models/gemini-embedding-001
+EMBEDDING_MODEL_NAME=models/gemini-embedding-2
+OPENAI_TIMEOUT_SECONDS=60
+DATA_DIR=data
+FAISS_INDEX_PATH=data/faiss_index
+RAG_SEARCH_TYPE=similarity
 RAG_TOP_K=4
 RAG_FETCH_K=12
 RAG_MMR_LAMBDA=0.65
+RAG_SCORE_THRESHOLD=0.2
+RAG_CHUNK_SIZE=900
+RAG_CHUNK_OVERLAP=150
 SUPABASE_URL=your_supabase_project_url
 SUPABASE_SERVICE_ROLE_KEY=your_supabase_service_role_key
 ```
 
-The backend defaults to Google Gemini for both chat completion (`gemini-2.5-flash`) and embeddings (`models/gemini-embedding-001`) when `GOOGLE_API_KEY` is set, falls back to OpenAI when `OPENAI_API_KEY` is set instead, and falls back to HuggingFace when no hosted provider key is configured — embeddings run locally (no key needed) and chat runs through HuggingFace's hosted inference router (keyless and rate-limited, or with `HUGGINGFACEHUB_API_TOKEN`). Vectors are stored in a local FAISS index under `data/faiss_index`.
+#### Choosing an LLM / embedding provider
 
-Uploads and deletions rebuild the FAISS index from the current files under `data/`, write an index manifest, and keep retrieval aligned with the actual source documents and embedding configuration.
+Sentient supports three providers and picks between them automatically — you don't have to hardcode one:
+
+| `LLM_PROVIDER` / `EMBEDDING_PROVIDER` | When it's used | Default chat model | Default embedding model |
+| --- | --- | --- | --- |
+| `auto` (default) | Resolved per-request: an explicit request API key is checked by prefix first (`AIza...` → Google, `hf_...` → HuggingFace, anything else → OpenAI); otherwise whichever of `GOOGLE_API_KEY` / `OPENAI_API_KEY` / `HUGGINGFACEHUB_API_TOKEN` (or `HF_TOKEN`) is set in `.env`, checked in that order | — | — |
+| `google` | Set explicitly, or auto-resolved when only `GOOGLE_API_KEY` is set | `gemini-2.5-flash` | `models/gemini-embedding-2` |
+| `openai` | Set explicitly, or auto-resolved when only `OPENAI_API_KEY` is set | `gpt-4o-mini` | `text-embedding-3-small` |
+| `huggingface` | Set explicitly, or the fallback when **no** provider key is set at all | `Qwen/Qwen2.5-7B-Instruct` (hosted, keyless and rate-limited, or with `HUGGINGFACEHUB_API_TOKEN`) | `BAAI/bge-base-en-v1.5` (runs locally, no key needed) |
+
+`MODEL_NAME` / `EMBEDDING_MODEL_NAME` override the default for whichever provider is resolved. `OPENAI_BASE_URL` points the OpenAI provider at a compatible endpoint instead of api.openai.com; `OPENAI_TIMEOUT_SECONDS` (default 60) applies to all providers' requests. Vectors are stored in a local FAISS index under `FAISS_INDEX_PATH` (default `<DATA_DIR>/faiss_index`, `DATA_DIR` defaults to `data`).
+
+Uploads and deletions rebuild the FAISS index from the current files under `DATA_DIR`, write an index manifest, and keep retrieval aligned with the actual source documents and embedding configuration.
+
+#### Retrieval & ingestion tuning
+
+| Var | Default | Meaning |
+| --- | --- | --- |
+| `RAG_SEARCH_TYPE` | `similarity` | `similarity` (ranked by closeness, supports `RAG_SCORE_THRESHOLD`) or `mmr` (maximal marginal relevance, favors diverse chunks) |
+| `RAG_TOP_K` | `4` | Chunks returned per query |
+| `RAG_FETCH_K` | `max(top_k * 3, top_k)` | Candidate pool size before MMR re-ranking |
+| `RAG_MMR_LAMBDA` | `0.65` | MMR relevance/diversity balance (0–1), only used when `RAG_SEARCH_TYPE=mmr` |
+| `RAG_SCORE_THRESHOLD` | `0.0` | Drops retrieved chunks below this relevance score (0–1) on the grounding path used by `/v1/chat/completions`; `0` keeps everything |
+| `RAG_CHUNK_SIZE` / `RAG_CHUNK_OVERLAP` | `900` / `150` | Document chunking during ingestion |
 
 ### Supabase Chat Storage
 
@@ -134,6 +168,10 @@ Image-only/scanned PDFs (no selectable text) are read with OCR. Pages that come 
 - **macOS:** `brew install tesseract` — **Linux:** `apt install tesseract-ocr`.
 
 If Tesseract is missing, scanned PDFs simply ingest as empty with a warning in the server log — text PDFs are unaffected.
+
+### Dev tooling
+
+`python run_rag.py` sanity-checks the RAG pipeline (index rebuild, retrieval, and — if an API key is set — generation) from the terminal, without starting the API server.
 
 ## API Endpoints
 

@@ -39,18 +39,3 @@ export interface ChatSessionSummary {
   messageCount: number;
 }
 
-export interface ChatSession extends ChatSessionSummary {
-  messages: Message[];
-}
-
-export interface ChatState {
-  messages: Message[];
-  isLoading: boolean;
-  error: string | null;
-}
-
-export interface SourcesState {
-  sources: Source[];
-  isLoading: boolean;
-  error: string | null;
-}

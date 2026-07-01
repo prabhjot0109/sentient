@@ -1,7 +1,7 @@
 from __future__ import annotations
 
+import asyncio
 import os
-import shutil
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from functools import lru_cache
@@ -61,12 +61,10 @@ app = FastAPI(title="Sentient AI API", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-        "http://localhost:5173",
-        "http://127.0.0.1:5173",
-    ],
+    # Vite picks the next free port (5174, 5175, ...) whenever 5173 is already
+    # taken by another running dev server, so pin the allow-list to a regex
+    # instead of a fixed port list to avoid breaking on port bumps.
+    allow_origin_regex=r"http://(localhost|127\.0\.0\.1):\d+",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -474,7 +472,14 @@ async def upload_file(
     file: UploadFile = File(...),
     api_key: Optional[str] = Form(default=None),
 ):
-    """Upload a document to be ingested into the knowledge base."""
+    """Upload a document to be ingested into the knowledge base.
+
+    Embedding a PDF is slow (parsing, OCR, embedding calls), so it runs in a
+    worker thread via `asyncio.to_thread` instead of blocking the event loop.
+    That keeps `/health`, `/v1/chat`, etc. responsive while an upload is in
+    flight, and lets multiple uploads embed concurrently (see
+    ArchivesIngestion.add_file for how concurrent writes stay index-safe).
+    """
     global brain
 
     try:
@@ -492,19 +497,20 @@ async def upload_file(
             )
 
         file_path = str(archives.data_dir / safe_name)
+        contents = await file.read()
         with open(file_path, "wb") as buffer:
-            shutil.copyfileobj(file.file, buffer)
+            buffer.write(contents)
 
-        archives.ingest(file_path)
+        index_metadata = await asyncio.to_thread(archives.add_file, file_path)
 
         if brain:
-            brain.refresh_knowledge()
+            await asyncio.to_thread(brain.refresh_knowledge)
 
         return {
             "success": True,
             "message": f"File '{safe_name}' uploaded and indexed.",
             "filename": safe_name,
-            "index_metadata": archives.get_index_metadata(),
+            "index_metadata": index_metadata,
         }
     except HTTPException:
         raise
@@ -532,7 +538,7 @@ def delete_source(filename: str, x_api_key: Optional[str] = Header(default=None,
 
     try:
         os.remove(file_path)
-        archives.rebuild_index()
+        index_metadata = archives.remove_file(safe_name)
 
         if brain:
             brain.refresh_knowledge()
@@ -540,7 +546,7 @@ def delete_source(filename: str, x_api_key: Optional[str] = Header(default=None,
         return {
             "success": True,
             "message": f"File '{safe_name}' deleted.",
-            "index_metadata": archives.get_index_metadata(),
+            "index_metadata": index_metadata,
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

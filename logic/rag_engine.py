@@ -30,11 +30,16 @@ def build_chat_model(
         # Gemini Flash "thinks" before replying by default, which adds latency we
         # don't want for short, spoken in-character answers. thinking_budget=0
         # skips that reasoning pass and returns the answer directly.
+        # max_retries=2 (default 6) because the langchain client retries 429s
+        # with exponential backoff regardless of cause; a daily quota error
+        # isn't transient, so retrying it 6 times just makes every request
+        # hang for up to a minute before failing anyway.
         return ChatGoogleGenerativeAI(
             model=model_name,
             google_api_key=api_key,
             timeout=timeout,
             thinking_budget=0,
+            max_retries=2,
         )
 
     if provider == "huggingface":
@@ -104,6 +109,7 @@ class NPCBrain:
         )
 
     def refresh_knowledge(self):
+        self.ingestion.invalidate_cache()
         self.vector_store = self.ingestion.ensure_index()
         self._rebuild_prompt()
 
@@ -168,17 +174,6 @@ class NPCBrain:
     def ask(self, question: str, *, top_k: int | None = None):
         return self.ask_with_context(question, top_k=top_k)["answer"]
 
-    def learn_from_file(self, path: str):
-        self.vector_store = self.ingestion.ingest(path)
-        return "Knowledge assimilated into the Archives."
-
     def add_documents(self, source_path: str):
         self.rebuild_knowledge(source_path)
         return "Archives rebuilt successfully."
-
-    def query(self, question: str):
-        return self.ask(question)
-
-
-class NeuralRAG(NPCBrain):
-    pass

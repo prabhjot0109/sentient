@@ -1,4 +1,4 @@
-import { useRef, type ChangeEvent } from "react";
+import { useRef, useState, type ChangeEvent } from "react";
 import {
   Alert,
   Box,
@@ -52,8 +52,10 @@ export function AppSidebar({
   const { sources, isLoading, isUploading, error, upload, remove } =
     useSources();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [activeTab, setActiveTab] = useState<"chats" | "sources">("chats");
+
   const expanded = isMobile || isOpen;
-  const sidebarWidth = expanded ? 268 : 64;
+  const sidebarWidth = expanded ? 260 : 60;
 
   const handleFileSelect = async (e: ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
@@ -78,392 +80,439 @@ export function AppSidebar({
         backgroundColor: "var(--surface-raised)",
         display: "flex",
         flexDirection: "column",
+        alignItems: expanded ? "stretch" : "center",
         borderRight: "1px solid var(--stroke-subtle)",
-        transition: "width 0.24s ease",
+        transition: "width 0.22s cubic-bezier(0.4, 0, 0.2, 1)",
         overflow: "hidden",
+        position: isMobile ? "fixed" : "relative",
+        zIndex: 1200,
+        py: expanded ? 0 : 2,
+        gap: expanded ? 0 : 2,
       }}
     >
-      <Box
-        sx={{
-          px: expanded ? 2 : 1.25,
-          py: 1.25,
-          display: "flex",
-          alignItems: "center",
-          justifyContent: expanded ? "space-between" : "center",
-          gap: 1,
-        }}
-      >
-        {expanded ? (
-          <Box>
-            <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
-              Sentient
-            </Typography>
-            <Typography variant="body2" sx={{ color: "text.secondary", fontSize: "0.75rem", lineHeight: 1.2 }}>
-              AI NPC • Game Lore Context
-            </Typography>
-          </Box>
-        ) : null}
-
-        <Tooltip
-          title={isMobile ? "Close sidebar" : expanded ? "Collapse sidebar" : "Expand sidebar"}
-          placement="right"
-        >
-          <IconButton
-            onClick={isMobile ? onClose : onToggle}
-            size="small"
-            sx={{
-              width: 36,
-              height: 36,
-              borderRadius: 2.5,
-              color: "text.secondary",
-              border: expanded ? "1px solid transparent" : "1px solid var(--stroke-subtle)",
-              backgroundColor: expanded ? "transparent" : "rgba(255, 255, 255, 0.03)",
-              "&:hover": { bgcolor: "rgba(255, 255, 255, 0.06)" },
-            }}
-          >
-            {isMobile ? (
-              <CloseIcon sx={{ fontSize: 18 }} />
-            ) : (
+      {!expanded ? (
+        <>
+          {/* Collapsed state: Circular action buttons */}
+          <Tooltip title="Expand sidebar" placement="right">
+            <IconButton
+              onClick={onToggle}
+              size="small"
+              sx={{
+                width: 40,
+                height: 40,
+                borderRadius: "50%",
+                color: "text.secondary",
+                "&:hover": { color: "#ffffff", bgcolor: "rgba(255, 255, 255, 0.06)" },
+              }}
+            >
               <MenuOpenIcon
                 sx={{
                   fontSize: 18,
-                  transform: expanded ? "none" : "rotate(180deg)",
-                  transition: "transform 180ms ease",
+                  transform: "rotate(180deg)",
                 }}
               />
-            )}
-          </IconButton>
-        </Tooltip>
-      </Box>
+            </IconButton>
+          </Tooltip>
 
-      <Box
-        sx={{
-          px: expanded ? 2 : 1.25,
-          pb: 1.5,
-          display: "flex",
-          flexDirection: "column",
-          gap: 1,
-          justifyContent: expanded ? "stretch" : "center",
-        }}
-      >
-        {expanded ? (
-          <Button
-            fullWidth
-            variant="contained"
-            onClick={onNewChat}
-            startIcon={<NewChatIcon />}
-            sx={{ justifyContent: "flex-start" }}
-          >
-            New chat
-          </Button>
-        ) : (
+          <Box sx={{ width: 24, height: "1px", bgcolor: "var(--stroke-subtle)", my: 0.5 }} />
+
           <Tooltip title="New chat" placement="right">
             <IconButton
               onClick={onNewChat}
               sx={{
-                width: 36,
-                height: 36,
-                borderRadius: 2.5,
-                color: "primary.contrastText",
-                bgcolor: "primary.main",
-                "&:hover": { bgcolor: "primary.light" },
+                width: 40,
+                height: 40,
+                borderRadius: "50%",
+                border: "1px solid var(--stroke-subtle)",
+                backgroundColor: "rgba(255, 255, 255, 0.02)",
+                color: "text.secondary",
+                "&:hover": {
+                  color: "#ffffff",
+                  borderColor: "rgba(255, 255, 255, 0.15)",
+                  backgroundColor: "rgba(255, 255, 255, 0.06)",
+                },
               }}
             >
               <NewChatIcon sx={{ fontSize: 18 }} />
             </IconButton>
           </Tooltip>
-        )}
 
-        {expanded ? (
-          <Button
-            fullWidth
-            variant="outlined"
-            onClick={() => fileInputRef.current?.click()}
-            disabled={isUploading}
-            startIcon={
-              isUploading ? (
-                <CircularProgress size={16} color="inherit" />
-              ) : (
-                <UploadIcon />
-              )
-            }
-            sx={{
-              justifyContent: "flex-start",
-              backgroundColor: "rgba(255, 255, 255, 0.02)",
-            }}
-          >
-            {isUploading ? "Uploading" : "Add source"}
-          </Button>
-        ) : (
           <Tooltip title="Add source" placement="right">
             <IconButton
               onClick={() => fileInputRef.current?.click()}
               disabled={isUploading}
               sx={{
-                width: 36,
-                height: 36,
-                borderRadius: 2.5,
+                width: 40,
+                height: 40,
+                borderRadius: "50%",
                 border: "1px solid var(--stroke-subtle)",
-                color: "text.primary",
-                bgcolor: "rgba(255, 255, 255, 0.03)",
-                "&:hover": { bgcolor: "rgba(255, 255, 255, 0.06)" },
+                backgroundColor: "rgba(255, 255, 255, 0.02)",
+                color: "text.secondary",
+                "&:hover": {
+                  color: "#ffffff",
+                  borderColor: "rgba(255, 255, 255, 0.15)",
+                  backgroundColor: "rgba(255, 255, 255, 0.06)",
+                },
               }}
             >
               {isUploading ? (
-                <CircularProgress size={18} color="inherit" />
+                <CircularProgress size={16} color="inherit" />
               ) : (
-                <UploadIcon />
+                <UploadIcon sx={{ fontSize: 18 }} />
               )}
             </IconButton>
           </Tooltip>
-        )}
 
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept=".pdf,.txt"
-          multiple
-          onChange={handleFileSelect}
-          style={{ display: "none" }}
-        />
-      </Box>
+          <Box sx={{ flex: 1 }} />
 
-      <Box
-        sx={{
-          px: expanded ? 1.5 : 1.25,
-          pb: 1.5,
-          minHeight: 0,
-          display: "flex",
-          flexDirection: "column",
-          flex: expanded ? 1 : "0 0 auto",
-        }}
-      >
-        {expanded ? (
+          <Tooltip title="Settings" placement="right">
+            <IconButton
+              onClick={onOpenSettings}
+              sx={{
+                width: 40,
+                height: 40,
+                borderRadius: "50%",
+                border: "1px solid var(--stroke-subtle)",
+                backgroundColor: "rgba(255, 255, 255, 0.02)",
+                color: "text.secondary",
+                "&:hover": {
+                  color: "#ffffff",
+                  borderColor: "rgba(255, 255, 255, 0.15)",
+                  backgroundColor: "rgba(255, 255, 255, 0.06)",
+                },
+              }}
+            >
+              <SettingsIcon sx={{ fontSize: 18 }} />
+            </IconButton>
+          </Tooltip>
+        </>
+      ) : (
+        <>
+          {/* Expanded State Content */}
+          {/* Header Row */}
           <Box
             sx={{
-              px: 0.5,
-              mb: 1,
+              px: 2,
+              py: 2,
               display: "flex",
               alignItems: "center",
               justifyContent: "space-between",
+              gap: 1,
             }}
           >
-            <Typography variant="overline" sx={{ color: "text.secondary" }}>
-              Chats
+            <Typography
+              variant="subtitle1"
+              sx={{ fontWeight: 700, fontSize: "1rem", color: "#ffffff", letterSpacing: "-0.01em" }}
+            >
+              Sentient
             </Typography>
-            <Typography variant="caption" sx={{ color: "text.secondary" }}>
-              {chats.length}
-            </Typography>
-          </Box>
-        ) : null}
 
-        {isChatLoading && expanded ? (
-          <Box sx={{ textAlign: "center", py: 2 }}>
-            <CircularProgress size={18} />
-          </Box>
-        ) : chats.length > 0 ? (
-          <List
-            sx={{
-              p: 0,
-              display: "flex",
-              flexDirection: "column",
-              gap: 0.5,
-              flex: 1,
-              minHeight: 0,
-              maxHeight: expanded ? "none" : 0,
-              overflowY: expanded ? "auto" : "hidden",
-            }}
-          >
-            {chats.map((chat) => (
-              <Box
-                key={chat.id}
+            <Tooltip title={isMobile ? "Close sidebar" : "Collapse sidebar"} placement="right">
+              <IconButton
+                onClick={isMobile ? onClose : onToggle}
+                size="small"
                 sx={{
-                  display: "flex",
-                  alignItems: "stretch",
-                  gap: 0.5,
+                  width: 32,
+                  height: 32,
+                  borderRadius: "8px",
+                  color: "text.secondary",
+                  "&:hover": { color: "#ffffff", bgcolor: "rgba(255, 255, 255, 0.06)" },
                 }}
               >
-                <ListItemButton
-                  selected={chat.id === activeChatId}
-                  onClick={() => void onSelectChat(chat.id)}
+                {isMobile ? (
+                  <CloseIcon sx={{ fontSize: 18 }} />
+                ) : (
+                  <MenuOpenIcon sx={{ fontSize: 18 }} />
+                )}
+              </IconButton>
+            </Tooltip>
+          </Box>
+
+          {/* Tab Navigation */}
+          <Box sx={{ px: 2, pb: 2 }}>
+            <Box
+              sx={{
+                display: "flex",
+                borderRadius: "8px",
+                p: "3px",
+                backgroundColor: "rgba(255, 255, 255, 0.03)",
+                border: "1px solid rgba(255, 255, 255, 0.06)",
+              }}
+            >
+              <Button
+                onClick={() => setActiveTab("chats")}
+                sx={{
+                  flex: 1,
+                  py: 0.5,
+                  fontSize: "0.78rem",
+                  fontWeight: 600,
+                  borderRadius: "6px",
+                  minHeight: 28,
+                  backgroundColor: activeTab === "chats" ? "rgba(255, 255, 255, 0.08)" : "transparent",
+                  color: activeTab === "chats" ? "#ffffff" : "text.secondary",
+                  "&:hover": {
+                    backgroundColor: activeTab === "chats" ? "rgba(255, 255, 255, 0.1)" : "rgba(255, 255, 255, 0.04)",
+                    color: "#ffffff",
+                  },
+                }}
+              >
+                Chats
+              </Button>
+              <Button
+                onClick={() => setActiveTab("sources")}
+                sx={{
+                  flex: 1,
+                  py: 0.5,
+                  fontSize: "0.78rem",
+                  fontWeight: 600,
+                  borderRadius: "6px",
+                  minHeight: 28,
+                  backgroundColor: activeTab === "sources" ? "rgba(255, 255, 255, 0.08)" : "transparent",
+                  color: activeTab === "sources" ? "#ffffff" : "text.secondary",
+                  "&:hover": {
+                    backgroundColor: activeTab === "sources" ? "rgba(255, 255, 255, 0.1)" : "rgba(255, 255, 255, 0.04)",
+                    color: "#ffffff",
+                  },
+                }}
+              >
+                Knowledge
+              </Button>
+            </Box>
+          </Box>
+
+          {/* Tab Contents */}
+          <Box
+            sx={{
+              flex: 1,
+              minHeight: 0,
+              display: "flex",
+              flexDirection: "column",
+              px: 2,
+              pb: 2,
+              overflowY: "auto",
+            }}
+          >
+            {activeTab === "chats" ? (
+              <Box sx={{ display: "flex", flexDirection: "column", gap: 1.5, flex: 1, minHeight: 0 }}>
+                {/* New Chat Button */}
+                <Button
+                  fullWidth
+                  onClick={onNewChat}
+                  startIcon={<NewChatIcon sx={{ fontSize: 16 }} />}
                   sx={{
-                    borderRadius: 2,
-                    border: "1px solid transparent",
-                    alignItems: "flex-start",
+                    justifyContent: "center",
                     py: 1,
-                    px: 1,
-                    backgroundColor:
-                      chat.id === activeChatId
-                        ? "rgba(255, 255, 255, 0.06)"
-                        : "transparent",
-                    borderColor:
-                      chat.id === activeChatId
-                        ? "rgba(255, 255, 255, 0.1)"
-                        : "transparent",
+                    borderRadius: "8px",
+                    backgroundColor: "#ffffff",
+                    color: "#000000",
+                    fontWeight: 600,
+                    fontSize: "0.85rem",
                     "&:hover": {
+                      backgroundColor: "#e2e2e7",
+                    },
+                  }}
+                >
+                  New chat
+                </Button>
+
+                {/* Chat List */}
+                {isChatLoading ? (
+                  <Box sx={{ display: "grid", placeItems: "center", py: 4 }}>
+                    <CircularProgress size={18} />
+                  </Box>
+                ) : chats.length > 0 ? (
+                  <List sx={{ p: 0, display: "flex", flexDirection: "column", gap: 0.5, overflowY: "auto", flex: 1 }}>
+                    {chats.map((chat) => (
+                      <Box
+                        key={chat.id}
+                        sx={{
+                          display: "flex",
+                          alignItems: "stretch",
+                          gap: 0.5,
+                          position: "relative",
+                          "&:hover .delete-btn": { opacity: 0.7 },
+                        }}
+                      >
+                        <ListItemButton
+                          selected={chat.id === activeChatId}
+                          onClick={() => void onSelectChat(chat.id)}
+                          sx={{
+                            borderRadius: "8px",
+                            py: 0.75,
+                            px: 1.25,
+                            backgroundColor:
+                              chat.id === activeChatId
+                                ? "rgba(255, 255, 255, 0.08)"
+                                : "transparent",
+                            color: chat.id === activeChatId ? "#ffffff" : "text.secondary",
+                            "&:hover": {
+                              backgroundColor: "rgba(255, 255, 255, 0.04)",
+                              color: "#ffffff",
+                            },
+                            "&.Mui-selected": {
+                              backgroundColor: "rgba(255, 255, 255, 0.08)",
+                              "&:hover": {
+                                backgroundColor: "rgba(255, 255, 255, 0.1)",
+                              },
+                            },
+                          }}
+                        >
+                          <ListItemText
+                            primary={chat.title}
+                            primaryTypographyProps={{
+                              noWrap: true,
+                              sx: { fontSize: "0.85rem", fontWeight: 500 },
+                            }}
+                            sx={{ m: 0, pr: 2 }}
+                          />
+                        </ListItemButton>
+
+                        <IconButton
+                          className="delete-btn"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            void onDeleteChat(chat.id);
+                          }}
+                          size="small"
+                          sx={{
+                            position: "absolute",
+                            right: 8,
+                            top: "50%",
+                            transform: "translateY(-50%)",
+                            opacity: 0,
+                            transition: "opacity 120ms ease, color 120ms ease",
+                            color: "text.secondary",
+                            backgroundColor: "var(--surface-raised)",
+                            "&:hover": {
+                              color: "error.main",
+                              opacity: "1 !important",
+                              backgroundColor: "rgba(255, 255, 255, 0.06)",
+                            },
+                            zIndex: 2,
+                          }}
+                        >
+                          <CloseIcon sx={{ fontSize: 14 }} />
+                        </IconButton>
+                      </Box>
+                    ))}
+                  </List>
+                ) : (
+                  <Typography
+                    variant="body2"
+                    sx={{ py: 3, color: "text.secondary", textAlign: "center", fontSize: "0.85rem" }}
+                  >
+                    No saved chats yet.
+                  </Typography>
+                )}
+              </Box>
+            ) : (
+              <Box sx={{ display: "flex", flexDirection: "column", gap: 1.5, flex: 1, minHeight: 0 }}>
+                {/* Add Source Button */}
+                <Button
+                  fullWidth
+                  variant="outlined"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={isUploading}
+                  startIcon={
+                    isUploading ? (
+                      <CircularProgress size={16} color="inherit" />
+                    ) : (
+                      <UploadIcon sx={{ fontSize: 16 }} />
+                    )
+                  }
+                  sx={{
+                    justifyContent: "center",
+                    py: 1,
+                    borderRadius: "8px",
+                    border: "1px dashed rgba(255, 255, 255, 0.15)",
+                    color: "text.primary",
+                    backgroundColor: "rgba(255, 255, 255, 0.02)",
+                    "&:hover": {
+                      borderColor: "#ffffff",
                       backgroundColor: "rgba(255, 255, 255, 0.04)",
                     },
                   }}
                 >
-                  <ListItemText
-                    primary={chat.title}
-                    secondary={chat.preview || "No messages yet"}
-                    primaryTypographyProps={{
-                      noWrap: true,
-                      sx: { fontSize: "0.84rem", fontWeight: 600 },
-                    }}
-                    secondaryTypographyProps={{
-                      noWrap: true,
-                      sx: { fontSize: "0.72rem", color: "text.secondary" },
-                    }}
-                    sx={{ m: 0 }}
-                  />
-                </ListItemButton>
+                  {isUploading ? "Uploading..." : "Add source"}
+                </Button>
 
-                <IconButton
-                  onClick={() => void onDeleteChat(chat.id)}
-                  sx={{
-                    alignSelf: "center",
-                    width: 32,
-                    height: 32,
-                    color: "text.secondary",
-                    "&:hover": { color: "error.main" },
-                  }}
-                >
-                  <CloseIcon sx={{ fontSize: 16 }} />
-                </IconButton>
-              </Box>
-            ))}
-          </List>
-        ) : expanded ? (
-          <Typography variant="body2" sx={{ px: 0.5, py: 0.5, color: "text.secondary" }}>
-            No saved chats yet.
-          </Typography>
-        ) : null}
-      </Box>
+                {error && (
+                  <Alert severity="error" sx={{ py: 0.5, px: 1, fontSize: "0.75rem" }}>
+                    {error}
+                  </Alert>
+                )}
 
-      <Box
-        sx={{
-          flex: 1,
-          minHeight: 0,
-          overflowY: "auto",
-          px: expanded ? 1.5 : 1.25,
-          pb: 1.5,
-        }}
-      >
-        {expanded ? (
-          <Box
-            sx={{
-              px: 0.5,
-              mb: 1,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-            }}
-          >
-            <Typography variant="overline" sx={{ color: "text.secondary" }}>
-              Sources
-            </Typography>
-            <Typography variant="caption" sx={{ color: "text.secondary" }}>
-              {sources.length}
-            </Typography>
-          </Box>
-        ) : (
-          <Typography
-            variant="caption"
-            sx={{
-              display: "block",
-              textAlign: "center",
-              mb: 1.25,
-              color: "text.secondary",
-              fontWeight: 600,
-            }}
-          >
-            {sources.length}
-          </Typography>
-        )}
-
-        {error && expanded && (
-          <Alert severity="error" sx={{ mb: 1 }}>
-            {error}
-          </Alert>
-        )}
-
-        {isLoading ? (
-          <Box sx={{ textAlign: "center", py: 5 }}>
-            <CircularProgress size={22} />
-          </Box>
-        ) : sources.length === 0 ? (
-          expanded ? (
-            <Typography
-              variant="body2"
-              sx={{ px: 0.5, py: 1, color: "text.secondary" }}
-            >
-              No sources yet.
-            </Typography>
-          ) : null
-        ) : (
-          <List
-            sx={{
-              p: 0,
-              display: "flex",
-              flexDirection: "column",
-              gap: 0.5,
-            }}
-          >
-            {sources.map((source) => (
-              <SourceItem
-                key={source.path}
-                source={source}
-                onDelete={() => remove(source.path)}
-                isCollapsed={!expanded}
-              />
-            ))}
-          </List>
-        )}
-      </Box>
-
-      <Box
-        sx={{
-          p: expanded ? 1.5 : 1.25,
-          borderTop: "1px solid var(--stroke-subtle)",
-          display: "flex",
-          justifyContent: expanded ? "stretch" : "center",
-        }}
-      >
-        <Tooltip title={!expanded ? "Workspace settings" : ""} placement="right">
-          <Button
-            fullWidth
-            onClick={onOpenSettings}
-            sx={{
-              justifyContent: expanded ? "flex-start" : "center",
-              gap: expanded ? 1 : 0,
-              minWidth: 0,
-              width: expanded ? "100%" : 36,
-              height: expanded ? 40 : 36,
-              py: expanded ? 1 : 0,
-              px: expanded ? 1 : 0,
-              borderRadius: 2.5,
-              color: "text.primary",
-              border: expanded ? "none" : "1px solid var(--stroke-subtle)",
-              backgroundColor: expanded ? "transparent" : "rgba(255, 255, 255, 0.03)",
-              "&:hover": { backgroundColor: "rgba(255, 255, 255, 0.05)" },
-            }}
-          >
-            <SettingsIcon sx={{ fontSize: 18 }} />
-            {expanded && (
-              <Box sx={{ textAlign: "left" }}>
-                <Typography sx={{ fontSize: "0.88rem", fontWeight: 600 }}>
-                  Settings
-                </Typography>
-                <Typography sx={{ fontSize: "0.74rem", color: "text.secondary" }}>
-                  Workspace status
-                </Typography>
+                {/* Source List */}
+                {isLoading ? (
+                  <Box sx={{ display: "grid", placeItems: "center", py: 4 }}>
+                    <CircularProgress size={18} />
+                  </Box>
+                ) : sources.length === 0 ? (
+                  <Typography
+                    variant="body2"
+                    sx={{ py: 3, color: "text.secondary", textAlign: "center", fontSize: "0.85rem" }}
+                  >
+                    No sources uploaded yet.
+                  </Typography>
+                ) : (
+                  <List sx={{ p: 0, display: "flex", flexDirection: "column", gap: 0.5, overflowY: "auto", flex: 1 }}>
+                    {sources.map((source) => (
+                      <SourceItem
+                        key={source.path}
+                        source={source}
+                        onDelete={() => remove(source.path)}
+                      />
+                    ))}
+                  </List>
+                )}
               </Box>
             )}
-          </Button>
-        </Tooltip>
-      </Box>
+          </Box>
+
+          {/* Settings Row Pinned to Bottom */}
+          <Box
+            sx={{
+              p: 1.5,
+              borderTop: "1px solid var(--stroke-subtle)",
+              display: "flex",
+              justifyContent: "stretch",
+            }}
+          >
+            <Button
+              fullWidth
+              onClick={onOpenSettings}
+              sx={{
+                justifyContent: "flex-start",
+                gap: 1.5,
+                minWidth: 0,
+                width: "100%",
+                height: 40,
+                py: 1,
+                px: 1.5,
+                borderRadius: "8px",
+                color: "text.primary",
+                backgroundColor: "transparent",
+                "&:hover": { backgroundColor: "rgba(255, 255, 255, 0.04)" },
+              }}
+            >
+              <SettingsIcon sx={{ fontSize: 18, color: "text.secondary" }} />
+              <Typography sx={{ fontSize: "0.85rem", fontWeight: 600, color: "#ffffff" }}>
+                Settings
+              </Typography>
+            </Button>
+          </Box>
+        </>
+      )}
+
+      {/* Hidden File Input (Always in DOM so ref works) */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept=".pdf,.txt"
+        multiple
+        onChange={handleFileSelect}
+        style={{ display: "none" }}
+      />
     </Box>
   );
 }

@@ -1,28 +1,35 @@
 import { alpha, createTheme } from "@mui/material/styles";
 
+const surfaceRaised = "#171717";
+const strokeSubtle = "rgba(255, 255, 255, 0.08)";
+const strokeStrong = "rgba(255, 255, 255, 0.15)";
+const accentWhite = "#ffffff";
+const accentWhiteHover = "#e2e2e7";
+const inkOnWhite = "#000000";
+
 export const theme = createTheme({
   palette: {
     mode: "dark",
     primary: {
-      main: "#f4f4f5",
-      light: "#ffffff",
-      dark: "#d4d4d8",
-      contrastText: "#09090b",
+      main: accentWhite,
+      light: accentWhiteHover,
+      dark: "#cccccc",
+      contrastText: inkOnWhite,
     },
     background: {
-      default: "#212121",
-      paper: "#171717",
+      default: "#0d0d0d",
+      paper: surfaceRaised,
     },
     text: {
       primary: "#ececec",
-      secondary: "#a1a1aa",
+      secondary: "#b4b4b4",
     },
-    divider: "rgba(255, 255, 255, 0.1)",
+    divider: strokeSubtle,
     error: {
-      main: "#f87171",
+      main: "#ef4444",
     },
     success: {
-      main: "#4ade80",
+      main: "#22c55e",
     },
   },
   spacing: 8,
@@ -31,22 +38,26 @@ export const theme = createTheme({
   },
   typography: {
     fontFamily:
-      '"Geist Sans", "Geist", "Inter", "Segoe UI Variable", "Segoe UI", sans-serif',
+      '"IBM Plex Sans", "Segoe UI Variable", "Segoe UI", sans-serif',
     h1: {
+      fontFamily: '"IBM Plex Sans", "Segoe UI Variable", "Segoe UI", sans-serif',
       fontWeight: 700,
-      letterSpacing: "-0.05em",
+      letterSpacing: "-0.02em",
     },
     h2: {
+      fontFamily: '"IBM Plex Sans", "Segoe UI Variable", "Segoe UI", sans-serif',
       fontWeight: 700,
-      letterSpacing: "-0.04em",
+      letterSpacing: "-0.02em",
     },
     h3: {
-      fontWeight: 700,
-      letterSpacing: "-0.03em",
+      fontFamily: '"IBM Plex Sans", "Segoe UI Variable", "Segoe UI", sans-serif',
+      fontWeight: 600,
+      letterSpacing: "-0.01em",
     },
     h4: {
-      fontWeight: 650,
-      letterSpacing: "-0.02em",
+      fontFamily: '"IBM Plex Sans", "Segoe UI Variable", "Segoe UI", sans-serif',
+      fontWeight: 600,
+      letterSpacing: "-0.01em",
     },
     h5: {
       fontWeight: 650,
@@ -83,8 +94,8 @@ export const theme = createTheme({
     MuiCssBaseline: {
       styleOverrides: {
         "::selection": {
-          backgroundColor: "rgba(255, 255, 255, 0.22)",
-          color: "#09090b",
+          backgroundColor: "rgba(255, 255, 255, 0.16)",
+          color: "#ffffff",
         },
       },
     },
@@ -101,22 +112,22 @@ export const theme = createTheme({
             "background-color 160ms ease, border-color 160ms ease, color 160ms ease",
         },
         containedPrimary: {
-          backgroundColor: "#f4f4f5",
-          color: "#09090b",
+          backgroundColor: accentWhite,
+          color: inkOnWhite,
           "&:hover": {
-            backgroundColor: "#e4e4e7",
+            backgroundColor: accentWhiteHover,
           },
         },
         outlined: {
-          borderColor: "rgba(255, 255, 255, 0.12)",
+          borderColor: strokeStrong,
           "&:hover": {
-            borderColor: "rgba(255, 255, 255, 0.2)",
-            backgroundColor: "rgba(255, 255, 255, 0.04)",
+            borderColor: accentWhite,
+            backgroundColor: "rgba(255, 255, 255, 0.06)",
           },
         },
         text: {
           "&:hover": {
-            backgroundColor: "rgba(255, 255, 255, 0.04)",
+            backgroundColor: "rgba(255, 255, 255, 0.06)",
           },
         },
       },
@@ -125,8 +136,8 @@ export const theme = createTheme({
       styleOverrides: {
         root: {
           backgroundImage: "none",
-          backgroundColor: "#171717",
-          border: "1px solid rgba(255, 255, 255, 0.1)",
+          backgroundColor: surfaceRaised,
+          border: `1px solid ${strokeSubtle}`,
           boxShadow: "none",
         },
       },
@@ -134,8 +145,8 @@ export const theme = createTheme({
     MuiDrawer: {
       styleOverrides: {
         paper: {
-          backgroundColor: "#171717",
-          borderRight: "1px solid rgba(255, 255, 255, 0.1)",
+          backgroundColor: surfaceRaised,
+          borderRight: `1px solid ${strokeSubtle}`,
         },
       },
     },
@@ -143,7 +154,7 @@ export const theme = createTheme({
       styleOverrides: {
         paper: {
           borderRadius: 12,
-          backgroundColor: "#171717",
+          backgroundColor: surfaceRaised,
         },
       },
     },
@@ -155,19 +166,19 @@ export const theme = createTheme({
             backgroundColor: "rgba(255, 255, 255, 0.02)",
             transition: "border-color 160ms ease, background-color 160ms ease",
             "& fieldset": {
-              borderColor: "rgba(255, 255, 255, 0.12)",
+              borderColor: strokeStrong,
             },
             "&:hover": {
-              backgroundColor: "rgba(255, 255, 255, 0.03)",
+              backgroundColor: "rgba(255, 255, 255, 0.04)",
             },
             "&:hover fieldset": {
-              borderColor: "rgba(255, 255, 255, 0.18)",
+              borderColor: accentWhite,
             },
             "&.Mui-focused": {
-              backgroundColor: alpha("#ffffff", 0.03),
+              backgroundColor: alpha(accentWhite, 0.04),
             },
             "&.Mui-focused fieldset": {
-              borderColor: "#f4f4f5",
+              borderColor: accentWhite,
             },
           },
         },

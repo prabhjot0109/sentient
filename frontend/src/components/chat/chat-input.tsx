@@ -5,21 +5,19 @@ import { ArrowUpward as SendIcon } from "@mui/icons-material";
 interface ChatInputProps {
   onSend: (message: string) => void;
   isLoading?: boolean;
-  disabled?: boolean;
   placeholder?: string;
 }
 
 export function ChatInput({
   onSend,
   isLoading = false,
-  disabled = false,
-  placeholder = "Message NPC",
+  placeholder = "Message Sentient",
 }: ChatInputProps) {
   const [input, setInput] = useState("");
   const inputRef = useRef<HTMLTextAreaElement | HTMLInputElement>(null);
 
   const handleSubmit = () => {
-    if (input.trim() && !isLoading && !disabled) {
+    if (input.trim() && !isLoading) {
       onSend(input.trim());
       setInput("");
     }
@@ -34,7 +32,7 @@ export function ChatInput({
     }
   };
 
-  const canSend = Boolean(input.trim()) && !isLoading && !disabled;
+  const canSend = Boolean(input.trim()) && !isLoading;
 
   return (
     <Box
@@ -42,17 +40,16 @@ export function ChatInput({
         display: "flex",
         alignItems: "flex-end",
         gap: 1,
-        borderRadius: "28px",
+        borderRadius: "16px",
         pl: 2.5,
-        pr: 1,
+        pr: 1.5,
         py: 0.75,
-        border: "1px solid var(--stroke-subtle)",
-        backgroundColor: "#303030",
-        boxShadow: "0 2px 12px rgba(0, 0, 0, 0.25)",
+        border: "1px solid rgba(255, 255, 255, 0.12)",
+        backgroundColor: "#171717",
+        boxShadow: "0 4px 20px rgba(0, 0, 0, 0.15)",
         transition: "border-color 160ms ease, background-color 160ms ease",
         "&:focus-within": {
           borderColor: "rgba(255, 255, 255, 0.24)",
-          backgroundColor: "#353535",
         },
       }}
     >
@@ -63,13 +60,13 @@ export function ChatInput({
         onChange={(e) => setInput(e.target.value)}
         onKeyDown={handleKeyDown}
         placeholder={placeholder}
-        disabled={isLoading || disabled}
+        disabled={isLoading}
         sx={{
           flex: 1,
           py: 1,
           color: "text.primary",
           fontSize: "1rem",
-          lineHeight: 1.6,
+          lineHeight: 1.5,
           "& .MuiInputBase-input": {
             "&::placeholder": {
               color: "text.secondary",
@@ -89,21 +86,26 @@ export function ChatInput({
         aria-label="Send message"
         sx={{
           flexShrink: 0,
-          width: 36,
-          height: 36,
+          width: 32,
+          height: 32,
           borderRadius: "50%",
-          backgroundColor: canSend ? "primary.main" : "rgba(255, 255, 255, 0.05)",
-          color: canSend ? "primary.contrastText" : "rgba(255, 255, 255, 0.28)",
-          transition: "background-color 140ms ease",
+          backgroundColor: canSend ? "#ffffff" : "rgba(255, 255, 255, 0.04)",
+          color: canSend ? "#000000" : "rgba(255, 255, 255, 0.15)",
+          transition: "background-color 140ms ease, color 140ms ease",
+          mb: 0.5,
           "&:hover": {
-            backgroundColor: canSend ? "primary.light" : "rgba(255, 255, 255, 0.08)",
+            backgroundColor: canSend ? "#e2e2e7" : "rgba(255, 255, 255, 0.04)",
           },
+          "&.Mui-disabled": {
+            backgroundColor: "rgba(255, 255, 255, 0.04)",
+            color: "rgba(255, 255, 255, 0.15)",
+          }
         }}
       >
         {isLoading ? (
-          <CircularProgress size={16} color="inherit" />
+          <CircularProgress size={14} color="inherit" />
         ) : (
-          <SendIcon sx={{ fontSize: 16 }} />
+          <SendIcon sx={{ fontSize: 15 }} />
         )}
       </IconButton>
     </Box>

@@ -24,7 +24,6 @@ interface ChatContainerProps {
   isHistoryLoading: boolean;
   error: string | null;
   onSend: (message: string) => void;
-  activeChatId: string | null;
   activeChatTitle: string;
 }
 
@@ -65,14 +64,20 @@ export function ChatContainer({
         backgroundColor: "var(--surface-base)",
       }}
     >
-      {/* Minimal top bar — just a mobile menu toggle and a quiet title. */}
+      {/* Minimal top bar — a menu toggle (shown when sidebar is closed or on mobile) and a title. */}
       <Box
         sx={{
-          minHeight: 52,
+          minHeight: 56,
           display: "flex",
           alignItems: "center",
-          gap: 1,
-          px: { xs: 1.5, md: 2.5 },
+          gap: 1.5,
+          px: 2,
+          borderBottom: "1px solid var(--stroke-subtle)",
+          backgroundColor: "rgba(13, 13, 13, 0.6)",
+          backdropFilter: "blur(8px)",
+          position: "sticky",
+          top: 0,
+          zIndex: 10,
         }}
       >
         {isMobile && (
@@ -82,7 +87,8 @@ export function ChatContainer({
             aria-label="Toggle sidebar"
             sx={{
               color: "text.secondary",
-              "&:hover": { bgcolor: "rgba(255, 255, 255, 0.06)" },
+              borderRadius: "8px",
+              "&:hover": { color: "#ffffff", bgcolor: "rgba(255, 255, 255, 0.06)" },
             }}
           >
             <MenuIcon sx={{ fontSize: 20 }} />
@@ -91,7 +97,7 @@ export function ChatContainer({
         <Typography
           variant="body2"
           noWrap
-          sx={{ color: "text.secondary", fontWeight: 500 }}
+          sx={{ color: "#ffffff", fontWeight: 600, fontSize: "0.9rem" }}
         >
           {activeChatTitle}
         </Typography>
@@ -113,7 +119,7 @@ export function ChatContainer({
               gap: 1.5,
             }}
           >
-            <CircularProgress size={22} />
+            <CircularProgress size={22} color="inherit" />
           </Box>
         ) : isEmpty ? (
           <EmptyState onSuggestionClick={handleSend} />
@@ -152,6 +158,7 @@ export function ChatContainer({
               textAlign: "center",
               mt: 1,
               color: "text.secondary",
+              fontSize: "0.72rem",
             }}
           >
             Sentient can make mistakes. Verify important details.
@@ -189,13 +196,13 @@ function EmptyState({
     >
       <Typography
         sx={{
-          fontWeight: 600,
-          color: "text.primary",
-          fontSize: { xs: "1.6rem", md: "2rem" },
+          fontWeight: 700,
+          color: "#ffffff",
+          fontSize: { xs: "1.7rem", md: "2rem" },
           letterSpacing: "-0.02em",
         }}
       >
-        What can I help with?
+        Ask your companion anything.
       </Typography>
 
       <Typography
@@ -204,10 +211,11 @@ function EmptyState({
           color: "text.secondary",
           fontSize: "0.95rem",
           maxWidth: 460,
+          lineHeight: 1.5,
         }}
       >
-        Ask anything — I answer from your uploaded sources, and fall back to general
-        knowledge when they don't cover it.
+        Answers are grounded in your uploaded lore, and fall back to general
+        knowledge when it doesn't cover something.
       </Typography>
 
       <Box
@@ -225,17 +233,19 @@ function EmptyState({
             key={text}
             onClick={() => onSuggestionClick(text)}
             sx={{
-              px: 2,
+              px: 2.5,
               py: 1,
-              borderRadius: "999px",
+              borderRadius: "10px",
               border: "1px solid var(--stroke-subtle)",
               color: "text.secondary",
               fontWeight: 500,
-              fontSize: "0.875rem",
+              fontSize: "0.85rem",
+              textTransform: "none",
+              backgroundColor: "rgba(255, 255, 255, 0.02)",
               "&:hover": {
-                color: "text.primary",
-                borderColor: "var(--stroke-strong)",
-                backgroundColor: "rgba(255, 255, 255, 0.04)",
+                color: "#ffffff",
+                borderColor: "rgba(255, 255, 255, 0.3)",
+                backgroundColor: "rgba(255, 255, 255, 0.06)",
               },
             }}
           >
@@ -249,15 +259,15 @@ function EmptyState({
 
 function TypingIndicator() {
   return (
-    <Box sx={{ display: "flex", gap: 0.75, py: 0.5 }}>
+    <Box sx={{ display: "flex", gap: 0.75, py: 1.5, pl: 0.5 }}>
       {[0, 1, 2].map((i) => (
         <Box
           key={i}
           sx={{
-            width: 7,
-            height: 7,
+            width: 6,
+            height: 6,
             borderRadius: "50%",
-            backgroundColor: "rgba(255, 255, 255, 0.4)",
+            backgroundColor: "rgba(255, 255, 255, 0.6)",
             animation: "pulse 1.2s ease-in-out infinite",
             animationDelay: `${i * 0.14}s`,
           }}

@@ -106,7 +106,6 @@ export default function App() {
           isHistoryLoading={isHistoryLoading}
           error={error}
           onSend={sendMessage}
-          activeChatId={activeChatId}
           activeChatTitle={
             chats.find((chat) => chat.id === activeChatId)?.title ?? "Sentient"
           }

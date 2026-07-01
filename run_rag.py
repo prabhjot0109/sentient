@@ -7,7 +7,7 @@ sys.path.append(os.path.abspath(os.path.dirname(__file__)))
 
 from logic.config import load_rag_settings
 from logic.ingestion import ArchivesIngestion
-from logic.rag_engine import NeuralRAG
+from logic.rag_engine import NPCBrain
 
 
 def main():
@@ -49,7 +49,7 @@ def main():
         return
 
     try:
-        rag = NeuralRAG()
+        rag = NPCBrain()
 
         # 1. Ingest Data
         print("[*] Rebuilding FAISS index from 'data/'...")

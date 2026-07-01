@@ -112,7 +112,7 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                     p: 1.5,
                     borderRadius: 2,
                     border: "1px solid var(--stroke-subtle)",
-                    backgroundColor: "rgba(255, 255, 255, 0.02)",
+                    backgroundColor: "rgba(255, 255, 255, 0.03)",
                   }}
                 >
                   <PersonaIcon sx={{ fontSize: 18, color: "text.secondary" }} />

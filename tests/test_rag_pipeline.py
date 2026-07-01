@@ -170,6 +170,52 @@ class SentientRAGTests(unittest.TestCase):
             self.assertEqual(delete_response.status_code, 200)
             self.assertFalse((self.data_dir / "lore.txt").exists())
 
+    def test_refresh_knowledge_reflects_uploads_and_deletes_from_another_instance(self):
+        """Regression test: NPCBrain.refresh_knowledge() must actually pick up
+        index changes written by a *different* ArchivesIngestion instance, the
+        way api.py's upload/delete handlers write via get_default_archives()
+        while a long-lived NPCBrain holds its own ArchivesIngestion. Previously
+        refresh_knowledge() was a no-op after the first load because
+        load_index() returned its cached FAISS handle unconditionally."""
+        with patch.dict(
+            os.environ,
+            {"GOOGLE_API_KEY": "AIzaTest", "RAG_SCORE_THRESHOLD": "0"},
+            clear=False,
+        ), patch("logic.ingestion.build_embeddings", return_value=FakeEmbeddings()):
+            from logic.ingestion import ArchivesIngestion
+            from npc_brain import NPCBrain
+
+            brain = NPCBrain(api_key="AIzaTest")
+            uploader = ArchivesIngestion(api_key="AIzaTest")
+
+            doc1 = self.data_dir / "sentinel.txt"
+            doc1.write_text("Sentinel is the guardian of the archives.", encoding="utf-8")
+            uploader.add_file(str(doc1))
+            brain.refresh_knowledge()
+            sources = {match["source"] for match in brain.retrieve("archives", k=10)}
+            self.assertIn("sentinel.txt", sources)
+
+            doc2 = self.data_dir / "second.txt"
+            doc2.write_text("A second archive document about lore.", encoding="utf-8")
+            uploader.add_file(str(doc2))
+            brain.refresh_knowledge()
+            sources = {match["source"] for match in brain.retrieve("archives", k=10)}
+            self.assertIn(
+                "second.txt",
+                sources,
+                "newly uploaded document should be retrievable after refresh_knowledge()",
+            )
+
+            doc1.unlink()
+            uploader.remove_file("sentinel.txt")
+            brain.refresh_knowledge()
+            sources = {match["source"] for match in brain.retrieve("archives", k=10)}
+            self.assertNotIn(
+                "sentinel.txt",
+                sources,
+                "deleted document should no longer be retrievable after refresh_knowledge()",
+            )
+
     def test_chat_history_falls_back_to_local_store(self):
         client = TestClient(api.app)
         payload = {

@@ -4,6 +4,7 @@ import io
 import json
 import os
 import shutil
+import threading
 from datetime import datetime, timezone
 from functools import lru_cache
 from pathlib import Path
@@ -18,6 +19,7 @@ from langchain_openai import OpenAIEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 from logic.config import RAGSettings, load_rag_settings
+from logic.persona import GENERIC_PERSONA
 
 # OCR is optional: scanned/image-only PDFs need it, but text PDFs don't, and the
 # Tesseract binary may not be installed. Import lazily so ingestion never hard-fails.
@@ -32,6 +34,13 @@ except Exception as exc:  # pragma: no cover - depends on the environment
     pytesseract = None  # type: ignore[assignment]
     Image = None  # type: ignore[assignment]
     _OCR_IMPORT_ERROR = exc
+
+
+# Guards the FAISS merge + save step in ArchivesIngestion.add_file so concurrent
+# uploads (each running in its own worker thread) can't write the on-disk index
+# at the same time. Module-level because multiple ArchivesIngestion instances
+# can point at the same index_path (e.g. one per API key).
+_INDEX_WRITE_LOCK = threading.Lock()
 
 
 @lru_cache(maxsize=16)
@@ -269,8 +278,8 @@ class ArchivesIngestion:
     def _write_manifest(
         self,
         *,
-        source_files: list[Path],
-        chunks: list[Document],
+        source_names: list[str],
+        chunk_count: int,
         persona: str,
     ) -> dict[str, Any]:
         manifest = {
@@ -278,9 +287,9 @@ class ArchivesIngestion:
             "embedding_model": self.settings.embedding_model,
             "chunk_size": self.settings.chunk_size,
             "chunk_overlap": self.settings.chunk_overlap,
-            "source_count": len(source_files),
-            "chunk_count": len(chunks),
-            "sources": [path.name for path in source_files],
+            "source_count": len(source_names),
+            "chunk_count": chunk_count,
+            "sources": source_names,
             "persona": persona,
             "updated_at": datetime.now(timezone.utc).isoformat(),
         }
@@ -299,17 +308,26 @@ class ArchivesIngestion:
         source_files = self._resolve_source_files(source_path)
         documents = self._load_documents(source_path)
 
-        self.reset_index()
-
         if not documents:
+            self.reset_index()
             return None
 
+        # Build the new index and infer its persona before touching the old
+        # one on disk. If embedding fails partway (rate limit, quota, network
+        # blip), the previous working index is left intact instead of being
+        # wiped and never replaced.
         chunks = self._split_documents(documents)
         db = FAISS.from_documents(chunks, self.embeddings)
+        persona = self._infer_persona(chunks)
+
+        self.reset_index()
         self.index_path.mkdir(parents=True, exist_ok=True)
         db.save_local(str(self.index_path))
-        persona = self._infer_persona(chunks)
-        self._write_manifest(source_files=source_files, chunks=chunks, persona=persona)
+        self._write_manifest(
+            source_names=[path.name for path in source_files],
+            chunk_count=len(chunks),
+            persona=persona,
+        )
         self._vector_store = db
         print(f"Archives updated. Index saved to {self.index_path}")
         return db
@@ -317,11 +335,104 @@ class ArchivesIngestion:
     def ingest(self, source_path: str):
         return self.rebuild_index(str(self.data_dir))
 
+    def add_file(self, file_path: str) -> dict[str, Any] | None:
+        """Embed a single new file and merge it into the existing index.
+
+        Unlike `rebuild_index`, this never re-loads or re-embeds files that
+        are already indexed, so uploading one more document doesn't get
+        slower as the Archives grow. Loading/splitting/embedding the new file
+        happens outside the lock (safe to run concurrently across uploads);
+        only the FAISS merge + save is serialized so concurrent uploads can't
+        corrupt the on-disk index.
+        """
+        path = Path(file_path)
+        documents = self._load_file(path)
+        if not documents:
+            return self.get_index_metadata()
+
+        chunks = self._split_documents(documents)
+        new_store = FAISS.from_documents(chunks, self.embeddings)
+
+        with _INDEX_WRITE_LOCK:
+            existing = self.load_index()
+            if existing is not None:
+                existing.merge_from(new_store)
+                db = existing
+            else:
+                db = new_store
+
+            self.index_path.mkdir(parents=True, exist_ok=True)
+            db.save_local(str(self.index_path))
+            self._vector_store = db
+
+            manifest = self.get_index_metadata() or {}
+            persona = manifest.get("persona") or self._infer_persona(chunks)
+            total_chunks = manifest.get("chunk_count", 0) + len(chunks)
+            source_names = [path.name for path in self._resolve_source_files()]
+
+            result = self._write_manifest(
+                source_names=source_names, chunk_count=total_chunks, persona=persona
+            )
+
+        print(f"Archives updated with '{path.name}'. Index saved to {self.index_path}")
+        return result
+
+    def remove_file(self, filename: str) -> dict[str, Any] | None:
+        """Remove one source's chunks from the index in place.
+
+        Unlike the old delete flow (full `rebuild_index`), this never
+        re-embeds the sources that are staying, so deleting a file doesn't
+        cost an API call per remaining chunk. Pure in-memory FAISS ops plus
+        a save, serialized behind the same lock `add_file` uses.
+        """
+        with _INDEX_WRITE_LOCK:
+            vector_store = self.load_index()
+            manifest = self.get_index_metadata() or {}
+            if vector_store is None:
+                return manifest or None
+
+            ids_to_remove = [
+                doc_id
+                for doc_id, document in vector_store.docstore._dict.items()
+                if document.metadata.get("source") == filename
+            ]
+            remaining_sources = [
+                name for name in manifest.get("sources", []) if name != filename
+            ]
+
+            if not remaining_sources:
+                self.reset_index()
+                return None
+
+            if ids_to_remove:
+                vector_store.delete(ids_to_remove)
+
+            self.index_path.mkdir(parents=True, exist_ok=True)
+            vector_store.save_local(str(self.index_path))
+            self._vector_store = vector_store
+
+            total_chunks = max(manifest.get("chunk_count", 0) - len(ids_to_remove), 0)
+            persona = manifest.get("persona") or GENERIC_PERSONA
+
+            return self._write_manifest(
+                source_names=remaining_sources, chunk_count=total_chunks, persona=persona
+            )
+
     def ensure_index(self):
         index = self.load_index()
         if index is not None:
             return index
         return self.rebuild_index(str(self.data_dir))
+
+    def invalidate_cache(self) -> None:
+        """Drop the in-memory FAISS handle so the next load re-reads from disk.
+
+        Needed because add_file/remove_file are often called on a different
+        ArchivesIngestion instance than the one a long-lived caller (e.g.
+        NPCBrain) holds -- that instance's own on-disk write doesn't touch
+        this instance's cached `_vector_store`.
+        """
+        self._vector_store = None
 
     def load_index(self):
         manifest = self.get_index_metadata()

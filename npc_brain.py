@@ -1,3 +1,3 @@
-from logic.rag_engine import NPCBrain, NeuralRAG
+from logic.rag_engine import NPCBrain
 
-__all__ = ["NPCBrain", "NeuralRAG"]
+__all__ = ["NPCBrain"]
