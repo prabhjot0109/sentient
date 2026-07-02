@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import time
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from functools import lru_cache
@@ -453,7 +454,13 @@ def openai_chat_completions(request: ChatCompletionRequest):
 
 @app.get("/v1/models")
 def list_models():
-    """Minimal model list so OpenAI-compatible clients can populate their UI."""
+    """Minimal model list so OpenAI-compatible clients can populate their UI.
+
+    Clients like Mantella read this through the OpenAI Python SDK, whose `Model`
+    type requires `id`, `object`, `created`, and `owned_by`. Omitting `created`
+    makes the SDK's Pydantic parse raise even though the HTTP call succeeds, so
+    we always include it.
+    """
     settings = load_rag_settings()
     return {
         "object": "list",
@@ -461,6 +468,7 @@ def list_models():
             {
                 "id": settings.llm_model,
                 "object": "model",
+                "created": int(time.time()),
                 "owned_by": "sentient",
             }
         ],
