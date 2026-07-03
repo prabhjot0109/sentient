@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from functools import lru_cache
 from typing import Any
 
@@ -8,6 +9,7 @@ from langchain.chains.combine_documents import create_stuff_documents_chain
 from langchain_core.documents import Document
 from langchain_core.prompts import ChatPromptTemplate, HumanMessagePromptTemplate, PromptTemplate
 from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_groq import ChatGroq
 from langchain_huggingface import ChatHuggingFace, HuggingFaceEndpoint
 from langchain_openai import ChatOpenAI
 
@@ -42,6 +44,30 @@ def build_chat_model(
             max_retries=2,
         )
 
+    if provider == "groq":
+        # The default model (llama-3.3-70b-versatile) doesn't reason, so replies
+        # are returned immediately. For reasoning-capable models like
+        # openai/gpt-oss-120b, set GROQ_REASONING_EFFORT (e.g. "low") and
+        # GROQ_REASONING_FORMAT="hidden" in .env to keep replies fast and free of
+        # visible chain-of-thought. We only forward them when set, because Groq
+        # 400s if reasoning params are sent to a non-reasoning model.
+        # max_retries=2 keeps a rate-limited request from hanging on long
+        # exponential backoff: Groq free-tier 429s are usually a spent quota.
+        groq_kwargs: dict[str, Any] = {}
+        effort = os.getenv("GROQ_REASONING_EFFORT")
+        if effort:
+            groq_kwargs["reasoning_effort"] = effort
+        reasoning_format = os.getenv("GROQ_REASONING_FORMAT")
+        if reasoning_format:
+            groq_kwargs["reasoning_format"] = reasoning_format
+        return ChatGroq(
+            model=model_name,
+            api_key=api_key,
+            timeout=timeout,
+            max_retries=2,
+            **groq_kwargs,
+        )
+
     if provider == "huggingface":
         return ChatHuggingFace(
             llm=HuggingFaceEndpoint(
@@ -51,11 +77,15 @@ def build_chat_model(
             )
         )
 
+    # openai, cerebras, and openrouter all speak the OpenAI wire format; they
+    # differ only in base_url (resolved in config) and their API key.
+    # max_retries=2 matches the other providers — don't hang on rate limits.
     return ChatOpenAI(
         model=model_name,
         api_key=api_key,
         base_url=base_url,
         timeout=timeout,
+        max_retries=2,
     )
 
 
@@ -65,7 +95,7 @@ class NPCBrain:
         self.ingestion = ArchivesIngestion(api_key=api_key, settings=self.settings)
         self.vector_store = self.ingestion.ensure_index()
 
-        if self.settings.llm_provider in ("google", "openai") and not self.settings.llm_api_key:
+        if self.settings.llm_provider != "huggingface" and not self.settings.llm_api_key:
             raise ValueError("API Key not found. Please provide one or set it in .env")
 
         self.api_key = self.settings.llm_api_key

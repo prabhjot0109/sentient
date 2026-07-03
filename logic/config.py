@@ -5,7 +5,15 @@ from dataclasses import dataclass
 from typing import Literal
 
 
-Provider = Literal["google", "openai", "huggingface"]
+Provider = Literal["google", "openai", "huggingface", "groq", "cerebras", "openrouter"]
+
+# Providers that speak the OpenAI chat-completions wire format, so they can all
+# be driven by ChatOpenAI with just a provider-specific base URL and key.
+OPENAI_COMPATIBLE = {"openai", "cerebras", "openrouter"}
+
+# Chat-only providers with no embeddings API. If one of these is auto-selected
+# for embeddings, we fall back to local HuggingFace embeddings (no key needed).
+LLM_ONLY_PROVIDERS = {"groq", "cerebras", "openrouter"}
 SearchType = Literal["mmr", "similarity"]
 
 
@@ -45,7 +53,15 @@ def _normalize_provider(value: str | None, *, default: str = "auto") -> str:
         return default
 
     normalized = value.strip().lower()
-    if normalized in {"google", "openai", "huggingface", "auto"}:
+    if normalized in {
+        "google",
+        "openai",
+        "huggingface",
+        "groq",
+        "cerebras",
+        "openrouter",
+        "auto",
+    }:
         return normalized
     return default
 
@@ -73,10 +89,27 @@ def resolve_provider(
             return "google"
         if api_key.startswith("hf_"):
             return "huggingface"
+        if api_key.startswith("gsk_"):
+            return "groq"
+        # OpenRouter keys are "sk-or-..." — check before the generic "sk-"
+        # OpenAI fallback so they aren't mistaken for OpenAI keys.
+        if api_key.startswith("sk-or-"):
+            return "openrouter"
+        if api_key.startswith("csk-"):
+            return "cerebras"
         return "openai"
 
     if os.getenv("GOOGLE_API_KEY"):
         return "google"
+
+    if os.getenv("GROQ_API_KEY"):
+        return "groq"
+
+    if os.getenv("CEREBRAS_API_KEY"):
+        return "cerebras"
+
+    if os.getenv("OPENROUTER_API_KEY"):
+        return "openrouter"
 
     if os.getenv("OPENAI_API_KEY"):
         return "openai"
@@ -85,6 +118,47 @@ def resolve_provider(
         return "huggingface"
 
     return fallback
+
+
+def _provider_env_key(provider: str) -> str | None:
+    """The API key from the environment that belongs to `provider`."""
+    if provider == "google":
+        return os.getenv("GOOGLE_API_KEY")
+    if provider == "groq":
+        return os.getenv("GROQ_API_KEY")
+    if provider == "cerebras":
+        return os.getenv("CEREBRAS_API_KEY")
+    if provider == "openrouter":
+        return os.getenv("OPENROUTER_API_KEY")
+    if provider == "openai":
+        return os.getenv("OPENAI_API_KEY")
+    if provider == "huggingface":
+        return os.getenv("HUGGINGFACEHUB_API_TOKEN") or os.getenv("HF_TOKEN")
+    return None
+
+
+def provider_api_key(provider: str, override: str | None) -> str | None:
+    """Pick the right key for `provider`, allowing multiple keys to coexist.
+
+    A client-supplied `override` is only used when it actually belongs to this
+    provider (detected by key prefix); otherwise we fall back to the provider's
+    own env var. This is what lets, e.g., a Google key drive embeddings while a
+    Groq key drives the LLM in the same process.
+    """
+    if override and resolve_provider("auto", api_key=override, fallback=provider) == provider:
+        return override
+    return _provider_env_key(provider)
+
+
+def provider_base_url(provider: str) -> str | None:
+    """OpenAI-compatible providers need a base URL; native SDKs don't."""
+    if provider == "openai":
+        return os.getenv("OPENAI_BASE_URL")
+    if provider == "cerebras":
+        return os.getenv("CEREBRAS_BASE_URL", "https://api.cerebras.ai/v1")
+    if provider == "openrouter":
+        return os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
+    return None
 
 
 @dataclass(frozen=True)
@@ -118,35 +192,33 @@ def load_rag_settings(api_key: str | None = None) -> RAGSettings:
         api_key=api_key,
         fallback="huggingface",
     )
-    llm_api_key = (
-        api_key
-        or os.getenv("GOOGLE_API_KEY")
-        or os.getenv("OPENAI_API_KEY")
-        or os.getenv("HUGGINGFACEHUB_API_TOKEN")
-        or os.getenv("HF_TOKEN")
-    )
+    llm_api_key = provider_api_key(llm_provider, api_key)
     llm_model = os.getenv(
         "MODEL_NAME",
         {
             "google": "gemini-2.5-flash",
             "openai": "gpt-4o-mini",
             "huggingface": "Qwen/Qwen2.5-7B-Instruct",
+            # Groq's fastest non-reasoning chat model — no "thinking" pass, so
+            # replies come back immediately, which is what the NPC path wants.
+            "groq": "llama-3.3-70b-versatile",
+            "cerebras": "llama-3.3-70b",
+            "openrouter": "meta-llama/llama-3.3-70b-instruct",
         }[llm_provider],
     )
-    llm_base_url = os.getenv("OPENAI_BASE_URL") if llm_provider == "openai" else None
+    llm_base_url = provider_base_url(llm_provider)
 
     embedding_provider = resolve_provider(
         os.getenv("EMBEDDING_PROVIDER"),
         api_key=api_key,
         fallback="huggingface",
     )
-    embedding_api_key = (
-        api_key
-        or os.getenv("GOOGLE_API_KEY")
-        or os.getenv("OPENAI_API_KEY")
-        or os.getenv("HUGGINGFACEHUB_API_TOKEN")
-        or os.getenv("HF_TOKEN")
-    )
+    # Groq/Cerebras/OpenRouter serve chat models only — no embeddings API. If one
+    # auto-resolved for embeddings (e.g. only that provider's key is set), fall
+    # back to local HuggingFace embeddings, which need no key.
+    if embedding_provider in LLM_ONLY_PROVIDERS:
+        embedding_provider = "huggingface"
+    embedding_api_key = provider_api_key(embedding_provider, api_key)
     embedding_model = os.getenv(
         "EMBEDDING_MODEL_NAME",
         {
@@ -155,9 +227,7 @@ def load_rag_settings(api_key: str | None = None) -> RAGSettings:
             "huggingface": "BAAI/bge-base-en-v1.5",
         }[embedding_provider],
     )
-    embedding_base_url = (
-        os.getenv("OPENAI_BASE_URL") if embedding_provider == "openai" else None
-    )
+    embedding_base_url = provider_base_url(embedding_provider)
 
     chunk_size = _env_int("RAG_CHUNK_SIZE", 900)
     chunk_overlap = min(_env_int("RAG_CHUNK_OVERLAP", 150, minimum=0), chunk_size - 1)

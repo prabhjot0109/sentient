@@ -37,7 +37,27 @@ except ImportError:
 
 # Global brain instance
 brain: Optional[NPCBrain] = None
+# The client-supplied key the current `brain` was built with (None = env-driven),
+# used to decide when the brain must be rebuilt.
+brain_key: Optional[str] = None
 supabase_client: Optional[Client] = None
+
+# Any of these being set means we have enough to operate; load_rag_settings then
+# picks the right per-provider key, so multiple keys can coexist (e.g. Google for
+# embeddings + Groq for the LLM).
+_PROVIDER_KEY_ENV = (
+    "GOOGLE_API_KEY",
+    "GROQ_API_KEY",
+    "CEREBRAS_API_KEY",
+    "OPENROUTER_API_KEY",
+    "OPENAI_API_KEY",
+    "HUGGINGFACEHUB_API_TOKEN",
+    "HF_TOKEN",
+)
+
+
+def any_provider_key_present() -> bool:
+    return any(os.getenv(name) for name in _PROVIDER_KEY_ENV)
 
 
 @asynccontextmanager
@@ -45,9 +65,10 @@ async def lifespan(app: FastAPI):
     """Lifespan context manager for startup/shutdown events."""
     global brain
     try:
-        default_key = os.getenv("GOOGLE_API_KEY") or os.getenv("OPENAI_API_KEY")
-        if default_key:
-            brain = NPCBrain(api_key=default_key)
+        if any_provider_key_present():
+            # No override key — let load_rag_settings resolve each provider's key
+            # from the environment so multiple providers can coexist.
+            brain = NPCBrain()
         else:
             print("No default API key found. Brain will be initialized per-request.")
     except Exception as e:
@@ -314,14 +335,17 @@ def delete_chat_record(chat_id: str, client_id: str) -> dict | None:
 
 
 def get_or_create_brain(api_key: Optional[str] = None) -> NPCBrain:
-    global brain
+    global brain, brain_key
 
-    resolved_key = api_key or os.getenv("GOOGLE_API_KEY") or os.getenv("OPENAI_API_KEY")
-    if not resolved_key:
+    # A client may supply its own key; otherwise any provider key in the env is
+    # enough — load_rag_settings selects the right per-provider key from there.
+    if not (api_key or any_provider_key_present()):
         raise ValueError("API Key not found. Please provide one or set it in .env")
 
-    if brain is None or brain.api_key != resolved_key:
-        brain = NPCBrain(api_key=resolved_key)
+    # Rebuild only when the client-supplied override changes (env-driven = None).
+    if brain is None or brain_key != api_key:
+        brain = NPCBrain(api_key=api_key)
+        brain_key = api_key
 
     return brain
 
@@ -415,6 +439,13 @@ def openai_chat_completions(request: ChatCompletionRequest):
         model_name = settings.llm_model
 
         query = last_user_text(request.messages)
+        # Log every incoming Mantella request so you can watch traffic in the
+        # terminal and confirm the mod is actually reaching the backend.
+        print(
+            f"[Mantella] >> {settings.llm_provider}/{model_name} "
+            f"(stream={request.stream}) | query: {query.strip()[:120]!r}"
+        )
+
         chunks: list = []
         if query.strip():
             try:
@@ -429,6 +460,8 @@ def openai_chat_completions(request: ChatCompletionRequest):
             except Exception as e:
                 print(f"Lore retrieval failed (answering without grounding): {e}")
 
+        print(f"[Mantella]   retrieved {len(chunks)} lore chunk(s)")
+
         messages = inject_lore(to_langchain(request.messages), format_lore(chunks))
 
         llm = build_chat_model(
@@ -440,13 +473,16 @@ def openai_chat_completions(request: ChatCompletionRequest):
         )
 
         if request.stream:
+            print("[Mantella]   << streaming reply")
             return StreamingResponse(
                 stream_completion(llm, messages, model_name),
                 media_type="text/event-stream",
             )
 
         result = llm.invoke(messages)
-        return build_completion_response(str(result.content), model_name)
+        reply = str(result.content)
+        print(f"[Mantella]   << reply ({len(reply)} chars): {reply[:120]!r}")
+        return build_completion_response(reply, model_name)
     except Exception as e:
         print(f"Chat Completions Error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
