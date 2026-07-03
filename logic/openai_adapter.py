@@ -121,9 +121,15 @@ def stream_completion(llm: Any, messages: list[BaseMessage], model: str) -> Iter
         return f"data: {json.dumps(payload)}\n\n"
 
     yield chunk({"role": "assistant"})
+    parts: list[str] = []
     for piece in llm.stream(messages):
         content = piece.content
         if content:
+            parts.append(str(content))
             yield chunk({"content": content})
     yield chunk({}, finish_reason="stop")
     yield "data: [DONE]\n\n"
+    # StreamingResponse consumes this generator after the endpoint returns, so
+    # the full reply can only be logged here, once the stream has finished.
+    reply = "".join(parts)
+    print(f"[Mantella]   << reply ({len(reply)} chars): {reply!r}")

@@ -443,7 +443,7 @@ def openai_chat_completions(request: ChatCompletionRequest):
         # terminal and confirm the mod is actually reaching the backend.
         print(
             f"[Mantella] >> {settings.llm_provider}/{model_name} "
-            f"(stream={request.stream}) | query: {query.strip()[:120]!r}"
+            f"(stream={request.stream}) | query: {query.strip()!r}"
         )
 
         chunks: list = []
@@ -481,7 +481,7 @@ def openai_chat_completions(request: ChatCompletionRequest):
 
         result = llm.invoke(messages)
         reply = str(result.content)
-        print(f"[Mantella]   << reply ({len(reply)} chars): {reply[:120]!r}")
+        print(f"[Mantella]   << reply ({len(reply)} chars): {reply!r}")
         return build_completion_response(reply, model_name)
     except Exception as e:
         print(f"Chat Completions Error: {e}")
