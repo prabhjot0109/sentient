@@ -93,7 +93,6 @@ class NPCBrain:
     def __init__(self, api_key: str | None = None):
         self.settings = load_rag_settings(api_key)
         self.ingestion = ArchivesIngestion(api_key=api_key, settings=self.settings)
-        self.vector_store = self.ingestion.ensure_index()
 
         if self.settings.llm_provider != "huggingface" and not self.settings.llm_api_key:
             raise ValueError("API Key not found. Please provide one or set it in .env")
@@ -128,9 +127,6 @@ class NPCBrain:
         )
 
     def _build_document_chain(self):
-        if not self.vector_store:
-            return None
-
         return create_stuff_documents_chain(
             self.llm,
             self.prompt,
@@ -138,13 +134,14 @@ class NPCBrain:
             document_separator="\n\n---\n\n",
         )
 
-    def refresh_knowledge(self):
+    async def refresh_knowledge(self):
         self.ingestion.invalidate_cache()
-        self.vector_store = self.ingestion.ensure_index()
+        if not self.ingestion.index_exists():
+            await self.ingestion.rebuild_index(str(self.ingestion.data_dir))
         self._rebuild_prompt()
 
-    def rebuild_knowledge(self, source_path: str | None = None):
-        self.vector_store = self.ingestion.rebuild_index(source_path)
+    async def rebuild_knowledge(self, source_path: str | None = None):
+        await self.ingestion.rebuild_index(source_path)
 
     def _serialize_match(
         self,
@@ -161,38 +158,31 @@ class NPCBrain:
             "chunk_id": metadata.get("chunk_id"),
         }
 
-    def retrieve(self, question: str, k: int | None = None) -> list[dict[str, Any]]:
-        matches = self.ingestion.retrieve(question, k=k)
+    async def retrieve(self, question: str, k: int | None = None) -> list[dict[str, Any]]:
+        matches = await self.ingestion.retrieve(question, k=k)
         return [self._serialize_match(document, score) for document, score in matches]
 
-    def _answer_without_context(self, question: str) -> str:
-        """Answer from general knowledge when the Archives have nothing to ground on.
-        We never refuse — the persona simply answers and flags it isn't from sources."""
-        prompt_value = self.prompt.format_prompt(input=question, context="")
-        result = self.llm.invoke(prompt_value.to_messages())
-        return str(result.content)
-
-    def ask_with_context(
+    async def ask_with_context(
         self,
         question: str,
         *,
         top_k: int | None = None,
     ) -> dict[str, Any]:
-        if not self.vector_store:
-            self.refresh_knowledge()
-
         # Retrieve once, with relevance scores, then ground generation on those exact
         # chunks. This keeps the reported sources (and their scores) identical to what
         # the model actually read, and lets the frontend show retrieval quality.
-        matches = self.ingestion.retrieve(question, k=top_k) if self.vector_store else []
+        matches = await self.ingestion.retrieve(question, k=top_k)
         documents = [document for document, _ in matches]
 
         document_chain = self._build_document_chain()
         if document_chain is not None and documents:
-            answer = document_chain.invoke({"input": question, "context": documents})
+            answer = await document_chain.ainvoke({"input": question, "context": documents})
         else:
-            # No Archives yet, or nothing relevant retrieved: still answer.
-            answer = self._answer_without_context(question)
+            # No Archives yet, or nothing relevant retrieved: still answer in-persona.
+            result = await self.llm.ainvoke(
+                self.prompt.format_prompt(input=question, context="").to_messages()
+            )
+            answer = str(result.content)
 
         sources = [self._serialize_match(document, score) for document, score in matches]
         return {
@@ -201,9 +191,9 @@ class NPCBrain:
             "top_k": top_k or self.settings.top_k,
         }
 
-    def ask(self, question: str, *, top_k: int | None = None):
-        return self.ask_with_context(question, top_k=top_k)["answer"]
+    async def ask(self, question: str, *, top_k: int | None = None):
+        return (await self.ask_with_context(question, top_k=top_k))["answer"]
 
-    def add_documents(self, source_path: str):
-        self.rebuild_knowledge(source_path)
+    async def add_documents(self, source_path: str):
+        await self.rebuild_knowledge(source_path)
         return "Archives rebuilt successfully."

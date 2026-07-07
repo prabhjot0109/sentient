@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import os
 import tempfile
 import unittest
@@ -190,16 +191,16 @@ class SentientRAGTests(unittest.TestCase):
 
             doc1 = self.data_dir / "sentinel.txt"
             doc1.write_text("Sentinel is the guardian of the archives.", encoding="utf-8")
-            uploader.add_file(str(doc1))
-            brain.refresh_knowledge()
-            sources = {match["source"] for match in brain.retrieve("archives", k=10)}
+            asyncio.run(uploader.add_file(str(doc1)))
+            asyncio.run(brain.refresh_knowledge())
+            sources = {match["source"] for match in asyncio.run(brain.retrieve("archives", k=10))}
             self.assertIn("sentinel.txt", sources)
 
             doc2 = self.data_dir / "second.txt"
             doc2.write_text("A second archive document about lore.", encoding="utf-8")
-            uploader.add_file(str(doc2))
-            brain.refresh_knowledge()
-            sources = {match["source"] for match in brain.retrieve("archives", k=10)}
+            asyncio.run(uploader.add_file(str(doc2)))
+            asyncio.run(brain.refresh_knowledge())
+            sources = {match["source"] for match in asyncio.run(brain.retrieve("archives", k=10))}
             self.assertIn(
                 "second.txt",
                 sources,
@@ -207,9 +208,9 @@ class SentientRAGTests(unittest.TestCase):
             )
 
             doc1.unlink()
-            uploader.remove_file("sentinel.txt")
-            brain.refresh_knowledge()
-            sources = {match["source"] for match in brain.retrieve("archives", k=10)}
+            asyncio.run(uploader.remove_file("sentinel.txt"))
+            asyncio.run(brain.refresh_knowledge())
+            sources = {match["source"] for match in asyncio.run(brain.retrieve("archives", k=10))}
             self.assertNotIn(
                 "sentinel.txt",
                 sources,

@@ -1,3 +1,4 @@
+import asyncio
 import os
 import sys
 from time import perf_counter
@@ -10,7 +11,7 @@ from logic.ingestion import ArchivesIngestion
 from logic.rag_engine import NPCBrain
 
 
-def main():
+async def main():
     print("--- NeuralNPC Sentinel Verification ---")
     settings = load_rag_settings()
     archives = ArchivesIngestion()
@@ -29,11 +30,11 @@ def main():
         print("    Running retrieval-only verification.")
 
         print("[*] Rebuilding FAISS index from 'data/'...")
-        archives.rebuild_index("data")
+        await archives.rebuild_index("data")
 
         print("[*] Inspecting retrieval results for: Who is Sentinel?")
         started_at = perf_counter()
-        matches = archives.retrieve("Who is Sentinel?", k=settings.top_k)
+        matches = await archives.retrieve("Who is Sentinel?", k=settings.top_k)
         elapsed_ms = round((perf_counter() - started_at) * 1000, 2)
 
         if not matches:
@@ -53,12 +54,12 @@ def main():
 
         # 1. Ingest Data
         print("[*] Rebuilding FAISS index from 'data/'...")
-        rag.add_documents("data")
+        await rag.add_documents("data")
 
         # 2. Query
         question = "Who is Sentinel?"
         print(f"[*] Querying: {question}")
-        result = rag.ask_with_context(question)
+        result = await rag.ask_with_context(question)
 
         print("\n=== SENTINEL RESPONSE ===")
         print(result["answer"])
@@ -75,4 +76,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import os
 import time
 from contextlib import asynccontextmanager
@@ -69,6 +68,11 @@ async def lifespan(app: FastAPI):
             # No override key — let load_rag_settings resolve each provider's key
             # from the environment so multiple providers can coexist.
             brain = NPCBrain()
+            # Build the on-disk index from data/ at boot if missing, so the Mantella
+            # /v1/chat/completions path — which retrieves via get_archives() and
+            # bypasses the brain — has lore to ground on. Async so startup embedding
+            # never blocks the event loop.
+            await brain.ingestion.ensure_index()
         else:
             print("No default API key found. Brain will be initialized per-request.")
     except Exception as e:
@@ -374,11 +378,11 @@ def health_check():
 
 
 @app.post("/v1/chat", response_model=ChatResponse)
-def chat_endpoint(payload: ChatInput):
+async def chat_endpoint(payload: ChatInput):
     try:
         started_at = perf_counter()
         active_brain = get_or_create_brain(payload.api_key)
-        result = active_brain.ask_with_context(payload.message, top_k=payload.top_k)
+        result = await active_brain.ask_with_context(payload.message, top_k=payload.top_k)
         elapsed_ms = round((perf_counter() - started_at) * 1000, 2)
         return ChatResponse(
             response=result["answer"],
@@ -398,11 +402,11 @@ def chat_endpoint(payload: ChatInput):
 
 
 @app.post("/v1/retrieve", response_model=RetrievalResponse)
-def retrieve_endpoint(payload: RetrievalInput):
+async def retrieve_endpoint(payload: RetrievalInput):
     try:
         started_at = perf_counter()
         archives = get_archives(payload.api_key)
-        chunks = archives.retrieve(payload.query, k=payload.top_k)
+        chunks = await archives.retrieve(payload.query, k=payload.top_k)
         elapsed_ms = round((perf_counter() - started_at) * 1000, 2)
         serialized_chunks = [
             RetrievedChunk(
@@ -427,7 +431,7 @@ def retrieve_endpoint(payload: RetrievalInput):
 
 
 @app.post("/v1/chat/completions")
-def openai_chat_completions(request: ChatCompletionRequest):
+async def openai_chat_completions(request: ChatCompletionRequest):
     """OpenAI-compatible endpoint for external clients like the Mantella Skyrim mod.
 
     The caller supplies the NPC persona and conversation history; Sentient grounds
@@ -451,7 +455,7 @@ def openai_chat_completions(request: ChatCompletionRequest):
             try:
                 # Grounding wants the most *relevant* lore (similarity), not the
                 # diversity MMR optimizes for, and should drop weak matches.
-                chunks = get_archives().retrieve(
+                chunks = await get_archives().retrieve(
                     query,
                     k=settings.top_k,
                     search_type="similarity",
@@ -479,7 +483,7 @@ def openai_chat_completions(request: ChatCompletionRequest):
                 media_type="text/event-stream",
             )
 
-        result = llm.invoke(messages)
+        result = await llm.ainvoke(messages)
         reply = str(result.content)
         print(f"[Mantella]   << reply ({len(reply)} chars): {reply!r}")
         return build_completion_response(reply, model_name)
@@ -518,11 +522,12 @@ async def upload_file(
 ):
     """Upload a document to be ingested into the knowledge base.
 
-    Embedding a PDF is slow (parsing, OCR, embedding calls), so it runs in a
-    worker thread via `asyncio.to_thread` instead of blocking the event loop.
-    That keeps `/health`, `/v1/chat`, etc. responsive while an upload is in
-    flight, and lets multiple uploads embed concurrently (see
-    ArchivesIngestion.add_file for how concurrent writes stay index-safe).
+    Embedding a PDF is slow (parsing, OCR, embedding calls). `archives.add_file`
+    is a coroutine that offloads its synchronous CPU work with `asyncio.to_thread`,
+    so `/health`, `/v1/chat`, etc. stay responsive while an upload is in flight,
+    and concurrent uploads embed without blocking the loop (see
+    ArchivesIngestion.add_file / FaissBackend for how concurrent writes stay
+    index-safe).
     """
     global brain
 
@@ -545,10 +550,10 @@ async def upload_file(
         with open(file_path, "wb") as buffer:
             buffer.write(contents)
 
-        index_metadata = await asyncio.to_thread(archives.add_file, file_path)
+        index_metadata = await archives.add_file(file_path)
 
         if brain:
-            await asyncio.to_thread(brain.refresh_knowledge)
+            await brain.refresh_knowledge()
 
         return {
             "success": True,
@@ -570,7 +575,7 @@ def list_sources():
 
 
 @app.delete("/v1/sources/{filename}")
-def delete_source(filename: str, x_api_key: Optional[str] = Header(default=None, alias="X-API-Key")):
+async def delete_source(filename: str, x_api_key: Optional[str] = Header(default=None, alias="X-API-Key")):
     """Delete a source document."""
     global brain
     archives = get_archives(x_api_key)
@@ -582,10 +587,10 @@ def delete_source(filename: str, x_api_key: Optional[str] = Header(default=None,
 
     try:
         os.remove(file_path)
-        index_metadata = archives.remove_file(safe_name)
+        index_metadata = await archives.remove_file(safe_name)
 
         if brain:
-            brain.refresh_knowledge()
+            await brain.refresh_knowledge()
 
         return {
             "success": True,
