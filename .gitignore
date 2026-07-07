@@ -11,7 +11,11 @@ __pycache__/
 *$py.class
 
 # Docs
-/docs
+# /docs
+# Internal implementation plans — keep local, never push
+/docs/superpowers/plans/
+order.md
+ui.png
 
 #Vs Code
 /.vscode
