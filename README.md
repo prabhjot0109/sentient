@@ -137,6 +137,22 @@ Uploads and deletions rebuild the FAISS index from the current files under `DATA
 | `RAG_SCORE_THRESHOLD` | `0.0` | Drops retrieved chunks below this relevance score (0–1) on the grounding path used by `/v1/chat/completions`; `0` keeps everything |
 | `RAG_CHUNK_SIZE` / `RAG_CHUNK_OVERLAP` | `900` / `150` | Document chunking during ingestion |
 
+#### Retrieval backends & async
+
+Vector storage sits behind an async `VectorBackend` seam, so the store is swappable and the whole retrieval call-chain (ingestion → `NPCBrain` → the `/v1/retrieve`, `/v1/chat`, `/v1/chat/completions` endpoints) is non-blocking — CPU-bound work is offloaded off the event loop.
+
+| Var | Default | Meaning |
+| --- | --- | --- |
+| `VECTOR_BACKEND` | `faiss` | `faiss` (local, default) or `qdrant` (async server-side hybrid dense+sparse retrieval — **Plan 02**; selecting it today raises `NotImplementedError`) |
+| `QDRANT_URL` / `QDRANT_API_KEY` | _empty_ | Qdrant connection (Plan 02) |
+| `QDRANT_PREFER_GRPC` | `false` | Use gRPC instead of HTTP for Qdrant (Plan 02) |
+| `QDRANT_COLLECTION` | `sentient_lore` | Qdrant collection name (Plan 02) |
+| `RAG_SPARSE_MODEL` | `Qdrant/bm25` | Sparse model for hybrid retrieval (Plan 02) |
+| `RAG_HYBRID` | `false` | Enable hybrid dense+sparse retrieval (Plan 02) |
+| `RAG_CONDENSE_QUERIES` | `false` | Rewrite pronoun-laden follow-ups into standalone queries before retrieval (one extra LLM call, gated by a pronoun heuristic — Plan 03) |
+
+FAISS remains the default and behaves exactly as before; the flags above are inert until the corresponding backend/feature lands.
+
 ### Supabase Chat Storage
 
 Create a `chat_sessions` table before using persistent chat history:
