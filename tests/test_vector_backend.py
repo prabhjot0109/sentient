@@ -12,6 +12,7 @@ from langchain_core.embeddings import Embeddings
 
 from logic.config import load_rag_settings
 from logic.retrieval.base import VectorBackend
+from logic.retrieval.factory import get_vector_backend
 from logic.retrieval.faiss_store import FaissBackend
 
 
@@ -90,6 +91,18 @@ class FaissBackendTests(unittest.IsolatedAsyncioTestCase):
         backend.invalidate_cache()
         got = {d.metadata.get("source") for d, _ in await backend.retrieve("x", k=10, min_score=0.0)}
         self.assertNotIn("a.txt", got)
+
+
+class FactoryTests(unittest.TestCase):
+    def test_returns_faiss_backend_by_default(self):
+        backend = get_vector_backend(load_rag_settings(), Path("./ignore"), _FakeEmbeddings())
+        self.assertIsInstance(backend, FaissBackend)
+
+    def test_qdrant_not_yet_implemented(self):
+        with patch.dict(os.environ, {"VECTOR_BACKEND": "qdrant"}, clear=False):
+            settings = load_rag_settings()
+        with self.assertRaises(NotImplementedError):
+            get_vector_backend(settings, Path("./ignore"), _FakeEmbeddings())
 
 
 if __name__ == "__main__":
