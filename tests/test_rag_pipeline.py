@@ -61,6 +61,8 @@ class BuildChatModelProviderTests(unittest.TestCase):
             model="gemini-2.5-flash",
             google_api_key="AIzaTest",
             timeout=60.0,
+            thinking_budget=0,
+            max_retries=2,
         )
         self.assertEqual(result, "google-chat-instance")
         rag_engine_module.build_chat_model.cache_clear()
