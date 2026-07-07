@@ -48,6 +48,18 @@ def _env_float(
     return min(max(value, minimum), maximum)
 
 
+def _env_bool(name: str, default: bool) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _normalize_vector_backend(value: str | None) -> str:
+    normalized = (value or "faiss").strip().lower()
+    return normalized if normalized in {"faiss", "qdrant"} else "faiss"
+
+
 def _normalize_provider(value: str | None, *, default: str = "auto") -> str:
     if value is None:
         return default
@@ -181,6 +193,14 @@ class RAGSettings:
     search_type: SearchType
     score_threshold: float
     request_timeout: float
+    vector_backend: str
+    qdrant_url: str | None
+    qdrant_api_key: str | None
+    qdrant_prefer_grpc: bool
+    qdrant_collection: str
+    sparse_model: str
+    condense_queries: bool
+    hybrid: bool
 
 
 def load_rag_settings(api_key: str | None = None) -> RAGSettings:
@@ -235,6 +255,15 @@ def load_rag_settings(api_key: str | None = None) -> RAGSettings:
     fetch_k = _env_int("RAG_FETCH_K", max(top_k * 3, top_k))
     request_timeout = float(os.getenv("OPENAI_TIMEOUT_SECONDS", "60"))
 
+    vector_backend = _normalize_vector_backend(os.getenv("VECTOR_BACKEND"))
+    qdrant_url = os.getenv("QDRANT_URL") or None
+    qdrant_api_key = os.getenv("QDRANT_API_KEY") or None
+    qdrant_prefer_grpc = _env_bool("QDRANT_PREFER_GRPC", False)
+    qdrant_collection = os.getenv("QDRANT_COLLECTION", "sentient_lore")
+    sparse_model = os.getenv("RAG_SPARSE_MODEL", "Qdrant/bm25")
+    condense_queries = _env_bool("RAG_CONDENSE_QUERIES", False)
+    hybrid = _env_bool("RAG_HYBRID", False)
+
     return RAGSettings(
         data_dir=data_dir,
         index_path=index_path,
@@ -254,4 +283,12 @@ def load_rag_settings(api_key: str | None = None) -> RAGSettings:
         search_type=_normalize_search_type(os.getenv("RAG_SEARCH_TYPE")),
         score_threshold=_env_float("RAG_SCORE_THRESHOLD", 0.0),
         request_timeout=request_timeout,
+        vector_backend=vector_backend,
+        qdrant_url=qdrant_url,
+        qdrant_api_key=qdrant_api_key,
+        qdrant_prefer_grpc=qdrant_prefer_grpc,
+        qdrant_collection=qdrant_collection,
+        sparse_model=sparse_model,
+        condense_queries=condense_queries,
+        hybrid=hybrid,
     )
