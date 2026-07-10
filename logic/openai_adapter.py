@@ -57,6 +57,18 @@ def to_langchain(messages: list[OpenAIMessage]) -> list[BaseMessage]:
     return converted
 
 
+def to_history(messages: list[OpenAIMessage]) -> list[BaseMessage]:
+    """All turns except the final user query, as LangChain messages — the context
+    condensation needs to resolve pronouns in the latest user turn."""
+    last_user_index = None
+    for i in range(len(messages) - 1, -1, -1):
+        if messages[i].role == "user":
+            last_user_index = i
+            break
+    kept = messages if last_user_index is None else messages[:last_user_index]
+    return to_langchain(kept)
+
+
 def format_lore(chunks: list[tuple[Any, float | None]]) -> str:
     lines: list[str] = []
     for document, _score in chunks:

@@ -59,5 +59,18 @@ class CondenseQueryTests(_ut.IsolatedAsyncioTestCase):
         self.assertEqual(out, "where is it?")
 
 
+class ToHistoryTests(unittest.TestCase):
+    def test_to_history_excludes_final_user_turn(self):
+        from logic.openai_adapter import OpenAIMessage, to_history
+        msgs = [OpenAIMessage(role="system", content="You are Lydia."),
+                OpenAIMessage(role="user", content="What skills do Nords have?"),
+                OpenAIMessage(role="assistant", content="Strong warriors."),
+                OpenAIMessage(role="user", content="What skills do they have?")]
+        hist = to_history(msgs)
+        # last user turn is the query, not part of history
+        self.assertEqual(len(hist), 3)
+        self.assertEqual(hist[-1].content, "Strong warriors.")
+
+
 if __name__ == "__main__":
     unittest.main()

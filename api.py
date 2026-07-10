@@ -13,6 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
+from logic.condense import condense_query
 from logic.config import load_rag_settings
 from logic.ingestion import ArchivesIngestion
 from logic.openai_adapter import (
@@ -22,6 +23,7 @@ from logic.openai_adapter import (
     inject_lore,
     last_user_text,
     stream_completion,
+    to_history,
     to_langchain,
 )
 from logic.rag_engine import build_chat_model
@@ -450,13 +452,32 @@ async def openai_chat_completions(request: ChatCompletionRequest):
             f"(stream={request.stream}) | query: {query.strip()!r}"
         )
 
+        # Built before retrieval so the same client can also power query
+        # condensation (below) without constructing a second one.
+        llm = build_chat_model(
+            settings.llm_provider,
+            model_name,
+            settings.llm_base_url,
+            settings.llm_api_key,
+            settings.request_timeout,
+        )
+
+        # Resolve pronouns ("they", "it") into a standalone RETRIEVAL query so the
+        # vector store matches the real subject. Gated + off by default, so
+        # standalone turns pay zero extra latency. Generation still sees raw history.
+        retrieval_query = query
+        if settings.condense_queries and query.strip():
+            retrieval_query = await condense_query(llm, to_history(request.messages), query)
+            if retrieval_query != query:
+                print(f"[Mantella]   condensed: {query.strip()!r} -> {retrieval_query.strip()!r}")
+
         chunks: list = []
         if query.strip():
             try:
                 # Grounding wants the most *relevant* lore (similarity), not the
                 # diversity MMR optimizes for, and should drop weak matches.
                 chunks = await get_archives().retrieve(
-                    query,
+                    retrieval_query,
                     k=settings.top_k,
                     search_type="similarity",
                     min_score=settings.score_threshold,
@@ -467,14 +488,6 @@ async def openai_chat_completions(request: ChatCompletionRequest):
         print(f"[Mantella]   retrieved {len(chunks)} lore chunk(s)")
 
         messages = inject_lore(to_langchain(request.messages), format_lore(chunks))
-
-        llm = build_chat_model(
-            settings.llm_provider,
-            model_name,
-            settings.llm_base_url,
-            settings.llm_api_key,
-            settings.request_timeout,
-        )
 
         if request.stream:
             print("[Mantella]   << streaming reply")
