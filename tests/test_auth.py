@@ -86,5 +86,51 @@ class JwtVerificationTests(_ut.TestCase):
                 verify_jwt(token, settings)
 
 
+class ResolveUserTests(_ut.IsolatedAsyncioTestCase):
+    def _settings(self, **over):
+        from logic.config import load_rag_settings
+        s = load_rag_settings()
+        return s.__class__(**{**s.__dict__, **over})
+
+    async def _store(self):
+        import tempfile
+        from pathlib import Path
+        from logic.state.sqlite_store import SQLiteStateStore
+        self._tmp = tempfile.TemporaryDirectory()
+        return SQLiteStateStore(str(Path(self._tmp.name) / "s.db"))
+
+    async def test_default_user_when_no_auth(self):
+        from logic.auth import resolve_user
+        store = await self._store()
+        uid, uk = await resolve_user(store, self._settings(neon_auth_jwks_url=None))
+        self.assertEqual(uk, "default")
+        self.assertTrue(uid)
+
+    async def test_api_key_resolves_owner_and_caches(self):
+        from logic.auth import resolve_user, hash_key, IdentityCache
+        store = await self._store()
+        user = await store.ensure_user("owner-1")
+        await store.create_api_key(user["id"], hash_key("sk-sent-abc"))
+        cache = IdentityCache()
+        calls = {"n": 0}
+        orig = store.get_user_by_api_key_hash
+        async def counting(h):
+            calls["n"] += 1
+            return await orig(h)
+        store.get_user_by_api_key_hash = counting  # type: ignore
+        s = self._settings(neon_auth_jwks_url=None)
+        uid1, _ = await resolve_user(store, s, api_key="sk-sent-abc", cache=cache)
+        uid2, _ = await resolve_user(store, s, api_key="sk-sent-abc", cache=cache)
+        self.assertEqual(uid1, user["id"])
+        self.assertEqual(uid2, user["id"])
+        self.assertEqual(calls["n"], 1)  # second hit served from cache, no DB
+
+    async def test_unknown_api_key_rejected(self):
+        from logic.auth import resolve_user, AuthError
+        store = await self._store()
+        with self.assertRaises(AuthError):
+            await resolve_user(store, self._settings(neon_auth_jwks_url=None), api_key="sk-sent-nope")
+
+
 if __name__ == "__main__":
     unittest.main()

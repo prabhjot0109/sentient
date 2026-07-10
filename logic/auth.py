@@ -1,7 +1,13 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import secrets
+from functools import lru_cache
+from typing import Any, Awaitable, Callable
+
+import jwt
+from cachetools import TTLCache
 
 
 def hash_key(raw: str) -> str:
@@ -18,11 +24,6 @@ def generate_api_key() -> tuple[str, str]:
     only the hash is ever stored."""
     raw = "sk-sent-" + secrets.token_urlsafe(32)
     return raw, hash_key(raw)
-
-
-from functools import lru_cache
-
-import jwt
 
 
 class AuthError(Exception):
@@ -56,3 +57,64 @@ def verify_jwt(token: str, settings) -> dict:
         raise
     except Exception as e:  # jwt.InvalidTokenError and friends
         raise AuthError(f"invalid token: {e}") from e
+
+
+_identity_locks: dict[int, asyncio.Lock] = {}
+
+
+def _loop_lock() -> asyncio.Lock:
+    loop = asyncio.get_running_loop()
+    lock = _identity_locks.get(id(loop))
+    if lock is None:
+        lock = asyncio.Lock()
+        _identity_locks[id(loop)] = lock
+    return lock
+
+
+class IdentityCache:
+    """TTL cache of resolved (user_id, user_key) tuples keyed by a token/key hash.
+    Keeps auth off the hot path: DB is hit at most once per identity per TTL window."""
+
+    def __init__(self, ttl: float = 300, maxsize: int = 1024) -> None:
+        self._cache: TTLCache = TTLCache(maxsize=maxsize, ttl=ttl)
+
+    async def resolve(self, cache_key: str, loader: Callable[[], Awaitable[Any]]) -> Any:
+        hit = self._cache.get(cache_key)
+        if hit is not None:
+            return hit
+        async with _loop_lock():
+            hit = self._cache.get(cache_key)
+            if hit is not None:
+                return hit
+            value = await loader()
+            self._cache[cache_key] = value
+            return value
+
+
+async def resolve_user(state, settings, *, jwt_token: str | None = None,
+                       api_key: str | None = None, header_key: str | None = None,
+                       cache: IdentityCache | None = None) -> tuple[str, str]:
+    key = api_key or header_key
+
+    if jwt_token and auth_enabled(settings):
+        async def _load_jwt():
+            claims = verify_jwt(jwt_token, settings)
+            sub = claims.get("sub")
+            if not sub:
+                raise AuthError("token has no sub claim")
+            user = await state.ensure_user(sub, claims.get("email"))
+            return (user["id"], user_key_of(sub))
+        ck = "jwt:" + hash_key(jwt_token)
+        return await (cache.resolve(ck, _load_jwt) if cache else _load_jwt())
+
+    if key:
+        async def _load_key():
+            row = await state.get_user_by_api_key_hash(hash_key(key))
+            if not row or row.get("revoked"):
+                raise AuthError("unknown or revoked api key")
+            return (row["user_id"], user_key_of(key))
+        ck = "key:" + hash_key(key)
+        return await (cache.resolve(ck, _load_key) if cache else _load_key())
+
+    default_user = await state.ensure_user(None)
+    return (default_user["id"], "default")
