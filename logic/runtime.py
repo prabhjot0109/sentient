@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
+
+from cachetools import TTLCache
 
 from logic.presets import get_preset
 
@@ -96,3 +99,45 @@ async def resolve_runtime_context(state, settings, *, user_id, user_key, project
         llm_settings=llm, rag_settings=rag, system_prompt=system_prompt,
         config_signature=_signature(llm, rag),
     )
+
+
+class RuntimeCache:
+    """Memoizes resolved RuntimeContexts by (user_id, project_id). Short TTL as a
+    backstop; call invalidate(project_id) on config/persona writes for immediate
+    freshness. Keeps project-config DB reads off the per-turn hot path.
+
+    Single-flight is per (user, project) — a cold resolve for one project never
+    blocks another's. Locks are keyed by (event loop, memo key) because
+    asyncio.Lock binds to the loop it was created on; entries drop once settled.
+    """
+
+    def __init__(self, ttl: float = 60, maxsize: int = 512) -> None:
+        self._cache: TTLCache = TTLCache(maxsize=maxsize, ttl=ttl)
+        self._locks: dict[tuple, asyncio.Lock] = {}
+
+    async def resolve(self, state, settings, *, user_id, user_key, project_id,
+                      session_id=None, provider_key=None) -> RuntimeContext:
+        cache_key = (user_id, project_id)
+        hit = self._cache.get(cache_key)
+        if hit is None:
+            lock_key = (id(asyncio.get_running_loop()), *cache_key)
+            lock = self._locks.setdefault(lock_key, asyncio.Lock())
+            try:
+                async with lock:
+                    hit = self._cache.get(cache_key)
+                    if hit is None:
+                        hit = await resolve_runtime_context(
+                            state, settings, user_id=user_id, user_key=user_key,
+                            project_id=project_id, session_id=session_id,
+                            provider_key=provider_key)
+                        self._cache[cache_key] = hit
+            finally:
+                self._locks.pop(lock_key, None)
+        # session_id varies per call but isn't part of config; return a context carrying this call's id
+        if hit.session_id != session_id:
+            return replace(hit, session_id=session_id)
+        return hit
+
+    def invalidate(self, project_id: str) -> None:
+        for key in [k for k in self._cache if k[1] == project_id]:
+            self._cache.pop(key, None)

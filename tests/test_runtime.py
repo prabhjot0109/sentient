@@ -61,5 +61,43 @@ class RuntimeContextTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotEqual(c1.config_signature, c2.config_signature)
 
 
+class RuntimeCacheTests(unittest.IsolatedAsyncioTestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.store = SQLiteStateStore(str(Path(self.tmp.name) / "s.db"))
+        self.settings = load_rag_settings()
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    async def test_memoizes_and_invalidates(self):
+        from logic.runtime import RuntimeCache
+        user = await self.store.ensure_user("A")
+        proj = await self.store.create_project(user["id"], "P")
+        await self.store.upsert_project_config(proj["id"], model_name="m1")
+        cache = RuntimeCache()
+
+        calls = {"n": 0}
+        orig = self.store.get_project_config
+        async def counting(pid):
+            calls["n"] += 1
+            return await orig(pid)
+        self.store.get_project_config = counting  # type: ignore
+
+        c1 = await cache.resolve(self.store, self.settings, user_id=user["id"], user_key="uk",
+                                 project_id=proj["id"], session_id="s")
+        c2 = await cache.resolve(self.store, self.settings, user_id=user["id"], user_key="uk",
+                                 project_id=proj["id"], session_id="s2")
+        self.assertEqual(c1.llm_settings["model"], "m1")
+        self.assertEqual(c2.session_id, "s2")  # session id follows the call, not the cache
+        self.assertEqual(calls["n"], 1)  # second served from cache
+
+        await self.store.upsert_project_config(proj["id"], model_name="m2")
+        cache.invalidate(proj["id"])
+        c3 = await cache.resolve(self.store, self.settings, user_id=user["id"], user_key="uk",
+                                 project_id=proj["id"], session_id="s")
+        self.assertEqual(c3.llm_settings["model"], "m2")  # re-resolved after invalidation
+
+
 if __name__ == "__main__":
     unittest.main()
