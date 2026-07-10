@@ -55,6 +55,13 @@ def _env_bool(name: str, default: bool) -> bool:
     return raw.strip().lower() in {"1", "true", "yes", "on"}
 
 
+def _resolve_db_backend() -> str:
+    explicit = (os.getenv("DB_BACKEND") or "").strip().lower()
+    if explicit in {"neon", "supabase", "sqlite"}:
+        return explicit
+    return "neon" if os.getenv("DATABASE_URL") else "sqlite"
+
+
 def _normalize_vector_backend(value: str | None) -> str:
     normalized = (value or "faiss").strip().lower()
     return normalized if normalized in {"faiss", "qdrant"} else "faiss"
@@ -193,6 +200,9 @@ class RAGSettings:
     search_type: SearchType
     score_threshold: float
     request_timeout: float
+    db_backend: str
+    database_url: str | None
+    supabase_db_url: str | None
     vector_backend: str
     qdrant_url: str | None
     qdrant_api_key: str | None
@@ -283,6 +293,9 @@ def load_rag_settings(api_key: str | None = None) -> RAGSettings:
         search_type=_normalize_search_type(os.getenv("RAG_SEARCH_TYPE")),
         score_threshold=_env_float("RAG_SCORE_THRESHOLD", 0.0),
         request_timeout=request_timeout,
+        db_backend=_resolve_db_backend(),
+        database_url=os.getenv("DATABASE_URL"),
+        supabase_db_url=os.getenv("SUPABASE_DB_URL"),
         vector_backend=vector_backend,
         qdrant_url=qdrant_url,
         qdrant_api_key=qdrant_api_key,
