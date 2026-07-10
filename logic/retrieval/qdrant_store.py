@@ -158,28 +158,28 @@ class QdrantBackend:
         scope = self._filter(user_key="default", project_id=project_id)
         await asyncio.to_thread(self._delete_by_filter_sync, scope)
         if not chunks:
-            return self.metadata()
+            return await asyncio.to_thread(self.metadata)
         await asyncio.to_thread(
             store.add_documents, self._tag(list(chunks), project_id, embedding_signature)
         )
-        return self.metadata()
+        return await asyncio.to_thread(self.metadata)
 
     async def add(self, chunks, *, source_names=None, persona="",
                   project_id=None, embedding_signature=None) -> dict[str, Any] | None:
         if not chunks:
-            return self.metadata()
+            return await asyncio.to_thread(self.metadata)
         store = await self._ensure_ready()
         await asyncio.to_thread(
             store.add_documents, self._tag(list(chunks), project_id, embedding_signature)
         )
-        return self.metadata()
+        return await asyncio.to_thread(self.metadata)
 
     async def remove(self, source: str) -> dict[str, Any] | None:
         await self._ensure_ready()
         qfilter = models.Filter(must=[models.FieldCondition(
             key=_SOURCE, match=models.MatchValue(value=source))])
         await asyncio.to_thread(self._delete_by_filter_sync, qfilter)
-        return self.metadata()
+        return await asyncio.to_thread(self.metadata)
 
     def _retrieve_sync(self, store, query, resolved_k, qfilter, threshold):
         scored = store.similarity_search_with_score(query, k=resolved_k, filter=qfilter)
