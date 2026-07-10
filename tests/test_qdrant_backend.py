@@ -99,5 +99,17 @@ class QdrantBackendTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("a.txt", sources)
 
 
+class QdrantFactoryTests(unittest.TestCase):
+    def test_factory_returns_qdrant_backend(self):
+        from logic.retrieval.factory import get_vector_backend
+        from logic.retrieval.qdrant_store import QdrantBackend
+
+        with patch.dict(os.environ, {"VECTOR_BACKEND": "qdrant", "QDRANT_URL": "http://x:6333"},
+                        clear=False):
+            settings = load_rag_settings()
+        backend = get_vector_backend(settings, None, _FakeDense())
+        self.assertIsInstance(backend, QdrantBackend)
+
+
 if __name__ == "__main__":
     unittest.main()

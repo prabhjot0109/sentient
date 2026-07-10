@@ -98,11 +98,13 @@ class FactoryTests(unittest.TestCase):
         backend = get_vector_backend(load_rag_settings(), Path("./ignore"), _FakeEmbeddings())
         self.assertIsInstance(backend, FaissBackend)
 
-    def test_qdrant_not_yet_implemented(self):
+    def test_qdrant_backend_selected(self):
+        from logic.retrieval.qdrant_store import QdrantBackend
+
         with patch.dict(os.environ, {"VECTOR_BACKEND": "qdrant"}, clear=False):
             settings = load_rag_settings()
-        with self.assertRaises(NotImplementedError):
-            get_vector_backend(settings, Path("./ignore"), _FakeEmbeddings())
+        backend = get_vector_backend(settings, Path("./ignore"), _FakeEmbeddings())
+        self.assertIsInstance(backend, QdrantBackend)
 
 
 if __name__ == "__main__":
