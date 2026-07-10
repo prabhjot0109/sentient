@@ -22,5 +22,42 @@ class PronounGateTests(unittest.TestCase):
         self.assertFalse(needs_condensation("Tell me about the pheasant."))  # "he" substring
 
 
+import unittest as _ut
+from langchain_core.messages import AIMessage, HumanMessage
+
+
+class _FakeLLM:
+    def __init__(self, reply): self._reply = reply; self.calls = 0
+    async def ainvoke(self, messages):
+        self.calls += 1
+        class _R: content = self._reply
+        return _R()
+
+
+class CondenseQueryTests(_ut.IsolatedAsyncioTestCase):
+    async def test_bypass_when_no_pronoun_makes_no_llm_call(self):
+        from logic.condense import condense_query
+        llm = _FakeLLM("SHOULD NOT BE USED")
+        out = await condense_query(llm, [], "What skills do Nords have?")
+        self.assertEqual(out, "What skills do Nords have?")
+        self.assertEqual(llm.calls, 0)
+
+    async def test_rewrites_when_pronoun_present(self):
+        from logic.condense import condense_query
+        llm = _FakeLLM("What skills do Nords have?")
+        history = [HumanMessage(content="What skills do Nords have?"),
+                   AIMessage(content="Nords are strong warriors.")]
+        out = await condense_query(llm, history, "What skills do they have?")
+        self.assertEqual(out, "What skills do Nords have?")
+        self.assertEqual(llm.calls, 1)
+
+    async def test_llm_error_falls_back_to_original(self):
+        from logic.condense import condense_query
+        class _Boom:
+            async def ainvoke(self, m): raise RuntimeError("boom")
+        out = await condense_query(_Boom(), [HumanMessage(content="x")], "where is it?")
+        self.assertEqual(out, "where is it?")
+
+
 if __name__ == "__main__":
     unittest.main()
