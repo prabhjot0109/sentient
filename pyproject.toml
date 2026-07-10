@@ -18,6 +18,7 @@ dependencies = [
     "langchain-qdrant>=0.2.1",
     "langchain-text-splitters",
     "pillow",
+    "pyjwt[crypto]>=2.11.0",
     "pymupdf",
     "pypdf",
     "pytesseract",

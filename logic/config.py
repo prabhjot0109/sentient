@@ -211,6 +211,9 @@ class RAGSettings:
     sparse_model: str
     condense_queries: bool
     hybrid: bool
+    neon_auth_jwks_url: str | None
+    neon_auth_issuer: str | None
+    neon_auth_algorithms: list[str]
 
 
 def load_rag_settings(api_key: str | None = None) -> RAGSettings:
@@ -304,4 +307,8 @@ def load_rag_settings(api_key: str | None = None) -> RAGSettings:
         sparse_model=sparse_model,
         condense_queries=condense_queries,
         hybrid=hybrid,
+        neon_auth_jwks_url=os.getenv("NEON_AUTH_JWKS_URL"),
+        neon_auth_issuer=os.getenv("NEON_AUTH_ISSUER"),
+        neon_auth_algorithms=[a.strip() for a in
+                              os.getenv("NEON_AUTH_ALGORITHMS", "EdDSA,RS256").split(",") if a.strip()],
     )
