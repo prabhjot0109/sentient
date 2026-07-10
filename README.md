@@ -143,15 +143,26 @@ Vector storage sits behind an async `VectorBackend` seam, so the store is swappa
 
 | Var | Default | Meaning |
 | --- | --- | --- |
-| `VECTOR_BACKEND` | `faiss` | `faiss` (local, default) or `qdrant` (async server-side hybrid dense+sparse retrieval — **Plan 02**; selecting it today raises `NotImplementedError`) |
-| `QDRANT_URL` / `QDRANT_API_KEY` | _empty_ | Qdrant connection (Plan 02) |
-| `QDRANT_PREFER_GRPC` | `false` | Use gRPC instead of HTTP for Qdrant (Plan 02) |
-| `QDRANT_COLLECTION` | `sentient_lore` | Qdrant collection name (Plan 02) |
-| `RAG_SPARSE_MODEL` | `Qdrant/bm25` | Sparse model for hybrid retrieval (Plan 02) |
-| `RAG_HYBRID` | `false` | Enable hybrid dense+sparse retrieval (Plan 02) |
+| `VECTOR_BACKEND` | `faiss` | `faiss` (local, default) or `qdrant` (async server-side hybrid dense+sparse retrieval) |
+| `QDRANT_URL` / `QDRANT_API_KEY` | _empty_ | Qdrant Cloud cluster URL + API key |
+| `QDRANT_PREFER_GRPC` | `false` | Use gRPC instead of HTTP for Qdrant (recommended for Cloud) |
+| `QDRANT_COLLECTION` | `sentient_lore` | Qdrant collection name |
+| `RAG_SPARSE_MODEL` | `Qdrant/bm25` | Local FastEmbed sparse model for hybrid retrieval |
+| `RAG_HYBRID` | `false` | Enable hybrid dense+sparse retrieval |
 | `RAG_CONDENSE_QUERIES` | `false` | Rewrite pronoun-laden follow-ups into standalone queries before retrieval (one extra LLM call, gated by a pronoun heuristic — Plan 03) |
 
-FAISS remains the default and behaves exactly as before; the flags above are inert until the corresponding backend/feature lands.
+FAISS remains the default and behaves exactly as before.
+
+##### Qdrant hybrid backend
+
+Set `VECTOR_BACKEND=qdrant` to route retrieval through a Qdrant collection instead of the local FAISS index. It's an accuracy **and** a multi-tenant **and** a deploy play:
+
+- **Hybrid dense + sparse, fused server-side.** The provider embeddings (Google/OpenAI/HF) supply the dense vector; a local FastEmbed BM25 model (`RAG_SPARSE_MODEL`) supplies a sparse vector. Qdrant runs both searches and fuses them with Reciprocal Rank Fusion — so an exact keyword (an item, skill, or place name) that pure dense similarity would miss still ranks, with no Python-side merge and no cross-encoder.
+- **SQ8 + HNSW.** The collection is created with scalar `INT8` quantization (≈4× smaller vectors, kept in RAM) and a tuned HNSW graph (`m=16`, `ef_construct=100`) for fast approximate search at scale.
+- **Multi-tenant / multi-project isolation.** Every point's payload is stamped with `user_key`, `project_id`, and `embedding_signature`, and every query applies a server-side `Filter` on them during graph traversal — so cross-tenant, cross-project, and stale-dimension vectors are never returned from the one shared collection.
+- **Async.** `langchain-qdrant`'s vector store is driven sync, but every hot-path call is offloaded with `asyncio.to_thread`, so the event loop never blocks (same model as FAISS).
+
+For Qdrant Cloud, set `QDRANT_URL`, `QDRANT_API_KEY`, and `QDRANT_PREFER_GRPC=true`. The collection is created idempotently on first write.
 
 ### Supabase Chat Storage
 
