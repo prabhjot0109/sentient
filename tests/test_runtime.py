@@ -1,0 +1,65 @@
+from __future__ import annotations
+
+import tempfile
+import unittest
+from pathlib import Path
+
+from logic.config import load_rag_settings
+from logic.state.sqlite_store import SQLiteStateStore
+
+
+class RuntimeContextTests(unittest.IsolatedAsyncioTestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.store = SQLiteStateStore(str(Path(self.tmp.name) / "s.db"))
+        self.settings = load_rag_settings()
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    async def test_no_project_matches_env_floor(self):
+        from logic.runtime import resolve_runtime_context
+        ctx = await resolve_runtime_context(self.store, self.settings,
+                                            user_id="u", user_key="default")
+        self.assertEqual(ctx.llm_settings["model"], self.settings.llm_model)
+        self.assertEqual(ctx.rag_settings["top_k"], self.settings.top_k)
+        self.assertEqual(ctx.system_prompt, "")
+        self.assertIsNone(ctx.project_id)
+
+    async def test_project_config_overrides_floor(self):
+        from logic.runtime import resolve_runtime_context
+        user = await self.store.ensure_user("A")
+        proj = await self.store.create_project(user["id"], "Skyrim", base_preset="skyrim")
+        await self.store.upsert_project_config(proj["id"], model_name="gemini-2.5-flash", rag_top_k=7)
+        ctx = await resolve_runtime_context(self.store, self.settings, user_id=user["id"],
+                                            user_key="uk", project_id=proj["id"])
+        self.assertEqual(ctx.llm_settings["model"], "gemini-2.5-flash")   # overridden
+        self.assertEqual(ctx.rag_settings["top_k"], 7)                    # overridden
+        self.assertIn("Skyrim", ctx.system_prompt)                        # base_preset applied
+
+    async def test_persona_prompt_beats_preset(self):
+        from logic.runtime import resolve_runtime_context
+        user = await self.store.ensure_user("A")
+        proj = await self.store.create_project(user["id"], "Skyrim", base_preset="skyrim")
+        await self.store.upsert_project_config(
+            proj["id"], persona_prompt="You are the voice of this world.")
+        ctx = await resolve_runtime_context(self.store, self.settings, user_id=user["id"],
+                                            user_key="uk", project_id=proj["id"])
+        self.assertEqual(ctx.system_prompt, "You are the voice of this world.")
+
+    async def test_signature_changes_with_model(self):
+        from logic.runtime import resolve_runtime_context
+        user = await self.store.ensure_user("A")
+        p1 = await self.store.create_project(user["id"], "P1")
+        p2 = await self.store.create_project(user["id"], "P2")
+        await self.store.upsert_project_config(p1["id"], model_name="model-a")
+        await self.store.upsert_project_config(p2["id"], model_name="model-b")
+        c1 = await resolve_runtime_context(self.store, self.settings, user_id=user["id"],
+                                           user_key="uk", project_id=p1["id"])
+        c2 = await resolve_runtime_context(self.store, self.settings, user_id=user["id"],
+                                           user_key="uk", project_id=p2["id"])
+        self.assertNotEqual(c1.config_signature, c2.config_signature)
+
+
+if __name__ == "__main__":
+    unittest.main()
