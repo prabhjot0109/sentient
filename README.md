@@ -109,6 +109,9 @@ RAG_CHUNK_SIZE=900
 RAG_CHUNK_OVERLAP=150
 SUPABASE_URL=your_supabase_project_url
 SUPABASE_SERVICE_ROLE_KEY=your_supabase_service_role_key
+NEON_AUTH_JWKS_URL=        # blank => auth disabled, single "default" user
+NEON_AUTH_ISSUER=          # Neon Auth base_url (token `iss`)
+NEON_AUTH_ALGORITHMS=EdDSA,RS256
 ```
 
 #### Choosing an LLM / embedding provider
@@ -212,6 +215,16 @@ If Tesseract is missing, scanned PDFs simply ingest as empty with a warning in t
 ### Dev tooling
 
 `python run_rag.py` sanity-checks the RAG pipeline (index rebuild, retrieval, and — if an API key is set — generation) from the terminal, without starting the API server.
+
+## Authentication
+
+Sentient resolves every request to a `user_id` two ways, and enforces auth **only when it is configured**:
+
+- **Web clients** send a Neon Auth JWT as `Authorization: Bearer <jwt>`. The token is verified against the Neon Auth JWKS URL (signature + issuer + an algorithm allowlist); the authenticated user is the token's `sub` claim.
+- **Game clients** (e.g. the Mantella mod) put a `sk-sent-…` API key in the request path. Keys are minted server-side (`generate_api_key`, dashboard endpoint lands in R4), shown **once**, and stored only as a `sha256` hash — the raw key is never persisted or logged. Validation is a hash lookup, and revoked keys are rejected. The api-key path works whether or not JWT auth is enabled.
+- **No `NEON_AUTH_JWKS_URL` ⇒ auth disabled.** The runtime serves a single `"default"` user, so a local/SQLite clone needs no auth config at all and behaves exactly like `main`.
+
+A warm `IdentityCache` (TTL, keyed by the token/key hash) memoizes the resolved `(user_id, user_key)`, so a live session hits the database at most once per key/token per TTL window — steady-state turns are a hash + dict lookup, keeping auth off the model-call critical path. Configure with `NEON_AUTH_JWKS_URL`, `NEON_AUTH_ISSUER`, and `NEON_AUTH_ALGORITHMS` (default `EdDSA,RS256`; this deployment's Neon Auth signs with EdDSA).
 
 ## API Endpoints
 
