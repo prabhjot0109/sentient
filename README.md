@@ -164,6 +164,19 @@ Set `VECTOR_BACKEND=qdrant` to route retrieval through a Qdrant collection inste
 
 For Qdrant Cloud, set `QDRANT_URL`, `QDRANT_API_KEY`, and `QDRANT_PREFER_GRPC=true`. The collection is created idempotently on first write.
 
+### Relational state (Neon / Supabase / SQLite)
+
+The multi-project runtime keeps its relational state — users, API keys, projects, per-project configs (including the project's single editable `persona_prompt`), chat threads, and a document registry — behind an async `StateStore` seam (`logic/state/`), selected by `DB_BACKEND`:
+
+| `DB_BACKEND` | Store | Connection source |
+| --- | --- | --- |
+| _unset_ (default) | Postgres if `DATABASE_URL` is set, else SQLite | `DATABASE_URL` (a Neon URL) |
+| `neon` | `PostgresStateStore` (asyncpg) | `DATABASE_URL` |
+| `supabase` | `PostgresStateStore` (asyncpg) | `SUPABASE_DB_URL` or `DATABASE_URL` |
+| `sqlite` | `SQLiteStateStore` | `${DATA_DIR}/state.db` |
+
+Neon and Supabase are both Postgres, so they share **one** asyncpg implementation — only the DSN differs. The schema ships as `db/migrations/0001_runtime_schema.sql` (applied idempotently on first pool use) and is mirrored by the SQLite store's `_init()`. With no `DATABASE_URL` the backend falls back to SQLite and behaves exactly as before — the relational tier is additive and separate from the chat-session storage below.
+
 ### Supabase Chat Storage
 
 Create a `chat_sessions` table before using persistent chat history:
