@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import os
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -107,7 +108,16 @@ class SentientRAGTests(unittest.TestCase):
         )
         self.env_patcher.start()
 
-        api.object_registry.clear()
+        from logic.auth import IdentityCache
+        from logic.registry import ObjectRegistry
+        from logic.runtime import RuntimeCache
+        from logic.state import get_state_store
+
+        api._settings = load_rag_settings()
+        api.state_store = get_state_store(api._settings)
+        api.identity_cache = IdentityCache()
+        api.runtime_cache = RuntimeCache()
+        api.object_registry = ObjectRegistry()
         api.supabase_client = None
         api.get_default_archives.cache_clear()
         api.get_local_chat_store.cache_clear()
@@ -146,32 +156,40 @@ class SentientRAGTests(unittest.TestCase):
         )
 
         with patch("logic.ingestion.build_embeddings", return_value=FakeEmbeddings()):
-            client = TestClient(api.app)
+            with TestClient(api.app) as client:
+                upload_response = client.post(
+                    "/v1/upload",
+                    files={"file": ("lore.txt", lore_text.encode("utf-8"), "text/plain")},
+                )
+                self.assertEqual(upload_response.status_code, 202)
+                self.assertEqual(
+                    upload_response.json(),
+                    {"status": "processing", "filename": "lore.txt"},
+                )
 
-            upload_response = client.post(
-                "/v1/upload",
-                files={"file": ("lore.txt", lore_text.encode("utf-8"), "text/plain")},
-            )
-            self.assertEqual(upload_response.status_code, 200)
-            self.assertTrue((self.data_dir / "lore.txt").exists())
+                deadline = time.monotonic() + 3
+                while time.monotonic() < deadline:
+                    health_response = client.get("/health")
+                    if health_response.json()["index_loaded"]:
+                        break
+                    time.sleep(0.02)
+                else:
+                    self.fail("background ingestion did not become ready")
 
-            health_response = client.get("/health")
-            self.assertEqual(health_response.status_code, 200)
-            self.assertTrue(health_response.json()["index_loaded"])
+                self.assertTrue((self.data_dir / "lore.txt").exists())
+                retrieve_response = client.post(
+                    "/v1/retrieve",
+                    json={"query": "Who guards the archives?", "top_k": 2},
+                )
+                self.assertEqual(retrieve_response.status_code, 200)
+                payload = retrieve_response.json()
+                self.assertTrue(payload["chunks"])
+                self.assertEqual(payload["chunks"][0]["source"], "lore.txt")
+                self.assertIn("guardian", payload["chunks"][0]["content"].lower())
 
-            retrieve_response = client.post(
-                "/v1/retrieve",
-                json={"query": "Who guards the archives?", "top_k": 2},
-            )
-            self.assertEqual(retrieve_response.status_code, 200)
-            payload = retrieve_response.json()
-            self.assertTrue(payload["chunks"])
-            self.assertEqual(payload["chunks"][0]["source"], "lore.txt")
-            self.assertIn("guardian", payload["chunks"][0]["content"].lower())
-
-            delete_response = client.delete("/v1/sources/lore.txt")
-            self.assertEqual(delete_response.status_code, 200)
-            self.assertFalse((self.data_dir / "lore.txt").exists())
+                delete_response = client.delete("/v1/sources/lore.txt")
+                self.assertEqual(delete_response.status_code, 200)
+                self.assertFalse((self.data_dir / "lore.txt").exists())
 
     def test_refresh_knowledge_reflects_uploads_and_deletes_from_another_instance(self):
         """Regression test: NPCBrain.refresh_knowledge() must actually pick up

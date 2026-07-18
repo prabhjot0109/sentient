@@ -3,7 +3,9 @@ from __future__ import annotations
 import os
 import tempfile
 import unittest
-from unittest.mock import patch
+from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, patch
 
 import httpx
 
@@ -84,6 +86,45 @@ class ManagementEndpointTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(invalidate.call_count, 2)
         invalidate.assert_any_call(project_id)
+
+    async def test_project_upload_is_scoped_and_reports_processing(self) -> None:
+        from logic.auth import hash_key, user_key_of
+
+        owner = await self.api.state_store.ensure_user("upload-owner")
+        raw_key = "sk-sent-upload"
+        await self.api.state_store.create_api_key(owner["id"], hash_key(raw_key))
+        project = await self.api.state_store.create_project(owner["id"], "Skyrim")
+        archives = SimpleNamespace(data_dir=Path(self.tmp.name) / "project-data")
+
+        with (
+            patch.object(
+                self.api,
+                "get_archives_for_context",
+                new_callable=AsyncMock,
+                return_value=archives,
+            ),
+            patch.object(
+                self.api, "enqueue_ingest", new_callable=AsyncMock
+            ) as enqueue,
+        ):
+            transport = httpx.ASGITransport(app=self.api.app)
+            async with httpx.AsyncClient(
+                transport=transport, base_url="http://test"
+            ) as client:
+                response = await client.post(
+                    "/v1/upload",
+                    headers={"X-API-Key": raw_key},
+                    data={"project_id": project["id"]},
+                    files={"file": ("lore.txt", b"project lore", "text/plain")},
+                )
+                documents = await self.api.state_store.list_documents(project["id"])
+
+        self.assertEqual(response.status_code, 202)
+        job = enqueue.await_args.args[0]
+        self.assertEqual(job.user_key, user_key_of(raw_key))
+        self.assertEqual(job.project_id, project["id"])
+        self.assertEqual(documents[0]["status"], "processing")
+        Path(job.file_path).unlink(missing_ok=True)
 
     async def test_revoked_key_is_rejected_immediately(self) -> None:
         transport = httpx.ASGITransport(app=self.api.app)

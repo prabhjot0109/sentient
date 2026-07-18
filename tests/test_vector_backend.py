@@ -20,9 +20,11 @@ class _FakeBackend:
     def __init__(self) -> None:
         self._docs: list[Document] = []
 
-    async def index(self, chunks, *, project_id=None, embedding_signature=None):
+    async def index(self, chunks, *, source_names=None, persona="", user_key=None,
+                    project_id=None, embedding_signature=None):
         self._docs = list(chunks); return {"chunk_count": len(self._docs)}
-    async def add(self, chunks, *, project_id=None, embedding_signature=None):
+    async def add(self, chunks, *, source_names=None, persona="", user_key=None,
+                  project_id=None, embedding_signature=None):
         self._docs.extend(chunks); return {"chunk_count": len(self._docs)}
     async def remove(self, source):
         self._docs = [d for d in self._docs if d.metadata.get("source") != source]

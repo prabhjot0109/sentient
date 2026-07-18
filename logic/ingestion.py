@@ -262,25 +262,56 @@ class ArchivesIngestion:
     def reset_index(self):
         self.backend.reset()
 
-    async def rebuild_index(self, source_path: str | None = None):
-        source_files = self._resolve_source_files(source_path)
+    async def rebuild_index(
+        self,
+        source_path: str | None = None,
+        *,
+        user_key: str | None = None,
+        project_id: str | None = None,
+        embedding_signature: str | None = None,
+    ):
+        source_files = await asyncio.to_thread(self._resolve_source_files, source_path)
         documents = await asyncio.to_thread(self._load_documents, source_path)
         if not documents:
-            self.backend.reset()
+            await asyncio.to_thread(self.backend.reset)
             return None
 
         # Split, then infer the persona off the event loop (the LLM call inside
         # _infer_persona is synchronous), before handing chunks to the backend.
-        chunks = self._split_documents(documents)
+        chunks = await asyncio.to_thread(self._split_documents, documents)
         persona = await asyncio.to_thread(self._infer_persona, chunks)
         return await self.backend.index(
-            chunks, source_names=[path.name for path in source_files], persona=persona
+            chunks,
+            source_names=[path.name for path in source_files],
+            persona=persona,
+            user_key=user_key,
+            project_id=project_id,
+            embedding_signature=embedding_signature,
         )
 
-    async def ingest(self, source_path: str):
-        return await self.rebuild_index(str(self.data_dir))
+    async def ingest(
+        self,
+        source_path: str,
+        *,
+        user_key: str | None = None,
+        project_id: str | None = None,
+        embedding_signature: str | None = None,
+    ):
+        return await self.rebuild_index(
+            str(self.data_dir),
+            user_key=user_key,
+            project_id=project_id,
+            embedding_signature=embedding_signature,
+        )
 
-    async def add_file(self, file_path: str) -> dict[str, Any] | None:
+    async def add_file(
+        self,
+        file_path: str,
+        *,
+        user_key: str | None = None,
+        project_id: str | None = None,
+        embedding_signature: str | None = None,
+    ) -> dict[str, Any] | None:
         """Embed a single new file and merge it into the existing index.
 
         Unlike rebuild_index, this never re-loads or re-embeds files that are
@@ -290,13 +321,24 @@ class ArchivesIngestion:
         path = Path(file_path)
         documents = await asyncio.to_thread(self._load_file, path)
         if not documents:
-            return self.backend.metadata()
+            metadata = await asyncio.to_thread(self.backend.metadata)
+            return {**(metadata or {}), "added_chunk_count": 0}
 
-        chunks = self._split_documents(documents)
-        manifest = self.backend.metadata() or {}
-        persona = manifest.get("persona") or await asyncio.to_thread(self._infer_persona, chunks)
-        source_names = [path.name for path in self._resolve_source_files()]
-        return await self.backend.add(chunks, source_names=source_names, persona=persona)
+        chunks = await asyncio.to_thread(self._split_documents, documents)
+        manifest = await asyncio.to_thread(self.backend.metadata) or {}
+        persona = manifest.get("persona") or await asyncio.to_thread(
+            self._infer_persona, chunks
+        )
+        source_files = await asyncio.to_thread(self._resolve_source_files)
+        metadata = await self.backend.add(
+            chunks,
+            source_names=[path.name for path in source_files],
+            persona=persona,
+            user_key=user_key,
+            project_id=project_id,
+            embedding_signature=embedding_signature,
+        )
+        return {**(metadata or {}), "added_chunk_count": len(chunks)}
 
     async def remove_file(self, filename: str) -> dict[str, Any] | None:
         return await self.backend.remove(filename)

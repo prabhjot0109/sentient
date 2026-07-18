@@ -1,0 +1,141 @@
+from __future__ import annotations
+
+import asyncio
+import tempfile
+import unittest
+from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, patch
+
+
+class IngestQueueTests(unittest.IsolatedAsyncioTestCase):
+    async def test_processes_jobs_and_reports_done(self):
+        from logic.workers import IngestJob, IngestQueue
+
+        processed = []
+
+        async def handler(job):
+            processed.append(job.filename)
+
+        queue = IngestQueue(handler)
+        await queue.start()
+        await queue.enqueue(
+            IngestJob("p", "uk", None, "/x/a.pdf", "a.pdf", "sig")
+        )
+        await queue.stop()
+
+        self.assertEqual(processed, ["a.pdf"])
+
+    async def test_handler_error_does_not_kill_worker(self):
+        from logic.workers import IngestJob, IngestQueue
+
+        seen = []
+
+        async def handler(job):
+            if job.filename == "bad":
+                raise RuntimeError("boom")
+            seen.append(job.filename)
+
+        queue = IngestQueue(handler)
+        await queue.start()
+        await queue.enqueue(IngestJob("p", "uk", None, "/x", "bad", "s"))
+        await queue.enqueue(IngestJob("p", "uk", None, "/x", "good", "s"))
+        await queue.stop()
+
+        self.assertEqual(seen, ["good"])
+
+    async def test_stop_drains_accepted_jobs_in_fifo_order(self):
+        from logic.workers import IngestJob, IngestQueue
+
+        started = asyncio.Event()
+        release = asyncio.Event()
+        order = []
+
+        async def handler(job):
+            order.append(f"{job.filename}-start")
+            if job.filename == "first":
+                started.set()
+                await release.wait()
+            order.append(f"{job.filename}-end")
+
+        queue = IngestQueue(handler)
+        await queue.start()
+        await queue.enqueue(IngestJob("p", "uk", None, "/1", "first", "s"))
+        await queue.enqueue(IngestJob("p", "uk", None, "/2", "second", "s"))
+        await started.wait()
+
+        stopping = asyncio.create_task(queue.stop())
+        await asyncio.sleep(0)
+        self.assertFalse(stopping.done())
+        release.set()
+        await stopping
+
+        self.assertEqual(
+            order,
+            ["first-start", "first-end", "second-start", "second-end"],
+        )
+        await asyncio.wait_for(queue._queue.join(), timeout=0.1)
+        await queue.stop()
+
+
+class IngestHandlerTests(unittest.IsolatedAsyncioTestCase):
+    async def test_ingest_handler_awaits_add_and_marks_project_ready(self):
+        import api
+        from logic.workers import IngestJob
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "lore.txt"
+            path.write_text("lore", encoding="utf-8")
+            archives = SimpleNamespace(
+                data_dir=Path(tmp),
+                add_file=AsyncMock(return_value={"added_chunk_count": 3}),
+            )
+            store = SimpleNamespace(
+                register_document=AsyncMock(),
+                set_document_status=AsyncMock(),
+            )
+            job = IngestJob(
+                "project-a", "tenant-a", None, str(path), "lore.txt", "sig-a", archives
+            )
+
+            with patch.object(api, "state_store", store):
+                await api._ingest_handler(job)
+
+        archives.add_file.assert_awaited_once_with(
+            str(path),
+            user_key="tenant-a",
+            project_id="project-a",
+            embedding_signature="sig-a",
+        )
+        store.register_document.assert_awaited_once_with(
+            "project-a", "lore.txt", 3, "sig-a", status="ready"
+        )
+        store.set_document_status.assert_not_awaited()
+
+    async def test_ingest_handler_marks_project_failed(self):
+        import api
+        from logic.workers import IngestJob
+
+        archives = SimpleNamespace(
+            data_dir=Path("/tmp"),
+            add_file=AsyncMock(side_effect=RuntimeError("embed failed")),
+        )
+        store = SimpleNamespace(
+            register_document=AsyncMock(),
+            set_document_status=AsyncMock(),
+        )
+        job = IngestJob(
+            "project-a", "tenant-a", None, "/tmp/lore.txt", "lore.txt", "sig-a", archives
+        )
+
+        with patch.object(api, "state_store", store):
+            with self.assertRaisesRegex(RuntimeError, "embed failed"):
+                await api._ingest_handler(job)
+
+        store.set_document_status.assert_awaited_once_with(
+            "project-a", "lore.txt", "failed"
+        )
+
+
+if __name__ == "__main__":
+    unittest.main()

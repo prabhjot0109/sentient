@@ -55,6 +55,55 @@ class QdrantBackendTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("a.txt", sources)
         self.assertNotIn("b.txt", sources)
 
+    async def test_explicit_user_key_overrides_document_metadata(self):
+        from logic.retrieval.qdrant_store import QdrantBackend
+
+        backend = QdrantBackend(_qdrant_settings(), _FakeDense(), location=":memory:")
+        await backend.add(
+            [Document(page_content="tenant A lore", metadata={"source": "a.txt", "user_key": "stale"})],
+            user_key="tenant-a",
+        )
+
+        tenant_hits = await backend.retrieve(
+            "lore", k=5, min_score=0.0, user_key="tenant-a"
+        )
+        stale_hits = await backend.retrieve(
+            "lore", k=5, min_score=0.0, user_key="stale"
+        )
+        self.assertEqual({d.metadata.get("source") for d, _ in tenant_hits}, {"a.txt"})
+        self.assertEqual(stale_hits, [])
+
+    async def test_index_replaces_only_requested_user_project_scope(self):
+        from logic.retrieval.qdrant_store import QdrantBackend
+
+        backend = QdrantBackend(_qdrant_settings(), _FakeDense(), location=":memory:")
+        await backend.add(
+            [Document(page_content="old tenant A lore", metadata={"source": "old-a.txt"})],
+            user_key="tenant-a",
+            project_id="shared",
+        )
+        await backend.add(
+            [Document(page_content="tenant B lore", metadata={"source": "b.txt"})],
+            user_key="tenant-b",
+            project_id="shared",
+        )
+        await backend.index(
+            [Document(page_content="new tenant A lore", metadata={"source": "new-a.txt"})],
+            user_key="tenant-a",
+            project_id="shared",
+        )
+
+        tenant_a = await backend.retrieve(
+            "lore", k=5, min_score=0.0, user_key="tenant-a", project_id="shared"
+        )
+        tenant_b = await backend.retrieve(
+            "lore", k=5, min_score=0.0, user_key="tenant-b", project_id="shared"
+        )
+        self.assertEqual(
+            {d.metadata.get("source") for d, _ in tenant_a}, {"new-a.txt"}
+        )
+        self.assertEqual({d.metadata.get("source") for d, _ in tenant_b}, {"b.txt"})
+
     async def test_project_id_isolation_and_clear(self):
         from logic.retrieval.qdrant_store import QdrantBackend
 

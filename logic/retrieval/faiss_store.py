@@ -113,7 +113,7 @@ class FaissBackend:
         names = source_names or sorted({c.metadata.get("source", "unknown") for c in chunks})
         return self._write_manifest(source_names=list(names), chunk_count=len(chunks), persona=persona)
 
-    async def index(self, chunks, *, source_names=None, persona="",
+    async def index(self, chunks, *, source_names=None, persona="", user_key=None,
                     project_id=None, embedding_signature=None) -> dict[str, Any] | None:
         if not chunks:
             self.reset()
@@ -140,7 +140,7 @@ class FaissBackend:
             persona=persona or manifest.get("persona", ""),
         )
 
-    async def add(self, chunks, *, source_names=None, persona="",
+    async def add(self, chunks, *, source_names=None, persona="", user_key=None,
                   project_id=None, embedding_signature=None) -> dict[str, Any] | None:
         if not chunks:
             return self.metadata()

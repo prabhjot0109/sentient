@@ -3,6 +3,8 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import os
+import shutil
+import tempfile
 import time
 from contextlib import asynccontextmanager
 from dataclasses import replace
@@ -50,6 +52,7 @@ from logic.registry import ObjectRegistry
 from logic.runtime import RuntimeCache, RuntimeContext
 from logic.sqlite_chat_store import SQLiteChatStore
 from logic.state import get_state_store
+from logic.workers import IngestJob, IngestQueue
 from npc_brain import NPCBrain
 
 try:
@@ -222,21 +225,24 @@ async def current_user(
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Lifespan context manager for startup/shutdown events."""
+    """Start process-local workers and drain accepted work during shutdown."""
+    await ingest_queue.start()
     try:
-        if any_provider_key_present():
-            # Build the on-disk index from data/ at boot if missing, so the Mantella
-            # completions path has lore to ground on. Async so startup embedding
-            # never blocks the event loop. No global brain — clients resolve per turn.
-            await get_default_archives().ensure_index()
-        else:
-            print("No default API key found. Clients will initialize per-request.")
-    except Exception as e:
-        print(f"Startup initialization failed: {e}")
+        try:
+            if any_provider_key_present():
+                # Build the on-disk index from data/ at boot if missing, so the Mantella
+                # completions path has lore to ground on. Async so startup embedding
+                # never blocks the event loop. No global brain — clients resolve per turn.
+                await get_default_archives().ensure_index()
+            else:
+                print("No default API key found. Clients will initialize per-request.")
+        except Exception as e:
+            print(f"Startup initialization failed: {e}")
 
-    yield
-
-    print("Shutting down...")
+        yield
+    finally:
+        await ingest_queue.stop()
+        print("Shutting down...")
 
 
 app = FastAPI(title="Sentient AI API", lifespan=lifespan)
@@ -373,6 +379,48 @@ def get_archives(api_key: Optional[str] = None) -> ArchivesIngestion:
     if api_key:
         return ArchivesIngestion(api_key=api_key)
     return get_default_archives()
+
+
+async def _ingest_handler(job: IngestJob) -> None:
+    archives = job.archives or get_archives(job.api_key)
+    staged_path = Path(job.file_path)
+    final_path = archives.data_dir / job.filename
+    try:
+        if staged_path != final_path:
+            await asyncio.to_thread(final_path.parent.mkdir, parents=True, exist_ok=True)
+            await asyncio.to_thread(os.replace, staged_path, final_path)
+
+        metadata = await archives.add_file(
+            str(final_path),
+            user_key=job.user_key,
+            project_id=job.project_id,
+            embedding_signature=job.embedding_signature,
+        )
+        if job.project_id is not None:
+            await state_store.register_document(
+                job.project_id,
+                job.filename,
+                (metadata or {}).get("added_chunk_count", 0),
+                job.embedding_signature,
+                status="ready",
+            )
+    except Exception:
+        if job.project_id is not None:
+            await state_store.set_document_status(
+                job.project_id, job.filename, "failed"
+            )
+        raise
+    finally:
+        if staged_path != final_path and staged_path.exists():
+            await asyncio.to_thread(staged_path.unlink)
+
+
+ingest_queue = IngestQueue(_ingest_handler)
+
+
+async def enqueue_ingest(job: IngestJob) -> None:
+    """Stable enqueue seam for replacing the process-local worker later."""
+    await ingest_queue.enqueue(job)
 
 
 def has_supabase_chat_store() -> bool:
@@ -880,24 +928,16 @@ async def presets_endpoint():
     return {"presets": list_presets()}
 
 
-@app.post("/v1/upload")
+@app.post("/v1/upload", status_code=202)
 async def upload_file(
     file: UploadFile = File(...),
     api_key: Optional[str] = Form(default=None),
+    project_id: Optional[str] = Form(default=None),
+    x_api_key: Optional[str] = Header(default=None, alias="X-API-Key"),
 ):
-    """Upload a document to be ingested into the knowledge base.
-
-    Embedding a PDF is slow (parsing, OCR, embedding calls). `archives.add_file`
-    is a coroutine that offloads its synchronous CPU work with `asyncio.to_thread`,
-    so `/health`, `/v1/chat`, etc. stay responsive while an upload is in flight,
-    and concurrent uploads embed without blocking the loop (see
-    ArchivesIngestion.add_file / FaissBackend for how concurrent writes stay
-    index-safe).
-    """
+    """Stage an upload and enqueue non-blocking, tenant-scoped ingestion."""
+    staged_path: str | None = None
     try:
-        archives = get_archives(api_key)
-        archives.data_dir.mkdir(parents=True, exist_ok=True)
-
         if not file.filename:
             raise HTTPException(status_code=400, detail="Filename is required")
 
@@ -908,23 +948,60 @@ async def upload_file(
                 detail="Only PDF and TXT files are supported",
             )
 
-        file_path = str(archives.data_dir / safe_name)
-        contents = await file.read()
-        with open(file_path, "wb") as buffer:
-            buffer.write(contents)
+        credential = x_api_key or api_key
+        ctx = await _completions_ctx(credential, project_id)
+        archives = await get_archives_for_context(ctx)
+        staging_dir = archives.data_dir / ".ingest"
 
-        index_metadata = await archives.add_file(file_path)
+        def _stage_upload() -> str:
+            staging_dir.mkdir(parents=True, exist_ok=True)
+            fd, path = tempfile.mkstemp(
+                prefix="upload-", suffix=Path(safe_name).suffix, dir=staging_dir
+            )
+            with os.fdopen(fd, "wb") as buffer:
+                shutil.copyfileobj(file.file, buffer)
+            return path
 
-        return {
-            "success": True,
-            "message": f"File '{safe_name}' uploaded and indexed.",
-            "filename": safe_name,
-            "index_metadata": index_metadata,
-        }
+        staged_path = await asyncio.to_thread(_stage_upload)
+        embedding_signature = ""
+        if project_id is not None:
+            config = await state_store.get_project_config(project_id)
+            embedding_signature = (config or {}).get("embedding_signature") or ""
+            await state_store.register_document(
+                project_id,
+                safe_name,
+                0,
+                embedding_signature,
+                status="processing",
+            )
+
+        job = IngestJob(
+            project_id=project_id,
+            user_key=ctx.user_key,
+            api_key=ctx.llm_settings["api_key"],
+            file_path=staged_path,
+            filename=safe_name,
+            embedding_signature=embedding_signature,
+            archives=archives,
+        )
+        try:
+            await enqueue_ingest(job)
+        except (asyncio.QueueFull, RuntimeError) as exc:
+            if project_id is not None:
+                await state_store.set_document_status(project_id, safe_name, "failed")
+            raise HTTPException(
+                status_code=503, detail="ingestion queue is unavailable"
+            ) from exc
+
+        return {"status": "processing", "filename": safe_name}
     except HTTPException:
+        if staged_path and os.path.exists(staged_path):
+            await asyncio.to_thread(os.remove, staged_path)
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        if staged_path and os.path.exists(staged_path):
+            await asyncio.to_thread(os.remove, staged_path)
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @app.get("/v1/sources")

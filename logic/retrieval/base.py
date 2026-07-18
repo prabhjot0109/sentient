@@ -23,11 +23,23 @@ class VectorBackend(Protocol):
     """
 
     async def index(
-        self, chunks: list[Document], *, project_id: str | None = None,
+        self,
+        chunks: list[Document],
+        *,
+        source_names: list[str] | None = None,
+        persona: str = "",
+        user_key: str | None = None,
+        project_id: str | None = None,
         embedding_signature: str | None = None,
     ) -> dict[str, Any] | None: ...
     async def add(
-        self, chunks: list[Document], *, project_id: str | None = None,
+        self,
+        chunks: list[Document],
+        *,
+        source_names: list[str] | None = None,
+        persona: str = "",
+        user_key: str | None = None,
+        project_id: str | None = None,
         embedding_signature: str | None = None,
     ) -> dict[str, Any] | None: ...
     async def remove(self, source: str) -> dict[str, Any] | None: ...

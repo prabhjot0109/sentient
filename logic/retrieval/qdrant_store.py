@@ -120,9 +120,11 @@ class QdrantBackend:
 
     # ---- payload tagging + filters ----
     @staticmethod
-    def _tag(chunks: list[Document], project_id, embedding_signature) -> list[Document]:
+    def _tag(
+        chunks: list[Document], user_key, project_id, embedding_signature
+    ) -> list[Document]:
         for chunk in chunks:
-            chunk.metadata["user_key"] = chunk.metadata.get("user_key") or "default"
+            chunk.metadata["user_key"] = user_key or chunk.metadata.get("user_key") or "default"
             if project_id is not None:
                 chunk.metadata["project_id"] = project_id
             if embedding_signature is not None:
@@ -149,28 +151,31 @@ class QdrantBackend:
         )
 
     # ---- VectorBackend interface ----
-    async def index(self, chunks, *, source_names=None, persona="",
+    async def index(self, chunks, *, source_names=None, persona="", user_key=None,
                     project_id=None, embedding_signature=None) -> dict[str, Any] | None:
         # Replace-semantics parity with FaissBackend.index(), but scoped: drop only
         # this (user_key, project_id) partition so a rebuild never duplicates its own
         # vectors and never touches another tenant's/project's data.
         store = await self._ensure_ready()
-        scope = self._filter(user_key="default", project_id=project_id)
+        scope = self._filter(user_key=user_key or "default", project_id=project_id)
+        assert scope is not None
         await asyncio.to_thread(self._delete_by_filter_sync, scope)
         if not chunks:
             return await asyncio.to_thread(self.metadata)
         await asyncio.to_thread(
-            store.add_documents, self._tag(list(chunks), project_id, embedding_signature)
+            store.add_documents,
+            self._tag(list(chunks), user_key, project_id, embedding_signature),
         )
         return await asyncio.to_thread(self.metadata)
 
-    async def add(self, chunks, *, source_names=None, persona="",
+    async def add(self, chunks, *, source_names=None, persona="", user_key=None,
                   project_id=None, embedding_signature=None) -> dict[str, Any] | None:
         if not chunks:
             return await asyncio.to_thread(self.metadata)
         store = await self._ensure_ready()
         await asyncio.to_thread(
-            store.add_documents, self._tag(list(chunks), project_id, embedding_signature)
+            store.add_documents,
+            self._tag(list(chunks), user_key, project_id, embedding_signature),
         )
         return await asyncio.to_thread(self.metadata)
 
