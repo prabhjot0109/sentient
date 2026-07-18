@@ -156,6 +156,18 @@ Vector storage sits behind an async `VectorBackend` seam, so the store is swappa
 
 FAISS remains the default and behaves exactly as before.
 
+#### Concurrency, streaming, and uploads
+
+`/v1/chat/completions` resolves its client and retrieves lore concurrently, then emits the existing OpenAI-compatible SSE stream through the model's async `astream` interface. The server log records both the first-token latency (`[Mantella] first token in …ms`) and each request's stage timings (`[turn:…] ctx=…ms ground=…ms prompt=…ms`) so TTFT regressions are visible without a metrics service. Background per-session mutations are serialized, but response streaming never waits for that lock.
+
+`POST /v1/upload` now accepts a PDF or TXT, stages it, and returns immediately with HTTP `202`:
+
+```json
+{"status":"processing","filename":"lore.txt"}
+```
+
+The ingestion worker writes document status as `processing`, then `ready` or `failed` for project-scoped uploads; callers that integrate with the runtime state can poll `StateStore.list_documents(project_id)` for that status. The worker is deliberately in-process and is not crash-durable: a process restart can lose accepted-but-unfinished jobs. The HTTP layer uses the `enqueue_ingest(job)` seam, so it can be replaced later with a durable queue without changing callers.
+
 ##### Qdrant hybrid backend
 
 Set `VECTOR_BACKEND=qdrant` to route retrieval through a Qdrant collection instead of the local FAISS index. It's an accuracy **and** a multi-tenant **and** a deploy play:
