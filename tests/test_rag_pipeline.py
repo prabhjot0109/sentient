@@ -107,7 +107,7 @@ class SentientRAGTests(unittest.TestCase):
         )
         self.env_patcher.start()
 
-        api.brain = None
+        api.object_registry.clear()
         api.supabase_client = None
         api.get_default_archives.cache_clear()
         api.get_local_chat_store.cache_clear()

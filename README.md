@@ -162,7 +162,7 @@ Set `VECTOR_BACKEND=qdrant` to route retrieval through a Qdrant collection inste
 
 - **Hybrid dense + sparse, fused server-side.** The provider embeddings (Google/OpenAI/HF) supply the dense vector; a local FastEmbed BM25 model (`RAG_SPARSE_MODEL`) supplies a sparse vector. Qdrant runs both searches and fuses them with Reciprocal Rank Fusion — so an exact keyword (an item, skill, or place name) that pure dense similarity would miss still ranks, with no Python-side merge and no cross-encoder.
 - **SQ8 + HNSW.** The collection is created with scalar `INT8` quantization (≈4× smaller vectors, kept in RAM) and a tuned HNSW graph (`m=16`, `ef_construct=100`) for fast approximate search at scale.
-- **Multi-tenant / multi-project isolation.** Every point's payload is stamped with `user_key`, `project_id`, and `embedding_signature`, and every query applies a server-side `Filter` on them during graph traversal — so cross-tenant, cross-project, and stale-dimension vectors are never returned from the one shared collection.
+- **Multi-tenant / multi-project isolation.** Project-aware completion reads apply a server-side `Filter` on `user_key` and `project_id` during graph traversal. FAISS uses a separate on-disk index per user/project scope. Qdrant write-side request tagging is completed in R5; until then, use FAISS for end-to-end multi-project ingestion isolation.
 - **Async.** `langchain-qdrant`'s vector store is driven sync, but every hot-path call is offloaded with `asyncio.to_thread`, so the event loop never blocks (same model as FAISS).
 
 For Qdrant Cloud, set `QDRANT_URL`, `QDRANT_API_KEY`, and `QDRANT_PREFER_GRPC=true`. The collection is created idempotently on first write.
@@ -221,30 +221,37 @@ If Tesseract is missing, scanned PDFs simply ingest as empty with a warning in t
 Sentient resolves every request to a `user_id` two ways, and enforces auth **only when it is configured**:
 
 - **Web clients** send a Neon Auth JWT as `Authorization: Bearer <jwt>`. The token is verified against the Neon Auth JWKS URL (signature + issuer + an algorithm allowlist); the authenticated user is the token's `sub` claim.
-- **Game clients** (e.g. the Mantella mod) put a `sk-sent-…` API key in the request path. Keys are minted server-side (`generate_api_key`, dashboard endpoint lands in R4), shown **once**, and stored only as a `sha256` hash — the raw key is never persisted or logged. Validation is a hash lookup, and revoked keys are rejected. The api-key path works whether or not JWT auth is enabled.
+- **Game clients** (e.g. the Mantella mod) put a `sk-sent-…` API key in the request path. Keys are minted with `POST /v1/keys`, shown **once**, and stored only as a `sha256` hash — the raw key is never persisted or logged. Validation is a hash lookup, and revoked keys are rejected immediately. The api-key path works whether or not JWT auth is enabled.
 - **No `NEON_AUTH_JWKS_URL` ⇒ auth disabled.** The runtime serves a single `"default"` user, so a local/SQLite clone needs no auth config at all and behaves exactly like `main`.
 
 A warm `IdentityCache` (TTL, keyed by the token/key hash) memoizes the resolved `(user_id, user_key)`, so a live session hits the database at most once per key/token per TTL window — steady-state turns are a hash + dict lookup, keeping auth off the model-call critical path. Configure with `NEON_AUTH_JWKS_URL`, `NEON_AUTH_ISSUER`, and `NEON_AUTH_ALGORITHMS` (default `EdDSA,RS256`; this deployment's Neon Auth signs with EdDSA).
 
 ## API Endpoints
 
-| Method | Endpoint                 | Description               |
-| ------ | ------------------------ | ------------------------- |
-| GET    | `/health`                | Health check              |
-| POST   | `/v1/chat`               | Send chat message         |
-| POST   | `/v1/retrieve`           | Inspect retrieved chunks  |
-| POST   | `/v1/chat/completions`   | OpenAI-compatible endpoint for external clients (e.g. the Mantella Skyrim mod) |
-| GET    | `/v1/models`             | Minimal model list for OpenAI-compatible clients |
-| POST   | `/v1/upload`             | Upload document (PDF/TXT) |
-| GET    | `/v1/sources`            | List uploaded sources     |
-| DELETE | `/v1/sources/{filename}` | Delete a source           |
-| GET    | `/v1/chats`              | List saved chats          |
-| GET    | `/v1/chats/{chat_id}`    | Load one saved chat       |
-| POST   | `/v1/chats`              | Create a saved chat       |
-| PUT    | `/v1/chats/{chat_id}`    | Update a saved chat       |
-| DELETE | `/v1/chats/{chat_id}`    | Delete a saved chat       |
+| Method | Endpoint | Description |
+| --- | --- | --- |
+| GET | `/health` | Health check |
+| POST | `/v1/chat` | Send a web chat message (Bearer JWT or `X-API-Key`; local default when auth is off) |
+| POST | `/v1/retrieve` | Inspect retrieved chunks |
+| POST | `/v1/chat/completions` | Back-compatible env-default OpenAI endpoint; optionally accepts `X-API-Key` |
+| POST | `/v1/{api_key}/chat/completions` | Project-less game route using a Sentient key (legacy provider keys remain supported) |
+| POST | `/v1/{api_key}/{project_id}/chat/completions` | Project-aware game route with ownership, persona, config, and retrieval isolation |
+| GET | `/v1/models` | Minimal model list for OpenAI-compatible clients |
+| POST / GET | `/v1/keys` | Mint a key (raw value returned once) or list the current user's key metadata |
+| DELETE | `/v1/keys/{key_id}` | Revoke an owned key |
+| POST / GET | `/v1/projects` | Create or list owned projects |
+| PUT | `/v1/projects/{project_id}/config` | Partially update validated project configuration |
+| PUT | `/v1/projects/{project_id}/persona` | Set or clear the project's single persona prompt |
+| GET | `/v1/presets` | List built-in project presets |
+| POST | `/v1/upload` | Upload document (PDF/TXT) |
+| GET | `/v1/sources` | List uploaded sources |
+| DELETE | `/v1/sources/{filename}` | Delete a source |
+| GET / POST | `/v1/chats` | List or create saved chats |
+| GET / PUT / DELETE | `/v1/chats/{chat_id}` | Load, update, or delete a saved chat |
 
-`/health` now reports the active LLM provider, embedding provider, retrieval mode, local vs Supabase chat storage, and index manifest metadata so you can confirm the runtime configuration quickly.
+For Mantella, set `baseUrl` to `http://<host>:8000/v1/<api_key>/<project_id>`; Mantella appends `/chat/completions`. The old `http://<host>:8000/v1` base URL remains supported. Project config and persona edits invalidate the `RuntimeCache` immediately; its TTL is only a backstop.
+
+`/health` reports the active LLM provider, embedding provider, retrieval mode, local vs Supabase chat storage, and index manifest metadata so you can confirm the runtime configuration quickly.
 
 ## License
 

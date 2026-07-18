@@ -131,6 +131,23 @@ class ResolveUserTests(_ut.IsolatedAsyncioTestCase):
         with self.assertRaises(AuthError):
             await resolve_user(store, self._settings(neon_auth_jwks_url=None), api_key="sk-sent-nope")
 
+    async def test_identity_cache_can_be_cleared_after_key_revocation(self):
+        from logic.auth import AuthError, IdentityCache, hash_key, resolve_user
+
+        store = await self._store()
+        user = await store.ensure_user("owner-1")
+        await store.create_api_key(user["id"], hash_key("sk-sent-abc"))
+        cache = IdentityCache()
+        settings = self._settings(neon_auth_jwks_url=None)
+
+        await resolve_user(store, settings, api_key="sk-sent-abc", cache=cache)
+        row = (await store.list_api_keys(user["id"]))[0]
+        await store.revoke_api_key(user["id"], row["id"])
+        cache.clear()
+
+        with self.assertRaises(AuthError):
+            await resolve_user(store, settings, api_key="sk-sent-abc", cache=cache)
+
 
 if __name__ == "__main__":
     unittest.main()

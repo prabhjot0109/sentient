@@ -90,6 +90,9 @@ class IdentityCache:
             self._cache[cache_key] = value
             return value
 
+    def clear(self) -> None:
+        self._cache.clear()
+
 
 async def resolve_user(state, settings, *, jwt_token: str | None = None,
                        api_key: str | None = None, header_key: str | None = None,

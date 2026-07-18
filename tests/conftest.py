@@ -54,5 +54,6 @@ _CONFIG_ENV_VARS = (
 def _isolate_config_env(monkeypatch):
     """Remove all config env vars before each test so a developer's .env can't
     leak into the suite. monkeypatch restores the original values afterwards."""
+    monkeypatch.setenv("PYTHON_DOTENV_DISABLED", "1")
     for name in _CONFIG_ENV_VARS:
         monkeypatch.delenv(name, raising=False)

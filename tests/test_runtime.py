@@ -98,6 +98,53 @@ class RuntimeCacheTests(unittest.IsolatedAsyncioTestCase):
                                  project_id=proj["id"], session_id="s")
         self.assertEqual(c3.llm_settings["model"], "m2")  # re-resolved after invalidation
 
+    async def test_provider_key_is_part_of_cache_identity(self):
+        from logic.runtime import RuntimeCache
+
+        cache = RuntimeCache()
+        first = await cache.resolve(
+            self.store,
+            self.settings,
+            user_id="default-user",
+            user_key="default",
+            project_id=None,
+            provider_key="sk-provider-one",
+        )
+        second = await cache.resolve(
+            self.store,
+            self.settings,
+            user_id="default-user",
+            user_key="default",
+            project_id=None,
+            provider_key="sk-provider-two",
+        )
+
+        self.assertEqual(first.llm_settings["api_key"], "sk-provider-one")
+        self.assertEqual(second.llm_settings["api_key"], "sk-provider-two")
+        self.assertNotEqual(first.config_signature, second.config_signature)
+
+    async def test_user_key_is_part_of_cache_identity(self):
+        from logic.runtime import RuntimeCache
+
+        cache = RuntimeCache()
+        first = await cache.resolve(
+            self.store,
+            self.settings,
+            user_id="same-owner",
+            user_key="key-a",
+            project_id="same-project",
+        )
+        second = await cache.resolve(
+            self.store,
+            self.settings,
+            user_id="same-owner",
+            user_key="key-b",
+            project_id="same-project",
+        )
+
+        self.assertEqual(first.user_key, "key-a")
+        self.assertEqual(second.user_key, "key-b")
+
 
 if __name__ == "__main__":
     unittest.main()

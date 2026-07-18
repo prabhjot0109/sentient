@@ -77,6 +77,20 @@ def format_lore(chunks: list[tuple[Any, float | None]]) -> str:
     return "\n".join(lines)
 
 
+def inject_persona(messages: list[BaseMessage], persona_text: str) -> list[BaseMessage]:
+    """Prepend a resolved persona to the system prompt (before retrieved lore).
+
+    No-op when persona_text is empty so callers can pass through unconditionally.
+    """
+    if not persona_text:
+        return messages
+    for i, m in enumerate(messages):
+        if isinstance(m, SystemMessage):
+            messages[i] = SystemMessage(content=f"{persona_text}\n\n{m.content}")
+            return messages
+    return [SystemMessage(content=persona_text), *messages]
+
+
 def inject_lore(messages: list[BaseMessage], lore: str) -> list[BaseMessage]:
     """Append retrieved lore to the caller's system prompt, or add one if absent."""
     if not lore:

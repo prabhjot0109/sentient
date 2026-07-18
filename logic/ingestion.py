@@ -316,7 +316,18 @@ class ArchivesIngestion:
         lambda_mult: float | None = None,
         min_score: float | None = None,
         user_key: str | None = None,
+        project_id: str | None = None,
+        embedding_signature: str | None = None,
     ) -> list[tuple[Document, float | None]]:
+        # Forward tenant/project/signature filters to the backend (FAISS ignores
+        # them; Qdrant payload-filters). Callers always pass them so R4 routing
+        # cannot TypeError when a project-scoped completion resolves.
         return await self.backend.retrieve(
-            query, k=k, search_type=search_type, min_score=min_score, user_key=user_key
+            query,
+            k=k,
+            search_type=search_type,
+            min_score=min_score,
+            user_key=user_key,
+            project_id=project_id,
+            embedding_signature=embedding_signature,
         )

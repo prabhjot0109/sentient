@@ -102,12 +102,12 @@ async def resolve_runtime_context(state, settings, *, user_id, user_key, project
 
 
 class RuntimeCache:
-    """Memoizes resolved RuntimeContexts by (user_id, project_id). Short TTL as a
+    """Memoizes contexts by identity, project, and provider credential. Short TTL as a
     backstop; call invalidate(project_id) on config/persona writes for immediate
     freshness. Keeps project-config DB reads off the per-turn hot path.
 
-    Single-flight is per (user, project) — a cold resolve for one project never
-    blocks another's. Locks are keyed by (event loop, memo key) because
+    Single-flight is per identity/project/credential — a cold resolve for one
+    project never blocks another's. Locks are keyed by (event loop, memo key) because
     asyncio.Lock binds to the loop it was created on; entries drop once settled.
     """
 
@@ -117,7 +117,10 @@ class RuntimeCache:
 
     async def resolve(self, state, settings, *, user_id, user_key, project_id,
                       session_id=None, provider_key=None) -> RuntimeContext:
-        cache_key = (user_id, project_id)
+        provider_fingerprint = hashlib.sha256(
+            (provider_key or "").encode()
+        ).hexdigest()[:16]
+        cache_key = (user_id, user_key, project_id, provider_fingerprint)
         hit = self._cache.get(cache_key)
         if hit is None:
             lock_key = (id(asyncio.get_running_loop()), *cache_key)
@@ -139,5 +142,5 @@ class RuntimeCache:
         return hit
 
     def invalidate(self, project_id: str) -> None:
-        for key in [k for k in self._cache if k[1] == project_id]:
+        for key in [k for k in self._cache if k[2] == project_id]:
             self._cache.pop(key, None)
