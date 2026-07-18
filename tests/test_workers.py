@@ -137,5 +137,44 @@ class IngestHandlerTests(unittest.IsolatedAsyncioTestCase):
         )
 
 
+class SessionLockTests(unittest.IsolatedAsyncioTestCase):
+    async def test_mutations_for_a_session_serialize(self):
+        from logic.workers import SessionLocks
+
+        locks = SessionLocks()
+        order = []
+
+        async def mutate(tag, delay):
+            async with locks.lock("sess-1"):
+                order.append(f"{tag}-start")
+                await asyncio.sleep(delay)
+                order.append(f"{tag}-end")
+
+        await asyncio.gather(mutate("A", 0.02), mutate("B", 0.0))
+
+        self.assertEqual(order, ["A-start", "A-end", "B-start", "B-end"])
+
+
+class DeferredTurnTests(unittest.IsolatedAsyncioTestCase):
+    async def test_stream_schedules_session_work_after_completion(self):
+        import api
+
+        class _LLM:
+            async def astream(self, messages):
+                yield SimpleNamespace(content="Done.")
+
+        ctx = SimpleNamespace()
+        with patch.object(api, "_schedule_deferred_turn_work") as schedule:
+            events = [
+                event
+                async for event in api._stream_with_deferred_turn_work(
+                    _LLM(), [], "test-model", ctx
+                )
+            ]
+
+        self.assertTrue(events[-1].endswith("[DONE]\n\n"))
+        schedule.assert_called_once_with(ctx)
+
+
 if __name__ == "__main__":
     unittest.main()

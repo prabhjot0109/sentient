@@ -52,7 +52,7 @@ from logic.registry import ObjectRegistry
 from logic.runtime import RuntimeCache, RuntimeContext
 from logic.sqlite_chat_store import SQLiteChatStore
 from logic.state import get_state_store
-from logic.workers import IngestJob, IngestQueue
+from logic.workers import IngestJob, IngestQueue, SessionLocks, defer
 from npc_brain import NPCBrain
 
 try:
@@ -69,6 +69,7 @@ identity_cache = IdentityCache()
 runtime_cache = RuntimeCache()
 object_registry = ObjectRegistry()
 supabase_client: Optional[Client] = None
+session_locks = SessionLocks()
 
 # Any of these being set means we have enough to operate; load_rag_settings then
 # picks the right per-provider key, so multiple keys can coexist (e.g. Google for
@@ -735,14 +736,43 @@ async def _run_completions(
     if request.stream:
         print(f"[Mantella:{ctx.user_key}]   << streaming reply")
         return StreamingResponse(
-            astream_completion(llm, messages, model_name),
+            _stream_with_deferred_turn_work(llm, messages, model_name, ctx),
             media_type="text/event-stream",
         )
 
     result = await llm.ainvoke(messages)
     reply = str(result.content)
     print(f"[Mantella:{ctx.user_key}]   << reply ({len(reply)} chars): {reply!r}")
+    _schedule_deferred_turn_work(ctx)
     return build_completion_response(reply, model_name)
+
+
+async def _stream_with_deferred_turn_work(
+    llm: Any,
+    messages: list,
+    model_name: str,
+    ctx: RuntimeContext,
+):
+    """Keep the response path lock-free; queue post-turn work after streaming ends."""
+    try:
+        async for event in astream_completion(llm, messages, model_name):
+            yield event
+    finally:
+        _schedule_deferred_turn_work(ctx)
+
+
+async def _deferred_turn_work(ctx: RuntimeContext) -> None:
+    """Reserved post-turn mutation seam until chat-thread writes land in StateStore."""
+    assert ctx.session_id is not None
+    async with session_locks.lock(ctx.session_id):
+        # chat_threads has no StateStore upsert yet; retain the lock/defer seam without
+        # inventing a persistence API. A future upsert belongs at this exact point.
+        print(f"[turn:{ctx.user_key}] deferred session work for {ctx.session_id}")
+
+
+def _schedule_deferred_turn_work(ctx: RuntimeContext) -> None:
+    if ctx.session_id and ctx.project_id:
+        defer(_deferred_turn_work(ctx), label="session-turn")
 
 
 async def _completions_ctx(
