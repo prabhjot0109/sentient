@@ -23,6 +23,15 @@ class RuntimeContext:
     config_signature: str
 
 
+def embedding_signature(rag_settings: dict[str, Any]) -> str:
+    """Return a stable identifier for the embedding space used by a project."""
+    provider = rag_settings.get("embedding_provider")
+    model = rag_settings.get("embedding_model")
+    dimension = rag_settings.get("mrl_vector_size") or "default"
+    payload = f"{provider}|{model}|{dimension}"
+    return hashlib.sha256(payload.encode()).hexdigest()[:16]
+
+
 def _floor(settings, provider_key: str | None) -> tuple[dict, dict]:
     """The env-default llm/rag dicts — today's behavior with no project."""
     llm = {

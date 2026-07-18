@@ -49,7 +49,7 @@ from logic.openai_adapter import (
 from logic.presets import list_presets
 from logic.rag_engine import build_chat_model
 from logic.registry import ObjectRegistry
-from logic.runtime import RuntimeCache, RuntimeContext
+from logic.runtime import RuntimeCache, RuntimeContext, embedding_signature, resolve_runtime_context
 from logic.sqlite_chat_store import SQLiteChatStore
 from logic.state import get_state_store
 from logic.workers import IngestJob, IngestQueue, SessionLocks, defer
@@ -906,11 +906,22 @@ async def create_project(
     user: tuple[str, str] = Depends(current_user),
 ):
     user_id, _ = user
-    return await state_store.create_project(
+    project = await state_store.create_project(
         user_id,
         payload.name,
         payload.base_preset,
     )
+    ctx = await resolve_runtime_context(
+        state_store,
+        _settings,
+        user_id=user_id,
+        user_key="_",
+        project_id=project["id"],
+    )
+    await state_store.upsert_project_config(
+        project["id"], embedding_signature=embedding_signature(ctx.rag_settings)
+    )
+    return project
 
 
 @app.get("/v1/projects")
@@ -928,9 +939,19 @@ async def update_config(
     user_id, _ = user
     if await state_store.get_project(user_id, project_id) is None:
         raise HTTPException(status_code=404, detail="project not found")
-    config = await state_store.upsert_project_config(
+    await state_store.upsert_project_config(
         project_id,
         **payload.model_dump(exclude_unset=True),
+    )
+    ctx = await resolve_runtime_context(
+        state_store,
+        _settings,
+        user_id=user_id,
+        user_key="_",
+        project_id=project_id,
+    )
+    config = await state_store.upsert_project_config(
+        project_id, embedding_signature=embedding_signature(ctx.rag_settings)
     )
     runtime_cache.invalidate(project_id)
     return config
@@ -993,15 +1014,14 @@ async def upload_file(
             return path
 
         staged_path = await asyncio.to_thread(_stage_upload)
-        embedding_signature = ""
+        signature = ""
         if project_id is not None:
-            config = await state_store.get_project_config(project_id)
-            embedding_signature = (config or {}).get("embedding_signature") or ""
+            signature = embedding_signature(ctx.rag_settings)
             await state_store.register_document(
                 project_id,
                 safe_name,
                 0,
-                embedding_signature,
+                signature,
                 status="processing",
             )
 
@@ -1011,7 +1031,7 @@ async def upload_file(
             api_key=ctx.llm_settings["api_key"],
             file_path=staged_path,
             filename=safe_name,
-            embedding_signature=embedding_signature,
+            embedding_signature=signature,
             archives=archives,
         )
         try:
