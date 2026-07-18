@@ -16,7 +16,7 @@ from __future__ import annotations
 import json
 import time
 import uuid
-from typing import Any, Iterator, Optional
+from typing import Any, AsyncIterator, Iterator, Optional
 
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
 from pydantic import BaseModel
@@ -129,6 +129,46 @@ def build_completion_response(text: str, model: str) -> dict[str, Any]:
             }
         ],
     }
+
+
+async def astream_completion(
+    llm: Any,
+    messages: list[BaseMessage],
+    model: str,
+) -> AsyncIterator[str]:
+    """Yield OpenAI SSE chunks from LangChain's non-blocking async stream."""
+    completion_id = _completion_id()
+    created = int(time.time())
+
+    def chunk(delta: dict[str, Any], finish_reason: Optional[str] = None) -> str:
+        payload = {
+            "id": completion_id,
+            "object": "chat.completion.chunk",
+            "created": created,
+            "model": model,
+            "choices": [{"index": 0, "delta": delta, "finish_reason": finish_reason}],
+        }
+        return f"data: {json.dumps(payload)}\n\n"
+
+    yield chunk({"role": "assistant"})
+    started = time.perf_counter()
+    first_token_logged = False
+    parts: list[str] = []
+    async for piece in llm.astream(messages):
+        content = piece.content
+        if content:
+            text = str(content)
+            if not first_token_logged:
+                elapsed_ms = round((time.perf_counter() - started) * 1000, 1)
+                print(f"[Mantella]   first token in {elapsed_ms}ms")
+                first_token_logged = True
+            parts.append(text)
+            yield chunk({"content": text})
+
+    yield chunk({}, finish_reason="stop")
+    yield "data: [DONE]\n\n"
+    reply = "".join(parts)
+    print(f"[Mantella]   << reply ({len(reply)} chars): {reply!r}")
 
 
 def stream_completion(llm: Any, messages: list[BaseMessage], model: str) -> Iterator[str]:
