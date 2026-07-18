@@ -40,7 +40,7 @@ from logic.openai_adapter import (
     inject_lore,
     inject_persona,
     last_user_text,
-    stream_completion,
+    astream_completion,
     to_history,
     to_langchain,
 )
@@ -623,7 +623,12 @@ async def retrieve_endpoint(payload: RetrievalInput):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-async def _run_completions(request: ChatCompletionRequest, ctx: RuntimeContext):
+async def _run_completions(
+    request: ChatCompletionRequest,
+    ctx: RuntimeContext,
+    *,
+    context_ms: float = 0.0,
+):
     model_name = ctx.llm_settings["model"]
     query = last_user_text(request.messages)
     print(
@@ -631,24 +636,15 @@ async def _run_completions(request: ChatCompletionRequest, ctx: RuntimeContext):
         f"(stream={request.stream}) | project={ctx.project_id} | query: {query.strip()!r}"
     )
 
-    llm = await get_llm(ctx)
-    retrieval_query = query
-    if _settings.condense_queries and query.strip():
-        retrieval_query = await condense_query(llm, to_history(request.messages), query)
-        if retrieval_query != query:
-            print(
-                f"[Mantella:{ctx.user_key}]   condensed: {query.strip()!r} "
-                f"-> {retrieval_query.strip()!r}"
-            )
-
-    chunks: list = []
-    if query.strip():
+    async def _retrieve(retrieval_query: str, archives=None) -> list:
+        if not retrieval_query.strip():
+            return []
         try:
-            archives = await get_archives_for_context(ctx)
+            resolved_archives = archives or await get_archives_for_context(ctx)
             search_type = (
                 ctx.rag_settings["search_type"] if ctx.project_id else "similarity"
             )
-            chunks = await archives.retrieve(
+            return await resolved_archives.retrieve(
                 retrieval_query,
                 k=ctx.rag_settings["top_k"],
                 search_type=search_type,
@@ -658,15 +654,40 @@ async def _run_completions(request: ChatCompletionRequest, ctx: RuntimeContext):
             )
         except Exception as e:
             print(f"Lore retrieval failed (answering without grounding): {e}")
+            return []
+
+    ground_started = perf_counter()
+    if _settings.condense_queries and query.strip():
+        llm, archives = await asyncio.gather(
+            get_llm(ctx), get_archives_for_context(ctx)
+        )
+        retrieval_query = await condense_query(
+            llm, to_history(request.messages), query
+        )
+        if retrieval_query != query:
+            print(
+                f"[Mantella:{ctx.user_key}]   condensed: {query.strip()!r} "
+                f"-> {retrieval_query.strip()!r}"
+            )
+        chunks = await _retrieve(retrieval_query, archives)
+    else:
+        llm, chunks = await asyncio.gather(get_llm(ctx), _retrieve(query))
+    ground_ms = (perf_counter() - ground_started) * 1000
 
     print(f"[Mantella:{ctx.user_key}]   retrieved {len(chunks)} lore chunk(s)")
+    prompt_started = perf_counter()
     messages = inject_persona(to_langchain(request.messages), ctx.system_prompt)
     messages = inject_lore(messages, format_lore(chunks))
+    prompt_ms = (perf_counter() - prompt_started) * 1000
+    print(
+        f"[turn:{ctx.user_key}] ctx={context_ms:.1f}ms "
+        f"ground={ground_ms:.1f}ms prompt={prompt_ms:.1f}ms"
+    )
 
     if request.stream:
         print(f"[Mantella:{ctx.user_key}]   << streaming reply")
         return StreamingResponse(
-            stream_completion(llm, messages, model_name),
+            astream_completion(llm, messages, model_name),
             media_type="text/event-stream",
         )
 
@@ -715,8 +736,10 @@ async def openai_chat_completions(
 ):
     """OpenAI-compatible env-default route retained for existing clients."""
     try:
+        context_started = perf_counter()
         ctx = await _completions_ctx(x_api_key, None)
-        return await _run_completions(request, ctx)
+        context_ms = (perf_counter() - context_started) * 1000
+        return await _run_completions(request, ctx, context_ms=context_ms)
     except HTTPException:
         raise
     except Exception as e:
@@ -729,8 +752,10 @@ async def openai_chat_completions_key(
     api_key: str,
     request: ChatCompletionRequest,
 ):
+    context_started = perf_counter()
     ctx = await _completions_ctx(api_key, None)
-    return await _run_completions(request, ctx)
+    context_ms = (perf_counter() - context_started) * 1000
+    return await _run_completions(request, ctx, context_ms=context_ms)
 
 
 @app.post("/v1/{api_key}/{project_id}/chat/completions")
@@ -739,8 +764,10 @@ async def openai_chat_completions_project(
     project_id: str,
     request: ChatCompletionRequest,
 ):
+    context_started = perf_counter()
     ctx = await _completions_ctx(api_key, project_id)
-    return await _run_completions(request, ctx)
+    context_ms = (perf_counter() - context_started) * 1000
+    return await _run_completions(request, ctx, context_ms=context_ms)
 
 
 @app.get("/v1/models")

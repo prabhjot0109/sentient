@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import os
 import tempfile
 import unittest
@@ -197,11 +198,14 @@ class RuntimeCompletionsTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_streaming_route_keeps_openai_sse_contract(self) -> None:
         class _FakeLLM:
-            def stream(self, messages):
+            async def astream(self, messages):
                 class _Chunk:
                     content = "Greetings."
 
                 yield _Chunk()
+
+            def stream(self, messages):
+                raise AssertionError("sync streaming must not run on the event loop")
 
         class _StubArchives:
             async def retrieve(self, *args, **kwargs):
@@ -235,6 +239,47 @@ class RuntimeCompletionsTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response.headers["content-type"], "text/event-stream; charset=utf-8")
         self.assertIn('"content": "Greetings."', response.text)
         self.assertTrue(response.text.endswith("data: [DONE]\n\n"))
+
+    async def test_llm_resolution_and_retrieval_start_concurrently(self) -> None:
+        llm_started = asyncio.Event()
+        retrieval_started = asyncio.Event()
+
+        class _FakeLLM:
+            async def ainvoke(self, messages):
+                class _Response:
+                    content = "Ready."
+
+                return _Response()
+
+        class _StubArchives:
+            async def retrieve(self, *args, **kwargs):
+                retrieval_started.set()
+                await asyncio.wait_for(llm_started.wait(), timeout=0.2)
+                return []
+
+        async def get_llm(ctx):
+            llm_started.set()
+            await asyncio.wait_for(retrieval_started.wait(), timeout=0.2)
+            return _FakeLLM()
+
+        with (
+            patch.object(self.api, "get_llm", side_effect=get_llm),
+            patch.object(
+                self.api,
+                "get_archives_for_context",
+                new_callable=AsyncMock,
+                return_value=_StubArchives(),
+            ),
+        ):
+            ctx = await self.api._completions_ctx(None, None)
+            request = self.api.ChatCompletionRequest(
+                messages=[{"role": "user", "content": "hi"}]
+            )
+            response = await asyncio.wait_for(
+                self.api._run_completions(request, ctx), timeout=0.3
+            )
+
+        self.assertEqual(response["choices"][0]["message"]["content"], "Ready.")
 
     async def test_faiss_archives_are_cached_per_user_and_project_scope(self) -> None:
         owner = await self.api.state_store.ensure_user("archive-owner")

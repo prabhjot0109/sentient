@@ -16,7 +16,7 @@ from __future__ import annotations
 import json
 import time
 import uuid
-from typing import Any, AsyncIterator, Iterator, Optional
+from typing import Any, AsyncIterator, Optional
 
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
 from pydantic import BaseModel
@@ -167,35 +167,5 @@ async def astream_completion(
 
     yield chunk({}, finish_reason="stop")
     yield "data: [DONE]\n\n"
-    reply = "".join(parts)
-    print(f"[Mantella]   << reply ({len(reply)} chars): {reply!r}")
-
-
-def stream_completion(llm: Any, messages: list[BaseMessage], model: str) -> Iterator[str]:
-    """Yield Server-Sent Events in OpenAI's streaming chunk format."""
-    completion_id = _completion_id()
-    created = int(time.time())
-
-    def chunk(delta: dict[str, Any], finish_reason: Optional[str] = None) -> str:
-        payload = {
-            "id": completion_id,
-            "object": "chat.completion.chunk",
-            "created": created,
-            "model": model,
-            "choices": [{"index": 0, "delta": delta, "finish_reason": finish_reason}],
-        }
-        return f"data: {json.dumps(payload)}\n\n"
-
-    yield chunk({"role": "assistant"})
-    parts: list[str] = []
-    for piece in llm.stream(messages):
-        content = piece.content
-        if content:
-            parts.append(str(content))
-            yield chunk({"content": content})
-    yield chunk({}, finish_reason="stop")
-    yield "data: [DONE]\n\n"
-    # StreamingResponse consumes this generator after the endpoint returns, so
-    # the full reply can only be logged here, once the stream has finished.
     reply = "".join(parts)
     print(f"[Mantella]   << reply ({len(reply)} chars): {reply!r}")
