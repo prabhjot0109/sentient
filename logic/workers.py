@@ -16,6 +16,15 @@ class IngestJob:
     archives: Any | None = field(default=None, repr=False, compare=False)
 
 
+@dataclass(frozen=True)
+class ReindexJob:
+    project_id: str
+    user_key: str | None
+    api_key: str | None
+    embedding_signature: str
+    user_id: str | None = field(default=None, repr=False, compare=False)
+
+
 class IngestQueue:
     """Bounded in-process ingest queue.
 
@@ -26,12 +35,12 @@ class IngestQueue:
 
     def __init__(
         self,
-        handler: Callable[[IngestJob], Awaitable[None]],
+        handler: Callable[[Any], Awaitable[None]],
         *,
         maxsize: int = 64,
     ) -> None:
         self._handler = handler
-        self._queue: asyncio.Queue[IngestJob | None] = asyncio.Queue(maxsize=maxsize)
+        self._queue: asyncio.Queue[Any | None] = asyncio.Queue(maxsize=maxsize)
         self._task: asyncio.Task[None] | None = None
         self._accepting = False
 
@@ -49,11 +58,12 @@ class IngestQueue:
                 try:
                     await self._handler(job)
                 except Exception as exc:
-                    print(f"[ingest] job {job.filename} failed: {exc}")
+                    label = getattr(job, "filename", getattr(job, "project_id", "unknown"))
+                    print(f"[ingest] job {label} failed: {exc}")
             finally:
                 self._queue.task_done()
 
-    async def enqueue(self, job: IngestJob) -> None:
+    async def enqueue(self, job: Any) -> None:
         if self._task is None or not self._accepting:
             raise RuntimeError("ingest queue is not running")
         self._queue.put_nowait(job)

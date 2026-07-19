@@ -21,6 +21,7 @@ class RuntimeContext:
     rag_settings: dict[str, Any]
     system_prompt: str
     config_signature: str
+    status: str = "active"
 
 
 def embedding_signature(rag_settings: dict[str, Any]) -> str:
@@ -86,6 +87,7 @@ async def resolve_runtime_context(state, settings, *, user_id, user_key, project
                                   session_id=None, provider_key=None) -> RuntimeContext:
     llm, rag = _floor(settings, provider_key)
     system_prompt = ""
+    project = None
 
     if project_id is not None:
         config = await state.get_project_config(project_id)
@@ -98,8 +100,8 @@ async def resolve_runtime_context(state, settings, *, user_id, user_key, project
                     rag[key] = config[col]
         # project persona > base_preset > generic
         system_prompt = (config or {}).get("persona_prompt") or ""
+        project = await state.get_project(user_id, project_id)
         if not system_prompt:
-            project = await state.get_project(user_id, project_id)
             if project:
                 system_prompt = get_preset(project.get("base_preset", ""))
 
@@ -107,6 +109,7 @@ async def resolve_runtime_context(state, settings, *, user_id, user_key, project
         user_key=user_key, user_id=user_id, project_id=project_id, session_id=session_id,
         llm_settings=llm, rag_settings=rag, system_prompt=system_prompt,
         config_signature=_signature(llm, rag),
+        status=(project or {}).get("status", "active"),
     )
 
 

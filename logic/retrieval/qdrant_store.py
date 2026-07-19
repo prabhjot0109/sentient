@@ -207,11 +207,8 @@ class QdrantBackend:
         qfilter = self._filter(user_key=user_key, project_id=project_id)
         if qfilter is None:
             return
-        try:
-            if self._sync_client().collection_exists(self.collection):
-                self._delete_by_filter_sync(qfilter)
-        except Exception:
-            pass
+        if self._sync_client().collection_exists(self.collection):
+            self._delete_by_filter_sync(qfilter)
 
     def exists(self) -> bool:
         try:

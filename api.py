@@ -52,7 +52,7 @@ from logic.registry import ObjectRegistry
 from logic.runtime import RuntimeCache, RuntimeContext, embedding_signature, resolve_runtime_context
 from logic.sqlite_chat_store import SQLiteChatStore
 from logic.state import get_state_store
-from logic.workers import IngestJob, IngestQueue, SessionLocks, defer
+from logic.workers import IngestJob, IngestQueue, ReindexJob, SessionLocks, defer
 from npc_brain import NPCBrain
 
 try:
@@ -228,6 +228,7 @@ async def current_user(
 async def lifespan(app: FastAPI):
     """Start process-local workers and drain accepted work during shutdown."""
     await ingest_queue.start()
+    await reindex_queue.start()
     try:
         try:
             if any_provider_key_present():
@@ -242,6 +243,7 @@ async def lifespan(app: FastAPI):
 
         yield
     finally:
+        await reindex_queue.stop()
         await ingest_queue.stop()
         print("Shutting down...")
 
@@ -422,6 +424,57 @@ ingest_queue = IngestQueue(_ingest_handler)
 async def enqueue_ingest(job: IngestJob) -> None:
     """Stable enqueue seam for replacing the process-local worker later."""
     await ingest_queue.enqueue(job)
+
+
+async def _reindex_handler(job: ReindexJob) -> None:
+    if job.user_id is None:
+        archives = get_archives(job.api_key)
+    else:
+        ctx = await resolve_runtime_context(
+            state_store,
+            _settings,
+            user_id=job.user_id,
+            user_key=job.user_key or "default",
+            project_id=job.project_id,
+            provider_key=job.api_key,
+        )
+        archives = await get_archives_for_context(ctx)
+
+    documents = await state_store.list_documents(job.project_id)
+    try:
+        await asyncio.to_thread(archives.clear_project, job.user_key, job.project_id)
+        if archives.settings.vector_backend == "faiss":
+            await asyncio.to_thread(archives.reset_index)
+
+        for document in documents:
+            await state_store.set_document_status(
+                job.project_id, document["filename"], "reindexing"
+            )
+            metadata = await archives.add_file(
+                str(archives.data_dir / document["filename"]),
+                user_key=job.user_key,
+                project_id=job.project_id,
+                embedding_signature=job.embedding_signature,
+            )
+            await state_store.register_document(
+                job.project_id,
+                document["filename"],
+                (metadata or {}).get("added_chunk_count", 0),
+                job.embedding_signature,
+                status="ready",
+            )
+        await state_store.set_project_status(job.project_id, "active")
+    except Exception:
+        await state_store.set_project_status(job.project_id, "reindexing_required")
+        raise
+
+
+reindex_queue = IngestQueue(_reindex_handler)
+
+
+async def enqueue_reindex(job: ReindexJob) -> None:
+    """Stable enqueue seam for project reindex jobs."""
+    await reindex_queue.enqueue(job)
 
 
 def has_supabase_chat_store() -> bool:
@@ -678,6 +731,11 @@ async def _run_completions(
     *,
     context_ms: float = 0.0,
 ):
+    if ctx.project_id and ctx.status == "reindexing_required":
+        raise HTTPException(
+            status_code=409,
+            detail="project is reindexing; retrieval temporarily unavailable",
+        )
     model_name = ctx.llm_settings["model"]
     query = last_user_text(request.messages)
     print(
@@ -700,6 +758,7 @@ async def _run_completions(
                 min_score=ctx.rag_settings["score_threshold"],
                 user_key=ctx.user_key,
                 project_id=ctx.project_id,
+                embedding_signature=embedding_signature(ctx.rag_settings),
             )
         except Exception as e:
             print(f"Lore retrieval failed (answering without grounding): {e}")
@@ -937,8 +996,12 @@ async def update_config(
     user: tuple[str, str] = Depends(current_user),
 ):
     user_id, _ = user
-    if await state_store.get_project(user_id, project_id) is None:
+    project = await state_store.get_project(user_id, project_id)
+    if project is None:
         raise HTTPException(status_code=404, detail="project not found")
+    prior = (await state_store.get_project_config(project_id) or {}).get(
+        "embedding_signature"
+    )
     await state_store.upsert_project_config(
         project_id,
         **payload.model_dump(exclude_unset=True),
@@ -953,7 +1016,23 @@ async def update_config(
     config = await state_store.upsert_project_config(
         project_id, embedding_signature=embedding_signature(ctx.rag_settings)
     )
+    new_signature = config["embedding_signature"]
     runtime_cache.invalidate(project_id)
+    if (
+        prior is not None
+        and prior != new_signature
+        and project["status"] != "reindexing_required"
+    ):
+        await state_store.set_project_status(project_id, "reindexing_required")
+        await enqueue_reindex(
+            ReindexJob(
+                project_id=project_id,
+                user_key=user[1],
+                api_key=None,
+                embedding_signature=new_signature,
+                user_id=user_id,
+            )
+        )
     return config
 
 

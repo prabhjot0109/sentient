@@ -262,6 +262,9 @@ class ArchivesIngestion:
     def reset_index(self):
         self.backend.reset()
 
+    def clear_project(self, user_key: str | None, project_id: str) -> None:
+        self.backend.clear_project(user_key, project_id)
+
     async def rebuild_index(
         self,
         source_path: str | None = None,
