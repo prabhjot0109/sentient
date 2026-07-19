@@ -168,6 +168,10 @@ FAISS remains the default and behaves exactly as before.
 
 The ingestion worker writes document status as `processing`, then `ready` or `failed` for project-scoped uploads; callers that integrate with the runtime state can poll `StateStore.list_documents(project_id)` for that status. The worker is deliberately in-process and is not crash-durable: a process restart can lose accepted-but-unfinished jobs. The HTTP layer uses the `enqueue_ingest(job)` seam, so it can be replaced later with a durable queue without changing callers.
 
+##### Embedding changes and reindexing
+
+Each project stores an embedding signature derived from its embedding provider, model, and optional MRL vector size. Updating any of those settings automatically marks the project as reindexing, purges its old project-scoped vectors, and re-embeds every registered source in the background. Retrieval returns HTTP `409` with `project is reindexing; retrieval temporarily unavailable` until the worker completes; the project then returns to `active`. If reindexing fails, the project remains guarded rather than serving stale vectors.
+
 ##### Qdrant hybrid backend
 
 Set `VECTOR_BACKEND=qdrant` to route retrieval through a Qdrant collection instead of the local FAISS index. It's an accuracy **and** a multi-tenant **and** a deploy play:
