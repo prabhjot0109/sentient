@@ -214,6 +214,7 @@ class RAGSettings:
     neon_auth_jwks_url: str | None
     neon_auth_issuer: str | None
     neon_auth_algorithms: list[str]
+    sentient_secret_key: str | None
 
 
 def load_rag_settings(api_key: str | None = None) -> RAGSettings:
@@ -311,4 +312,5 @@ def load_rag_settings(api_key: str | None = None) -> RAGSettings:
         neon_auth_issuer=os.getenv("NEON_AUTH_ISSUER"),
         neon_auth_algorithms=[a.strip() for a in
                               os.getenv("NEON_AUTH_ALGORITHMS", "EdDSA,RS256").split(",") if a.strip()],
+        sentient_secret_key=os.getenv("SENTIENT_SECRET_KEY") or None,
     )
