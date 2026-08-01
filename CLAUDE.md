@@ -10,9 +10,10 @@ multi-provider LLMs). It is mid-refactor into a **multi-project AI runtime**: on
 users, many game "projects" — each project a database row owning its config, **one editable
 persona** (per game, never per NPC), documents, and chat threads. Direction and contracts live in
 `docs/superpowers/plans/2026-07-07-sentient-world-runtime-overview.md`; execution order in
-`order.md`. Plans 01 (async VectorBackend seam) and 02 (Qdrant hybrid backend) are implemented;
-R1–R7 (Neon Postgres state, Neon Auth, RuntimeContext, routing, concurrency, reindex guard,
-encrypted user credentials + per-thread memory) are planned but not built.
+`order.md`. Plans 01 (async VectorBackend seam) and 02 (Qdrant hybrid backend) and R1–R7 (Neon
+Postgres state, Neon Auth, RuntimeContext, routing, concurrency, reindex guard, encrypted user
+credentials + per-thread memory) are all implemented on `dev`. The remaining gap is the frontend:
+`frontend/` has no UI for the credential vault or the thread sidebar, though both APIs exist.
 
 ## Commands
 
