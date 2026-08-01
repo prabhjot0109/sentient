@@ -12,8 +12,8 @@ __pycache__/
 
 # Docs
 # /docs
-# Internal implementation plans — keep local, never push
-/docs/superpowers/plans/
+# /docs/superpowers/plans/ is no longer ignored — CLAUDE.md points at those plans as
+# the contract for the runtime refactor, so they may be committed deliberately.
 order.md
 ui.png
 
@@ -264,3 +264,4 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+data/state.db

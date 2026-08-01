@@ -196,6 +196,30 @@ The multi-project runtime keeps its relational state — users, API keys, projec
 
 Neon and Supabase are both Postgres, so they share **one** asyncpg implementation — only the DSN differs. The schema ships as `db/migrations/0001_runtime_schema.sql` (applied idempotently on first pool use) and is mirrored by the SQLite store's `_init()`. With no `DATABASE_URL` the backend falls back to SQLite and behaves exactly as before — the relational tier is additive and separate from the chat-session storage below.
 
+### Credential vault and thread memory
+
+Set `SENTIENT_SECRET_KEY` to a Fernet key to enable user-managed provider keys. Create one with:
+
+```bash
+uv run python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+```
+
+`POST /v1/credentials` accepts a provider (`google`, `openai`, `huggingface`, `groq`, `cerebras`, `openrouter`) and a key; the database receives only Fernet ciphertext, and responses/listing contain only a last-four-character hint — the raw key is never stored, logged, or returned again. `GET /v1/credentials` lists the current user's hints and `DELETE /v1/credentials/{provider}` removes one. With no `SENTIENT_SECRET_KEY`, all credential routes return `503` and normal environment keys continue to work unchanged.
+
+Keys are resolved **per provider, after the project config is applied** — the LLM and the embedding model each get the key belonging to whichever provider the project actually selected. For each of them the precedence is:
+
+1. an explicit provider key in the request URL, when its prefix says it belongs to that provider,
+2. the user's stored credential for that provider,
+3. the provider's own environment variable (`GOOGLE_API_KEY`, `OPENAI_API_KEY`, …).
+
+Because the resolved keys are hashed into `config_signature`, swapping a credential automatically yields fresh LLM/embedding clients; credential writes additionally invalidate the runtime cache for every project the user owns, so the change takes effect on the next turn rather than after the 60s TTL. A credential that fails to decrypt (rotated or malformed `SENTIENT_SECRET_KEY`) logs a warning and falls back to the environment key — a bad secret degrades to the previous behavior instead of taking chats down.
+
+**Threat model, stated plainly:** Fernet protects keys *at rest* — a database dump is not a key leak. It does not protect against a compromised running process, which must hold the plaintext to call the provider. That is the appropriate trade-off for a self-hosted service, not a claim of end-to-end secrecy.
+
+Web `POST /v1/chat` optionally accepts `project_id` and `thread_id`. Supplying a project starts (or continues) a durable thread, returns its `thread_id`, and folds the last `history_window` messages (the project config field, 20 by default) into the next generation. The two writes for the turn are deferred past the response, so reply latency never includes them. `GET /v1/projects/{project_id}/threads` supports a project sidebar; `GET /v1/threads/{thread_id}/messages?limit=50` returns the chronological history. Every thread, message, and credential read is filtered through the owning user — another user's ids return `404`, not someone else's data.
+
+Server-side memory is deliberately **web-only**. Mantella/game completions stay payload-history-driven and never read stored messages. A game client that wants its sessions listed in the sidebar may send two optional non-OpenAI fields alongside the standard body — `session_id` (a stable id per in-game conversation) and `npc_name` — and the project game route will record a thread for them, write-only. Clients that omit them behave exactly as before.
+
 ### Supabase Chat Storage
 
 Create a `chat_sessions` table before using persistent chat history:
@@ -253,9 +277,13 @@ A warm `IdentityCache` (TTL, keyed by the token/key hash) memoizes the resolved 
 | POST | `/v1/{api_key}/chat/completions` | Project-less game route using a Sentient key (legacy provider keys remain supported) |
 | POST | `/v1/{api_key}/{project_id}/chat/completions` | Project-aware game route with ownership, persona, config, and retrieval isolation |
 | GET | `/v1/models` | Minimal model list for OpenAI-compatible clients |
+| POST / GET | `/v1/credentials` | Store a Fernet-encrypted provider key or list hint-only credential metadata |
+| DELETE | `/v1/credentials/{provider}` | Delete an owned provider credential |
 | POST / GET | `/v1/keys` | Mint a key (raw value returned once) or list the current user's key metadata |
 | DELETE | `/v1/keys/{key_id}` | Revoke an owned key |
 | POST / GET | `/v1/projects` | Create or list owned projects |
+| GET | `/v1/projects/{project_id}/threads` | List owned project threads for the sidebar |
+| GET | `/v1/threads/{thread_id}/messages` | Return an owned thread's chronological message history |
 | PUT | `/v1/projects/{project_id}/config` | Partially update validated project configuration |
 | PUT | `/v1/projects/{project_id}/persona` | Set or clear the project's single persona prompt |
 | GET | `/v1/presets` | List built-in project presets |
