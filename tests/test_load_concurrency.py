@@ -44,9 +44,18 @@ class LoadConcurrencyTests(unittest.IsolatedAsyncioTestCase):
         for key in keys:
             await self.api.state_store.create_api_key(owner["id"], hash_key(key))
 
+        inflight = 0
+        peak_inflight = 0
+
         class _SlowLLM:
             async def ainvoke(self, messages):
-                await asyncio.sleep(0.05)
+                nonlocal inflight, peak_inflight
+                inflight += 1
+                peak_inflight = max(peak_inflight, inflight)
+                try:
+                    await asyncio.sleep(0.05)
+                finally:
+                    inflight -= 1
 
                 class _Response:
                     content = "ok"
@@ -84,7 +93,13 @@ class LoadConcurrencyTests(unittest.IsolatedAsyncioTestCase):
                 elapsed = time.perf_counter() - started
 
         self.assertTrue(all(response.status_code == 200 for response in responses))
-        self.assertLess(elapsed, 0.25)
+        # The property under test is interleaving, so assert it directly: every tenant
+        # was inside the LLM call at the same moment. A wall-clock threshold measures
+        # the host as much as the server and goes red on a loaded machine.
+        self.assertEqual(peak_inflight, len(keys))
+        # Loose upper bound as a backstop: fully serialized turns would cost at least
+        # len(keys) * the 0.05s sleep, so anything under that still proves overlap.
+        self.assertLess(elapsed, len(keys) * 0.05)
 
 
 if __name__ == "__main__":

@@ -59,15 +59,18 @@ def verify_jwt(token: str, settings) -> dict:
         raise AuthError(f"invalid token: {e}") from e
 
 
-_identity_locks: dict[int, asyncio.Lock] = {}
+_identity_locks: dict[tuple[int, str], asyncio.Lock] = {}
 
 
-def _loop_lock() -> asyncio.Lock:
-    loop = asyncio.get_running_loop()
-    lock = _identity_locks.get(id(loop))
+def _loop_lock(cache_key: str) -> asyncio.Lock:
+    """Single-flight lock for one identity. Keyed by (event loop, identity) because
+    asyncio.Lock binds to the loop it was created on — and because a lock shared
+    across identities would serialize every tenant's cold auth behind one DB read."""
+    lock_key = (id(asyncio.get_running_loop()), cache_key)
+    lock = _identity_locks.get(lock_key)
     if lock is None:
         lock = asyncio.Lock()
-        _identity_locks[id(loop)] = lock
+        _identity_locks[lock_key] = lock
     return lock
 
 
@@ -82,13 +85,17 @@ class IdentityCache:
         hit = self._cache.get(cache_key)
         if hit is not None:
             return hit
-        async with _loop_lock():
-            hit = self._cache.get(cache_key)
-            if hit is not None:
-                return hit
-            value = await loader()
-            self._cache[cache_key] = value
-            return value
+        lock_key = (id(asyncio.get_running_loop()), cache_key)
+        try:
+            async with _loop_lock(cache_key):
+                hit = self._cache.get(cache_key)
+                if hit is not None:
+                    return hit
+                value = await loader()
+                self._cache[cache_key] = value
+                return value
+        finally:
+            _identity_locks.pop(lock_key, None)
 
     def clear(self) -> None:
         self._cache.clear()
