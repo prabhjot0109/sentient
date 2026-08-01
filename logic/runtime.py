@@ -3,12 +3,17 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import logging
 from dataclasses import dataclass, replace
 from typing import Any
 
 from cachetools import TTLCache
 
+from logic.config import provider_api_key, resolve_provider
 from logic.presets import get_preset
+from logic.credentials import crypto_available, decrypt_key
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -22,6 +27,9 @@ class RuntimeContext:
     system_prompt: str
     config_signature: str
     status: str = "active"
+    # Per-request label, like session_id: set by the caller after resolution, never
+    # part of the config signature and never cached.
+    npc_name: str | None = None
 
 
 def embedding_signature(rag_settings: dict[str, Any]) -> str:
@@ -49,6 +57,8 @@ def _floor(settings, provider_key: str | None) -> tuple[dict, dict]:
     rag = {
         "embedding_provider": settings.embedding_provider,
         "embedding_model": settings.embedding_model,
+        # Filled by _resolve_keys once the project overlay has picked the providers.
+        "embedding_api_key": None,
         "mrl_vector_size": None,
         "search_type": settings.search_type,
         "top_k": settings.top_k,
@@ -72,13 +82,59 @@ _RAG_MAP = {"embedding_provider": "embedding_provider", "embedding_model_name": 
             "rag_chunk_overlap": "chunk_overlap"}
 
 
+def _belongs_to(provider: str, provider_key: str | None) -> str | None:
+    """The request-supplied key, but only when its prefix says it is this provider's."""
+    if provider_key and resolve_provider("auto", api_key=provider_key, fallback=provider) == provider:
+        return provider_key
+    return None
+
+
+async def _stored_key(state, settings, user_id, provider: str) -> str | None:
+    """The user's vaulted key for `provider`, or None when there isn't a usable one."""
+    if not (user_id and crypto_available(settings)):
+        return None
+    credential = await state.get_credential(user_id, provider)
+    if not credential:
+        return None
+    try:
+        return decrypt_key(credential["encrypted_key"], settings.sentient_secret_key)
+    except Exception:
+        # Never log key material. A rotated or malformed secret must not take chats
+        # down — fall through to the environment key instead.
+        logger.warning("Stored %s credential could not be decrypted; using the env key", provider)
+        return None
+
+
+async def _resolve_keys(state, settings, user_id, provider_key, llm: dict, rag: dict) -> None:
+    """Resolve the LLM and embedding keys in place, after the project overlay.
+
+    Keys are resolved per provider and only here, because the overlay may have
+    replaced either provider — a key chosen against the env defaults would then
+    belong to the wrong service. Precedence, highest first:
+    explicit request key (when its prefix matches the provider) > the user's stored
+    credential > the provider's own env var > the floor already in the dict.
+    """
+    env_floor = llm["api_key"]  # provider_key or settings.llm_api_key, from _floor
+    llm["api_key"] = (
+        _belongs_to(llm["provider"], provider_key)
+        or await _stored_key(state, settings, user_id, llm["provider"])
+        or env_floor
+    )
+    rag["embedding_api_key"] = (
+        _belongs_to(rag["embedding_provider"], provider_key)
+        or await _stored_key(state, settings, user_id, rag["embedding_provider"])
+        or provider_api_key(rag["embedding_provider"], env_floor)
+    )
+
+
 def _signature(llm: dict, rag: dict) -> str:
     subset = {
         "provider": llm["provider"], "model": llm["model"], "base_url": llm["base_url"],
         "embedding_provider": rag["embedding_provider"], "embedding_model": rag["embedding_model"],
         "mrl_vector_size": rag["mrl_vector_size"],
         # distinguish credentials without leaking them
-        "key": hashlib.sha256((llm["api_key"] or "").encode()).hexdigest()[:8],
+        "llm_key": hashlib.sha256((llm["api_key"] or "").encode()).hexdigest(),
+        "embedding_key": hashlib.sha256((rag["embedding_api_key"] or "").encode()).hexdigest(),
     }
     return hashlib.sha256(json.dumps(subset, sort_keys=True).encode()).hexdigest()[:24]
 
@@ -104,6 +160,8 @@ async def resolve_runtime_context(state, settings, *, user_id, user_key, project
         if not system_prompt:
             if project:
                 system_prompt = get_preset(project.get("base_preset", ""))
+
+    await _resolve_keys(state, settings, user_id, provider_key, llm, rag)
 
     return RuntimeContext(
         user_key=user_key, user_id=user_id, project_id=project_id, session_id=session_id,
