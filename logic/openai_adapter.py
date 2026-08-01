@@ -39,6 +39,8 @@ class ChatCompletionRequest(BaseModel):
     stream: bool = False
     temperature: Optional[float] = None
     max_tokens: Optional[int] = None
+    session_id: Optional[str] = None
+    npc_name: Optional[str] = None
 
 
 def last_user_text(messages: list[OpenAIMessage]) -> str:

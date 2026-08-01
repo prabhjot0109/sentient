@@ -13,6 +13,7 @@ from functools import lru_cache
 from pathlib import Path
 from time import perf_counter
 from typing import Any, List, Optional
+from uuid import uuid4
 
 from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -31,12 +32,12 @@ from logic.config import (
     Provider,
     SearchType,
     load_rag_settings,
-    provider_api_key,
     provider_base_url,
 )
 from logic.ingestion import ArchivesIngestion
 from logic.openai_adapter import (
     ChatCompletionRequest,
+    OpenAIMessage,
     build_completion_response,
     format_lore,
     inject_lore,
@@ -47,6 +48,7 @@ from logic.openai_adapter import (
     to_langchain,
 )
 from logic.presets import list_presets
+from logic.credentials import crypto_available, encrypt_key, key_hint
 from logic.rag_engine import build_chat_model
 from logic.registry import ObjectRegistry
 from logic.runtime import RuntimeCache, RuntimeContext, embedding_signature, resolve_runtime_context
@@ -147,7 +149,7 @@ def _archive_settings(ctx: RuntimeContext):
         llm_base_url=llm["base_url"],
         embedding_provider=embedding_provider,
         embedding_model=rag["embedding_model"],
-        embedding_api_key=provider_api_key(embedding_provider, llm["api_key"]),
+        embedding_api_key=rag["embedding_api_key"],
         embedding_base_url=provider_base_url(embedding_provider),
         chunk_size=rag["chunk_size"],
         chunk_overlap=rag["chunk_overlap"],
@@ -275,6 +277,8 @@ class ChatInput(BaseModel):
     message: str
     api_key: Optional[str] = None
     top_k: Optional[int] = Field(default=None, ge=1, le=20)
+    project_id: Optional[str] = None
+    thread_id: Optional[str] = None
 
 
 class ChatResponse(BaseModel):
@@ -283,6 +287,7 @@ class ChatResponse(BaseModel):
     sources: list[RetrievedChunk] = Field(default_factory=list)
     top_k: Optional[int] = None
     retrieval_ms: Optional[float] = None
+    thread_id: Optional[str] = None
 
 
 class RetrievalInput(BaseModel):
@@ -361,6 +366,11 @@ class ConfigInput(BaseModel):
 
 class PersonaInput(BaseModel):
     system_prompt: str
+
+
+class CredentialInput(BaseModel):
+    provider: str = Field(min_length=1, max_length=50)
+    api_key: str = Field(min_length=1)
 
 
 @lru_cache(maxsize=1)
@@ -663,10 +673,57 @@ async def chat_endpoint(
     try:
         started_at = perf_counter()
         provider_key = _as_provider_key(payload.api_key)
-        if not (provider_key or any_provider_key_present()):
+        if not (provider_key or any_provider_key_present() or _settings.sentient_secret_key):
             raise ValueError("API Key not found. Please provide one or set it in .env")
 
         user_id, user_key = user
+        if payload.thread_id and not payload.project_id:
+            raise HTTPException(status_code=400, detail="thread_id requires project_id")
+
+        if payload.project_id:
+            project = await state_store.get_project(user_id, payload.project_id)
+            if project is None:
+                raise HTTPException(status_code=404, detail="project not found")
+
+            if payload.thread_id:
+                thread = await state_store.get_thread(user_id, payload.thread_id)
+                if thread is None or thread["project_id"] != payload.project_id:
+                    raise HTTPException(status_code=404, detail="thread not found")
+            else:
+                thread = await state_store.upsert_thread(
+                    payload.project_id,
+                    uuid4().hex,
+                    title=payload.message.strip()[:60] or "New chat",
+                )
+
+            ctx = await runtime_cache.resolve(
+                state_store,
+                _settings,
+                user_id=user_id,
+                user_key=user_key,
+                project_id=payload.project_id,
+                session_id=thread["id"],
+                provider_key=provider_key,
+            )
+            history_window = (await state_store.get_project_config(payload.project_id) or {}).get(
+                "history_window"
+            ) or 20
+            history = await state_store.list_messages(thread["id"], limit=history_window)
+            result = await _run_web_project_chat(ctx, history, payload.message, payload.top_k)
+            defer(
+                _store_web_thread_turn(thread["id"], payload.message, result["answer"]),
+                label="thread-memory",
+            )
+            elapsed_ms = round((perf_counter() - started_at) * 1000, 2)
+            return ChatResponse(
+                response=result["answer"],
+                success=True,
+                sources=[RetrievedChunk(**source) for source in result["sources"]],
+                top_k=result["top_k"],
+                retrieval_ms=elapsed_ms,
+                thread_id=thread["id"],
+            )
+
         ctx = await runtime_cache.resolve(
             state_store,
             _settings,
@@ -691,9 +748,58 @@ async def chat_endpoint(
             response="Please provide an API key or set it in the environment.",
             success=False,
         )
+    except HTTPException:
+        raise  # ownership/validation statuses must survive the catch-all below
     except Exception as e:
         print(f"Chat Endpoint Error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+async def _run_web_project_chat(ctx, history, message, top_k):
+    """Generate a project web turn with bounded durable history before the new turn."""
+    if ctx.status == "reindexing_required":
+        raise HTTPException(status_code=409, detail="project is reindexing; retrieval temporarily unavailable")
+
+    async def _retrieve():
+        try:
+            archives = await get_archives_for_context(ctx)
+            return await archives.retrieve(
+                message,
+                k=top_k or ctx.rag_settings["top_k"],
+                search_type=ctx.rag_settings["search_type"],
+                min_score=ctx.rag_settings["score_threshold"],
+                user_key=ctx.user_key,
+                project_id=ctx.project_id,
+                embedding_signature=embedding_signature(ctx.rag_settings),
+            )
+        except Exception as exc:
+            print(f"Lore retrieval failed (answering without grounding): {exc}")
+            return []
+
+    llm, chunks = await asyncio.gather(get_llm(ctx), _retrieve())
+    turn_messages = [OpenAIMessage(role=row["role"], content=row["content"]) for row in history]
+    turn_messages.append(OpenAIMessage(role="user", content=message))
+    messages = inject_persona(to_langchain(turn_messages), ctx.system_prompt)
+    messages = inject_lore(messages, format_lore(chunks))
+    result = await llm.ainvoke(messages)
+    sources = [
+        {
+            "content": document.page_content,
+            "score": score,
+            "source": document.metadata.get("source", "unknown"),
+            "page_label": document.metadata.get("page_label", ""),
+            "chunk_id": document.metadata.get("chunk_id"),
+            "metadata": dict(document.metadata),
+        }
+        for document, score in chunks
+    ]
+    return {"answer": str(result.content), "sources": sources, "top_k": top_k or ctx.rag_settings["top_k"]}
+
+
+async def _store_web_thread_turn(thread_id: str, message: str, reply: str) -> None:
+    async with session_locks.lock(thread_id):
+        await state_store.add_message(thread_id, "user", message)
+        await state_store.add_message(thread_id, "assistant", reply)
 
 
 @app.post("/v1/retrieve", response_model=RetrievalResponse)
@@ -821,12 +927,11 @@ async def _stream_with_deferred_turn_work(
 
 
 async def _deferred_turn_work(ctx: RuntimeContext) -> None:
-    """Reserved post-turn mutation seam until chat-thread writes land in StateStore."""
+    """Surface game sessions in the sidebar. Write-only: the game path never reads
+    server-side memory — Mantella carries the conversation in its own payload."""
     assert ctx.session_id is not None
     async with session_locks.lock(ctx.session_id):
-        # chat_threads has no StateStore upsert yet; retain the lock/defer seam without
-        # inventing a persistence API. A future upsert belongs at this exact point.
-        print(f"[turn:{ctx.user_key}] deferred session work for {ctx.session_id}")
+        await state_store.upsert_thread(ctx.project_id, ctx.session_id, npc_name=ctx.npc_name)
 
 
 def _schedule_deferred_turn_work(ctx: RuntimeContext) -> None:
@@ -903,6 +1008,8 @@ async def openai_chat_completions_project(
 ):
     context_started = perf_counter()
     ctx = await _completions_ctx(api_key, project_id)
+    if request.session_id:
+        ctx = replace(ctx, session_id=request.session_id, npc_name=request.npc_name)
     context_ms = (perf_counter() - context_started) * 1000
     return await _run_completions(request, ctx, context_ms=context_ms)
 
@@ -939,6 +1046,63 @@ async def create_key(
     raw_key, key_hash = generate_api_key()
     row = await state_store.create_api_key(user_id, key_hash, label=payload.label)
     return {"id": row["id"], "api_key": raw_key, "label": payload.label}
+
+
+_CREDENTIAL_PROVIDERS = {"google", "openai", "huggingface", "groq", "cerebras", "openrouter"}
+
+
+def _credential_provider(provider: str) -> str:
+    normalized = provider.strip().lower()
+    if normalized not in _CREDENTIAL_PROVIDERS:
+        raise HTTPException(status_code=400, detail="unknown provider")
+    return normalized
+
+
+def _credential_secret() -> str:
+    if not crypto_available(_settings):
+        raise HTTPException(status_code=503, detail="credential vault is not configured")
+    return _settings.sentient_secret_key
+
+
+async def _invalidate_user_projects(user_id: str) -> None:
+    for project in await state_store.list_projects(user_id):
+        runtime_cache.invalidate(project["id"])
+
+
+@app.post("/v1/credentials")
+async def create_credential(
+    payload: CredentialInput,
+    user: tuple[str, str] = Depends(current_user),
+):
+    secret = _credential_secret()  # gate on the vault before validating anything else
+    provider = _credential_provider(payload.provider)
+    try:
+        encrypted = encrypt_key(payload.api_key, secret)
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="credential vault is unavailable") from exc
+    user_id, _ = user
+    row = await state_store.upsert_credential(user_id, provider, encrypted, key_hint(payload.api_key))
+    await _invalidate_user_projects(user_id)
+    return {"provider": row["provider"], "key_hint": row["key_hint"]}
+
+
+@app.get("/v1/credentials")
+async def list_credentials(user: tuple[str, str] = Depends(current_user)):
+    _credential_secret()
+    user_id, _ = user
+    return {"credentials": await state_store.list_credentials(user_id)}
+
+
+@app.delete("/v1/credentials/{provider}")
+async def delete_credential(
+    provider: str,
+    user: tuple[str, str] = Depends(current_user),
+):
+    _credential_secret()
+    user_id, _ = user
+    deleted = await state_store.delete_credential(user_id, _credential_provider(provider))
+    await _invalidate_user_projects(user_id)
+    return {"deleted": deleted}
 
 
 @app.get("/v1/keys")
@@ -987,6 +1151,31 @@ async def create_project(
 async def list_projects(user: tuple[str, str] = Depends(current_user)):
     user_id, _ = user
     return {"projects": await state_store.list_projects(user_id)}
+
+
+@app.get("/v1/projects/{project_id}/threads")
+async def list_project_threads(
+    project_id: str,
+    user: tuple[str, str] = Depends(current_user),
+):
+    user_id, _ = user
+    if await state_store.get_project(user_id, project_id) is None:
+        raise HTTPException(status_code=404, detail="project not found")
+    return {"threads": await state_store.list_threads(project_id)}
+
+
+@app.get("/v1/threads/{thread_id}/messages")
+async def list_thread_messages(
+    thread_id: str,
+    limit: int = 50,
+    user: tuple[str, str] = Depends(current_user),
+):
+    if not 1 <= limit <= 200:
+        raise HTTPException(status_code=422, detail="limit must be between 1 and 200")
+    user_id, _ = user
+    if await state_store.get_thread(user_id, thread_id) is None:
+        raise HTTPException(status_code=404, detail="thread not found")
+    return {"messages": await state_store.list_messages(thread_id, limit=limit)}
 
 
 @app.put("/v1/projects/{project_id}/config")
