@@ -20,12 +20,12 @@ class PostgresStateStore:
         return self._pool
 
     async def _ensure_schema(self) -> None:
-        # Apply the migration idempotently (create table if not exists ...).
+        # Migrations are idempotent DDL and must run in order for new deployments.
         import pathlib
-        sql = (pathlib.Path(__file__).resolve().parents[2]
-               / "db" / "migrations" / "0001_runtime_schema.sql").read_text(encoding="utf-8")
+        migrations = sorted((pathlib.Path(__file__).resolve().parents[2] / "db" / "migrations").glob("*.sql"))
         async with self._pool.acquire() as conn:  # type: ignore[union-attr]
-            await conn.execute(sql)
+            for migration in migrations:
+                await conn.execute(migration.read_text(encoding="utf-8"))
 
     async def ensure_user(self, external_auth_id, email=None):
         key = external_auth_id if external_auth_id is not None else _DEFAULT_USER_SENTINEL
@@ -140,3 +140,94 @@ class PostgresStateStore:
         async with pool.acquire() as conn:
             rows = await conn.fetch("SELECT * FROM documents WHERE project_id=$1", project_id)
         return [dict(r) for r in rows]
+
+    async def upsert_credential(self, user_id, provider, encrypted_key, key_hint):
+        pool = await self._pool_()
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                "INSERT INTO provider_credentials (user_id, provider, encrypted_key, key_hint) "
+                "VALUES ($1,$2,$3,$4) ON CONFLICT (user_id, provider) DO UPDATE SET "
+                "encrypted_key=excluded.encrypted_key, key_hint=excluded.key_hint, created_at=now() "
+                "RETURNING id::text, user_id::text, provider, encrypted_key, key_hint, created_at",
+                user_id, provider, encrypted_key, key_hint,
+            )
+        return dict(row)
+
+    async def get_credential(self, user_id, provider):
+        pool = await self._pool_()
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                "SELECT id::text, user_id::text, provider, encrypted_key, key_hint, created_at "
+                "FROM provider_credentials WHERE user_id=$1 AND provider=$2", user_id, provider
+            )
+        return dict(row) if row else None
+
+    async def list_credentials(self, user_id):
+        pool = await self._pool_()
+        async with pool.acquire() as conn:
+            rows = await conn.fetch(
+                "SELECT provider, key_hint, created_at FROM provider_credentials "
+                "WHERE user_id=$1 ORDER BY provider", user_id
+            )
+        return [dict(row) for row in rows]
+
+    async def delete_credential(self, user_id, provider):
+        pool = await self._pool_()
+        async with pool.acquire() as conn:
+            result = await conn.execute(
+                "DELETE FROM provider_credentials WHERE user_id=$1 AND provider=$2", user_id, provider
+            )
+        return result.endswith("1")
+
+    async def upsert_thread(self, project_id, session_id, *, npc_name=None, title=None):
+        pool = await self._pool_()
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                "INSERT INTO chat_threads (project_id, npc_name, session_id, title) VALUES ($1,$2,$3,$4) "
+                "ON CONFLICT (project_id, session_id) DO UPDATE SET "
+                "npc_name=COALESCE(excluded.npc_name, chat_threads.npc_name), "
+                "title=COALESCE(excluded.title, chat_threads.title), updated_at=now() "
+                "RETURNING id::text, project_id::text, npc_name, session_id, title, created_at, updated_at",
+                project_id, npc_name, session_id, title,
+            )
+        return dict(row)
+
+    async def get_thread(self, user_id, thread_id):
+        pool = await self._pool_()
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                "SELECT t.id::text, t.project_id::text, t.npc_name, t.session_id, t.title, "
+                "t.created_at, t.updated_at FROM chat_threads t JOIN projects p ON p.id=t.project_id "
+                "WHERE t.id=$1 AND p.user_id=$2", thread_id, user_id
+            )
+        return dict(row) if row else None
+
+    async def add_message(self, thread_id, role, content):
+        pool = await self._pool_()
+        async with pool.acquire() as conn:
+            async with conn.transaction():
+                row = await conn.fetchrow(
+                    "INSERT INTO chat_messages (thread_id, role, content) VALUES ($1,$2,$3) "
+                    "RETURNING id::text, thread_id::text, role, content, created_at", thread_id, role, content
+                )
+                await conn.execute("UPDATE chat_threads SET updated_at=now() WHERE id=$1", thread_id)
+        return dict(row)
+
+    async def list_threads(self, project_id):
+        pool = await self._pool_()
+        async with pool.acquire() as conn:
+            rows = await conn.fetch(
+                "SELECT id::text, project_id::text, npc_name, session_id, title, created_at, updated_at "
+                "FROM chat_threads WHERE project_id=$1 ORDER BY updated_at DESC, id DESC", project_id
+            )
+        return [dict(row) for row in rows]
+
+    async def list_messages(self, thread_id, limit=50):
+        pool = await self._pool_()
+        async with pool.acquire() as conn:
+            rows = await conn.fetch(
+                "SELECT id::text, thread_id::text, role, content, created_at FROM "
+                "(SELECT id, thread_id, role, content, created_at FROM chat_messages WHERE thread_id=$1 "
+                "ORDER BY created_at DESC, id DESC LIMIT $2) tail ORDER BY created_at, id", thread_id, limit
+            )
+        return [dict(row) for row in rows]

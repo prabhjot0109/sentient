@@ -65,6 +65,19 @@ class SQLiteStateStore:
                   session_id TEXT NOT NULL, title TEXT, created_at TEXT, updated_at TEXT,
                   FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE);
                 CREATE INDEX IF NOT EXISTS chat_threads_session_idx ON chat_threads(session_id);
+                CREATE UNIQUE INDEX IF NOT EXISTS chat_threads_project_session_idx
+                  ON chat_threads(project_id, session_id);
+                CREATE TABLE IF NOT EXISTS provider_credentials (
+                  id TEXT PRIMARY KEY, user_id TEXT NOT NULL, provider TEXT NOT NULL,
+                  encrypted_key TEXT NOT NULL, key_hint TEXT, created_at TEXT,
+                  UNIQUE(user_id, provider),
+                  FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE);
+                CREATE TABLE IF NOT EXISTS chat_messages (
+                  id TEXT PRIMARY KEY, thread_id TEXT NOT NULL, role TEXT NOT NULL,
+                  content TEXT NOT NULL, created_at TEXT,
+                  FOREIGN KEY(thread_id) REFERENCES chat_threads(id) ON DELETE CASCADE);
+                CREATE INDEX IF NOT EXISTS chat_messages_thread_idx
+                  ON chat_messages(thread_id, created_at);
                 CREATE TABLE IF NOT EXISTS documents (
                   id TEXT PRIMARY KEY, project_id TEXT NOT NULL, filename TEXT NOT NULL,
                   chunk_count INTEGER DEFAULT 0, embedding_signature TEXT,
@@ -219,3 +232,129 @@ class SQLiteStateStore:
 
     async def list_documents(self, project_id):
         return await asyncio.to_thread(self._list_documents, project_id)
+
+    # ---- provider credentials ----
+    def _upsert_credential(self, user_id, provider, encrypted_key, hint):
+        credential_id = uuid4().hex
+        created_at = _now()
+        with closing(self._connect()) as conn, conn:
+            conn.execute(
+                "INSERT INTO provider_credentials (id, user_id, provider, encrypted_key, key_hint, created_at) "
+                "VALUES (?,?,?,?,?,?) ON CONFLICT(user_id, provider) DO UPDATE SET "
+                "encrypted_key=excluded.encrypted_key, key_hint=excluded.key_hint, created_at=excluded.created_at",
+                (credential_id, user_id, provider, encrypted_key, hint, created_at),
+            )
+            row = conn.execute(
+                "SELECT id, user_id, provider, encrypted_key, key_hint, created_at "
+                "FROM provider_credentials WHERE user_id=? AND provider=?", (user_id, provider)
+            ).fetchone()
+        return dict(row)
+
+    async def upsert_credential(self, user_id, provider, encrypted_key, key_hint):
+        return await asyncio.to_thread(
+            self._upsert_credential, user_id, provider, encrypted_key, key_hint
+        )
+
+    def _get_credential(self, user_id, provider):
+        with closing(self._connect()) as conn:
+            row = conn.execute(
+                "SELECT id, user_id, provider, encrypted_key, key_hint, created_at "
+                "FROM provider_credentials WHERE user_id=? AND provider=?", (user_id, provider)
+            ).fetchone()
+        return dict(row) if row else None
+
+    async def get_credential(self, user_id, provider):
+        return await asyncio.to_thread(self._get_credential, user_id, provider)
+
+    def _list_credentials(self, user_id):
+        with closing(self._connect()) as conn:
+            rows = conn.execute(
+                "SELECT provider, key_hint, created_at FROM provider_credentials "
+                "WHERE user_id=? ORDER BY provider", (user_id,)
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    async def list_credentials(self, user_id):
+        return await asyncio.to_thread(self._list_credentials, user_id)
+
+    def _delete_credential(self, user_id, provider):
+        with closing(self._connect()) as conn, conn:
+            result = conn.execute(
+                "DELETE FROM provider_credentials WHERE user_id=? AND provider=?", (user_id, provider)
+            )
+        return result.rowcount > 0
+
+    async def delete_credential(self, user_id, provider):
+        return await asyncio.to_thread(self._delete_credential, user_id, provider)
+
+    # ---- threads / messages ----
+    def _upsert_thread(self, project_id, session_id, npc_name, title):
+        thread_id = uuid4().hex
+        now = _now()
+        with closing(self._connect()) as conn, conn:
+            conn.execute(
+                "INSERT INTO chat_threads (id, project_id, npc_name, session_id, title, created_at, updated_at) "
+                "VALUES (?,?,?,?,?,?,?) ON CONFLICT(project_id, session_id) DO UPDATE SET "
+                "npc_name=COALESCE(excluded.npc_name, chat_threads.npc_name), "
+                "title=COALESCE(excluded.title, chat_threads.title), updated_at=excluded.updated_at",
+                (thread_id, project_id, npc_name, session_id, title, now, now),
+            )
+            row = conn.execute(
+                "SELECT * FROM chat_threads WHERE project_id=? AND session_id=?", (project_id, session_id)
+            ).fetchone()
+        return dict(row)
+
+    async def upsert_thread(self, project_id, session_id, *, npc_name=None, title=None):
+        return await asyncio.to_thread(self._upsert_thread, project_id, session_id, npc_name, title)
+
+    def _get_thread(self, user_id, thread_id):
+        with closing(self._connect()) as conn:
+            row = conn.execute(
+                "SELECT t.* FROM chat_threads t JOIN projects p ON p.id=t.project_id "
+                "WHERE t.id=? AND p.user_id=?", (thread_id, user_id)
+            ).fetchone()
+        return dict(row) if row else None
+
+    async def get_thread(self, user_id, thread_id):
+        return await asyncio.to_thread(self._get_thread, user_id, thread_id)
+
+    def _add_message(self, thread_id, role, content):
+        message_id = uuid4().hex
+        now = _now()
+        with closing(self._connect()) as conn, conn:
+            conn.execute(
+                "INSERT INTO chat_messages (id, thread_id, role, content, created_at) VALUES (?,?,?,?,?)",
+                (message_id, thread_id, role, content, now),
+            )
+            conn.execute("UPDATE chat_threads SET updated_at=? WHERE id=?", (now, thread_id))
+        return {"id": message_id, "thread_id": thread_id, "role": role, "content": content,
+                "created_at": now}
+
+    async def add_message(self, thread_id, role, content):
+        return await asyncio.to_thread(self._add_message, thread_id, role, content)
+
+    def _list_threads(self, project_id):
+        with closing(self._connect()) as conn:
+            rows = conn.execute(
+                "SELECT * FROM chat_threads WHERE project_id=? ORDER BY updated_at DESC, id DESC", (project_id,)
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    async def list_threads(self, project_id):
+        return await asyncio.to_thread(self._list_threads, project_id)
+
+    def _list_messages(self, thread_id, limit):
+        with closing(self._connect()) as conn:
+            # rowid is insertion order and the only stable tiebreak when two messages
+            # land on the same timestamp; it has to key BOTH sorts, or the newest-first
+            # window and the chronological re-sort disagree and the turn order inverts.
+            rows = conn.execute(
+                "SELECT id, thread_id, role, content, created_at FROM "
+                "(SELECT rowid AS seq, id, thread_id, role, content, created_at FROM chat_messages "
+                "WHERE thread_id=? ORDER BY created_at DESC, seq DESC LIMIT ?) "
+                "ORDER BY created_at ASC, seq ASC", (thread_id, limit)
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    async def list_messages(self, thread_id, limit=50):
+        return await asyncio.to_thread(self._list_messages, thread_id, limit)
