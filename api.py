@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import os
 import time
+from concurrent.futures import Future, ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from functools import lru_cache
@@ -427,6 +428,67 @@ def retrieve_endpoint(payload: RetrievalInput):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# Retrieving lore means embedding the query, which is a network round trip to the
+# embedding provider -- measured at ~515ms against Google's gemini-embedding, versus
+# 0.2ms for the FAISS search it feeds. That single call used to cost more than the
+# whole LLM reply, and it sat squarely on the critical path between the player
+# speaking and the NPC starting to talk.
+#
+# Mantella always asks this server to transcribe an utterance immediately before it
+# asks for a completion, and the retrieval query is that same transcript. So the
+# lookup is started the moment the transcript exists -- while Mantella is still
+# receiving the STT response and assembling its prompt -- and by the time the
+# completion request lands the chunks are already in hand.
+_LORE_POOL = ThreadPoolExecutor(max_workers=1, thread_name_prefix="lore-prefetch")
+_lore_prefetch: Optional[tuple[str, Future]] = None
+
+
+def _lore_key(query: str) -> str:
+    return " ".join(query.split()).casefold()
+
+
+def _retrieve_lore(query: str, settings: Any) -> list:
+    # Grounding wants the most *relevant* lore (similarity), not the diversity MMR
+    # optimizes for, and should drop weak matches.
+    return get_archives().retrieve(
+        query,
+        k=settings.top_k,
+        search_type="similarity",
+        min_score=settings.score_threshold,
+    )
+
+
+def prefetch_lore(query: str) -> None:
+    """Start the lore lookup for a fresh transcript, off the request path."""
+    global _lore_prefetch
+
+    if not query.strip():
+        return
+
+    settings = load_rag_settings()
+    _lore_prefetch = (
+        _lore_key(query),
+        _LORE_POOL.submit(_retrieve_lore, query, settings),
+    )
+
+
+def take_prefetched_lore(query: str) -> Optional[Future]:
+    """Claim the in-flight lookup for `query`, if the last transcript was this one."""
+    global _lore_prefetch
+
+    pending, _lore_prefetch = _lore_prefetch, None
+    if pending is None:
+        return None
+    if pending[0] == _lore_key(query):
+        return pending[1]
+
+    # Mantella asked about something other than the last thing it transcribed, so
+    # the speculative result is useless. Dropping it is enough -- it is a read-only
+    # lookup, and cancel() only takes effect if it never started.
+    pending[1].cancel()
+    return None
+
+
 @app.post("/v1/chat/completions")
 def openai_chat_completions(request: ChatCompletionRequest):
     """OpenAI-compatible endpoint for external clients like the Mantella Skyrim mod.
@@ -451,17 +513,21 @@ def openai_chat_completions(request: ChatCompletionRequest):
         print("=" * 65)
 
         chunks: list = []
+        lore_started = perf_counter()
+        lore_source = "inline"
         if query.strip():
             try:
-                # Grounding wants the most *relevant* lore (similarity), not the
-                # diversity MMR optimizes for, and should drop weak matches.
-                chunks = get_archives().retrieve(
-                    query,
-                    k=settings.top_k,
-                    search_type="similarity",
-                    min_score=settings.score_threshold,
+                pending = take_prefetched_lore(query)
+                if pending is not None:
+                    lore_source = "prefetched during STT"
+                    chunks = pending.result()
+                else:
+                    chunks = _retrieve_lore(query, settings)
+                lore_ms = (perf_counter() - lore_started) * 1000
+                print(
+                    f"[LORE RETRIEVAL] Found {len(chunks)} relevant lore chunk(s) "
+                    f"in {lore_ms:.0f}ms ({lore_source})"
                 )
-                print(f"[LORE RETRIEVAL] Found {len(chunks)} relevant lore chunk(s)")
                 for idx, (doc, score) in enumerate(chunks, 1):
                     src = doc.metadata.get("source", "unknown")
                     score_str = f"{score:.4f}" if score is not None else "N/A"
@@ -549,6 +615,26 @@ def _resolve_stt_provider(authorization: Optional[str]) -> tuple[Optional[str], 
     return None, None
 
 
+@lru_cache(maxsize=4)
+def _stt_client(provider: str, api_key: str):
+    """One transcription client per (provider, key), reused across utterances.
+
+    The SDK client owns an HTTP connection pool, so building a fresh one for every
+    utterance throws that pool away and pays a new TCP + TLS handshake to the STT
+    provider each time. Measured on this setup: 389ms per transcription with a new
+    client versus 185ms with a reused one -- over 200ms of pure handshake, on the
+    critical path between the player finishing a sentence and the NPC answering.
+    """
+    if provider == "groq":
+        from groq import Groq
+
+        return Groq(api_key=api_key)
+
+    from openai import OpenAI
+
+    return OpenAI(api_key=api_key)
+
+
 def _record_stt_history(entry: dict) -> None:
     _STT_HISTORY.append(entry)
     del _STT_HISTORY[:-_STT_HISTORY_LIMIT]
@@ -626,14 +712,11 @@ async def audio_transcriptions(
 
     started = perf_counter()
     try:
-        if provider == "groq":
-            from groq import Groq
-
-            response = Groq(api_key=api_key).audio.transcriptions.create(**options)
-        else:
-            from openai import OpenAI
-
-            response = OpenAI(api_key=api_key).audio.transcriptions.create(**options)
+        # The SDK call is blocking; running it directly in this async endpoint would
+        # stall the whole event loop for the duration of the upload + transcription,
+        # which is exactly when the lore prefetch wants to be making progress.
+        client = _stt_client(provider, api_key)
+        response = await asyncio.to_thread(client.audio.transcriptions.create, **options)
     except Exception as e:
         print(f"   [ERROR] {provider} transcription failed: {e}")
         print("=" * 65 + "\n")
@@ -664,6 +747,9 @@ async def audio_transcriptions(
 
     if transcription_text:
         print(f'   HEARD    : "{transcription_text}"   ({elapsed:.2f}s)')
+        # Mantella's next call is the completion for this exact line, so start
+        # embedding it now rather than when that request arrives.
+        prefetch_lore(transcription_text)
     else:
         print(f"   HEARD    : <nothing>   ({elapsed:.2f}s)")
         if not discarded_text:  # the discard branch already explained itself

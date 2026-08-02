@@ -122,13 +122,22 @@ def stream_completion(llm: Any, messages: list[BaseMessage], model: str) -> Iter
 
     yield chunk({"role": "assistant"})
     parts: list[str] = []
+    started = time.perf_counter()
+    first_token_ms: Optional[float] = None
     for piece in llm.stream(messages):
         content = piece.content
         if content:
+            if first_token_ms is None:
+                first_token_ms = (time.perf_counter() - started) * 1000
             parts.append(str(content))
             yield chunk({"content": content})
     yield chunk({}, finish_reason="stop")
     yield "data: [DONE]\n\n"
     reply = "".join(parts)
+    total_ms = (time.perf_counter() - started) * 1000
+    # TTFT is what the player actually feels: the NPC cannot start speaking until
+    # the first sentence exists, so this is the number to watch when tuning.
+    ttft = f"{first_token_ms:.0f}ms" if first_token_ms is not None else "never"
+    print(f"[LLM TIMING] first token {ttft} | full reply {total_ms:.0f}ms")
     print(f"[STT -> STREAM COMPLETE] Full LLM reply sent ({len(reply)} chars): {reply!r}")
     print("=" * 65 + "\n")

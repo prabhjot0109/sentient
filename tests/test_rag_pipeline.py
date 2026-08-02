@@ -364,8 +364,25 @@ class AudioTranscriptionEndpointTests(unittest.TestCase):
         self.client = TestClient(api.app)
         self.audio = wav_bytes(speech_like(seconds=2.0, rms=0.15))
 
+        # Transcription clients are cached and reused across utterances (that reuse
+        # is what saves the TLS handshake), so a client built from one test's mock
+        # would otherwise be handed to every later test.
+        api._stt_client.cache_clear()
+
+        # A successful transcription kicks off a speculative lore lookup. Stub the
+        # retrieval so the tests exercise that wiring without embedding over the
+        # network on a background thread.
+        api._lore_prefetch = None
+        lore_patch = patch.object(api, "_retrieve_lore", return_value=[])
+        lore_patch.start()
+        self.addCleanup(lore_patch.stop)
+
     def _post(self, text: str, **kwargs):
         transcript = SimpleNamespace(text=text)
+        # Each call installs its own mock, so the cached client from a previous
+        # call has to go -- in production that cache is per-process and lives for
+        # the life of the server, which is the point of it.
+        api._stt_client.cache_clear()
         with patch("groq.Groq") as mock_groq:
             mock_groq.return_value.audio.transcriptions.create.return_value = transcript
             response = self.client.post(
@@ -439,6 +456,40 @@ class AudioTranscriptionEndpointTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.text, "Who is Miraak?")
+
+    def test_client_is_reused_across_utterances(self):
+        """Building a client per utterance costs a fresh TCP + TLS handshake."""
+        transcript = SimpleNamespace(text="hello")
+        with patch("groq.Groq") as mock_groq:
+            mock_groq.return_value.audio.transcriptions.create.return_value = transcript
+            for _ in range(3):
+                self.client.post(
+                    "/v1/audio/transcriptions",
+                    files={"file": ("mic.wav", self.audio, "audio/wav")},
+                    headers={"Authorization": "Bearer gsk_test"},
+                )
+
+        self.assertEqual(mock_groq.call_count, 1)
+        self.assertEqual(
+            mock_groq.return_value.audio.transcriptions.create.call_count, 3
+        )
+
+    def test_successful_transcription_prefetches_its_own_lore(self):
+        """The completion request that follows should find the lookup already done."""
+        self._post("Who is Miraak?")
+
+        pending = api.take_prefetched_lore("Who is Miraak?")
+        self.assertIsNotNone(pending)
+        self.assertEqual(pending.result(timeout=5), [])
+        api._retrieve_lore.assert_called_once()
+        self.assertEqual(api._retrieve_lore.call_args.args[0], "Who is Miraak?")
+
+    def test_discarded_hallucination_does_not_prefetch_lore(self):
+        self.audio = wav_bytes(np.zeros(16000))
+        self._post("Thank you.")
+
+        self.assertIsNone(api.take_prefetched_lore("Thank you."))
+        api._retrieve_lore.assert_not_called()
 
     def test_upstream_failure_surfaces_as_bad_gateway(self):
         with patch("groq.Groq") as mock_groq:
