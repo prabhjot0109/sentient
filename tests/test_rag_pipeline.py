@@ -1,15 +1,20 @@
 from __future__ import annotations
 
+import io
 import os
 import tempfile
 import unittest
+import wave
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
+import numpy as np
 from fastapi.testclient import TestClient
 from langchain_core.embeddings import Embeddings
 
 import api
+from logic.audio_diagnostics import analyse_wav, explain_empty_transcription
 from logic.config import load_rag_settings
 
 
@@ -247,6 +252,226 @@ class SentientRAGTests(unittest.TestCase):
         self.assertEqual(get_response.status_code, 200)
         self.assertEqual(get_response.json()["title"], "Sentinel chat")
 
+    def test_openai_chat_completions_endpoint(self):
+        client = TestClient(api.app)
+        payload = {
+            "messages": [{"role": "user", "content": "Hello Dragonborn"}],
+            "model": "gpt-4o-mini",
+            "stream": False,
+        }
+        with patch("api.build_chat_model") as mock_build, patch("api.get_archives") as mock_archives:
+            mock_llm = mock_build.return_value
+            mock_llm.invoke.return_value.content = "Greetings traveler!"
+            mock_archives.return_value.retrieve.return_value = []
+
+            response = client.post("/v1/chat/completions", json=payload)
+            self.assertEqual(response.status_code, 200)
+            data = response.json()
+            self.assertEqual(data["choices"][0]["message"]["content"], "Greetings traveler!")
+
+
+def wav_bytes(samples: np.ndarray, sample_rate: int = 16000) -> bytes:
+    """Encode mono float samples as 16-bit PCM WAV, matching Mantella's capture format."""
+    buffer = io.BytesIO()
+    with wave.open(buffer, "wb") as handle:
+        handle.setnchannels(1)
+        handle.setsampwidth(2)
+        handle.setframerate(sample_rate)
+        handle.writeframes((np.clip(samples, -1.0, 1.0) * 32767).astype("<i2").tobytes())
+    return buffer.getvalue()
+
+
+def speech_like(seconds: float = 2.0, rms: float = 0.15, sample_rate: int = 16000) -> np.ndarray:
+    """A tone mix scaled to a target RMS, standing in for a spoken utterance."""
+    t = np.linspace(0, seconds, int(seconds * sample_rate), endpoint=False)
+    wave_form = np.sin(2 * np.pi * 180 * t) + 0.5 * np.sin(2 * np.pi * 440 * t)
+    current = float(np.sqrt(np.mean(np.square(wave_form))))
+    return wave_form * (rms / current) if current else wave_form
+
+
+class AudioDiagnosticsTests(unittest.TestCase):
+    """Levels are taken from real Mantella captures: the recordings that failed
+    measured 0.000-0.010 RMS, every one that transcribed measured 0.120-0.209."""
+
+    def test_all_zero_capture_is_reported_as_silent(self):
+        report = analyse_wav(wav_bytes(np.zeros(16000)))
+        self.assertEqual(report.verdict, "SILENT")
+        self.assertFalse(report.speech_plausible)
+
+    def test_barely_open_mic_is_reported_as_very_quiet(self):
+        # Mirrors mic_input_20260731_164448.wav: signal present, but ~15x too quiet.
+        report = analyse_wav(wav_bytes(speech_like(seconds=1.5, rms=0.005)))
+        self.assertEqual(report.verdict, "VERY_QUIET")
+        self.assertFalse(report.speech_plausible)
+
+    def test_healthy_utterance_is_ok(self):
+        report = analyse_wav(wav_bytes(speech_like(seconds=2.0, rms=0.15)))
+        self.assertEqual(report.verdict, "OK")
+        self.assertTrue(report.speech_plausible)
+        self.assertAlmostEqual(report.duration_s, 2.0, places=2)
+        self.assertEqual(report.sample_rate, 16000)
+
+    def test_brief_capture_is_reported_as_too_short(self):
+        report = analyse_wav(wav_bytes(speech_like(seconds=0.2, rms=0.15)))
+        self.assertEqual(report.verdict, "TOO_SHORT")
+
+    def test_clipped_capture_is_flagged(self):
+        report = analyse_wav(wav_bytes(np.ones(32000) * 1.5))
+        self.assertEqual(report.verdict, "CLIPPING")
+
+    def test_short_push_to_talk_hold_raises_a_warning(self):
+        report = analyse_wav(wav_bytes(speech_like(seconds=0.5, rms=0.15)))
+        self.assertTrue(any("push-to-talk" in w for w in report.warnings))
+
+    def test_unparseable_payload_degrades_instead_of_raising(self):
+        report = analyse_wav(b"not a wav file at all")
+        self.assertEqual(report.verdict, "UNREADABLE")
+        # Diagnostics must never be the reason a transcription is refused.
+        self.assertTrue(report.speech_plausible)
+
+    def test_empty_transcription_blames_the_model_when_audio_was_fine(self):
+        report = analyse_wav(wav_bytes(speech_like(seconds=2.0, rms=0.15)))
+        self.assertIn("STT model", explain_empty_transcription(report))
+
+    def test_empty_transcription_blames_the_mic_when_audio_was_silent(self):
+        report = analyse_wav(wav_bytes(np.zeros(16000)))
+        self.assertIn("no signal", explain_empty_transcription(report))
+
+
+class STTProviderResolutionTests(unittest.TestCase):
+    def test_forwarded_groq_key_wins_over_environment(self):
+        with patch.dict(os.environ, {"OPENAI_API_KEY": "sk-env"}, clear=False):
+            provider, key = api._resolve_stt_provider("Bearer gsk_forwarded")
+        self.assertEqual((provider, key), ("groq", "gsk_forwarded"))
+
+    def test_forwarded_openai_key_selects_openai(self):
+        provider, key = api._resolve_stt_provider("Bearer sk-forwarded")
+        self.assertEqual((provider, key), ("openai", "sk-forwarded"))
+
+    def test_environment_is_used_when_no_header_is_forwarded(self):
+        with patch.dict(os.environ, {"GROQ_API_KEY": "gsk_env", "OPENAI_API_KEY": ""}, clear=False):
+            provider, key = api._resolve_stt_provider(None)
+        self.assertEqual((provider, key), ("groq", "gsk_env"))
+
+    def test_no_credential_anywhere_resolves_to_nothing(self):
+        with patch.dict(os.environ, {"GROQ_API_KEY": "", "OPENAI_API_KEY": ""}, clear=False):
+            self.assertEqual(api._resolve_stt_provider(None), (None, None))
+
+
+class AudioTranscriptionEndpointTests(unittest.TestCase):
+    def setUp(self):
+        api._STT_HISTORY.clear()
+        self.client = TestClient(api.app)
+        self.audio = wav_bytes(speech_like(seconds=2.0, rms=0.15))
+
+    def _post(self, text: str, **kwargs):
+        transcript = SimpleNamespace(text=text)
+        with patch("groq.Groq") as mock_groq:
+            mock_groq.return_value.audio.transcriptions.create.return_value = transcript
+            response = self.client.post(
+                "/v1/audio/transcriptions",
+                files={"file": ("mic.wav", self.audio, "audio/wav")},
+                headers={"Authorization": "Bearer gsk_test"},
+                **kwargs,
+            )
+        return response, mock_groq
+
+    def test_transcription_is_returned_and_upstream_uses_forwarded_key(self):
+        response, mock_groq = self._post("Who is Miraak?")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"text": "Who is Miraak?"})
+        mock_groq.assert_called_once_with(api_key="gsk_test")
+
+    def test_whisper_1_is_remapped_to_a_model_groq_actually_serves(self):
+        transcript = SimpleNamespace(text="hello")
+        with patch("groq.Groq") as mock_groq:
+            mock_groq.return_value.audio.transcriptions.create.return_value = transcript
+            self.client.post(
+                "/v1/audio/transcriptions",
+                files={"file": ("mic.wav", self.audio, "audio/wav")},
+                data={"model": "whisper-1"},
+                headers={"Authorization": "Bearer gsk_test"},
+            )
+        sent = mock_groq.return_value.audio.transcriptions.create.call_args.kwargs
+        self.assertEqual(sent["model"], "whisper-large-v3-turbo")
+
+    def test_placeholder_language_is_not_forwarded_upstream(self):
+        transcript = SimpleNamespace(text="hello")
+        with patch("groq.Groq") as mock_groq:
+            mock_groq.return_value.audio.transcriptions.create.return_value = transcript
+            self.client.post(
+                "/v1/audio/transcriptions",
+                files={"file": ("mic.wav", self.audio, "audio/wav")},
+                data={"language": "default"},
+                headers={"Authorization": "Bearer gsk_test"},
+            )
+        sent = mock_groq.return_value.audio.transcriptions.create.call_args.kwargs
+        self.assertNotIn("language", sent)
+
+    def test_empty_transcription_still_succeeds_and_is_recorded(self):
+        response, _ = self._post("   ")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"text": ""})
+        self.assertEqual(api._STT_HISTORY[-1]["text"], "")
+        self.assertEqual(api._STT_HISTORY[-1]["audio"]["verdict"], "OK")
+
+    def test_transcription_invented_from_silence_is_discarded(self):
+        # Groq really does return "Thank you." for mic_input_20260731_164722.wav,
+        # which is an all-zero capture. That must never reach the NPC.
+        self.audio = wav_bytes(np.zeros(16000))
+        response, _ = self._post("Thank you.")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"text": ""})
+        self.assertEqual(api._STT_HISTORY[-1]["discarded_hallucination"], "Thank you.")
+        self.assertEqual(api._STT_HISTORY[-1]["audio"]["verdict"], "SILENT")
+
+    def test_transcription_from_healthy_audio_is_never_discarded(self):
+        response, _ = self._post("Who is Miraak?")
+
+        self.assertEqual(response.json(), {"text": "Who is Miraak?"})
+        self.assertEqual(api._STT_HISTORY[-1]["discarded_hallucination"], "")
+
+    def test_text_response_format_returns_bare_text(self):
+        response, _ = self._post("Who is Miraak?", data={"response_format": "text"})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.text, "Who is Miraak?")
+
+    def test_upstream_failure_surfaces_as_bad_gateway(self):
+        with patch("groq.Groq") as mock_groq:
+            mock_groq.return_value.audio.transcriptions.create.side_effect = RuntimeError("boom")
+            response = self.client.post(
+                "/v1/audio/transcriptions",
+                files={"file": ("mic.wav", self.audio, "audio/wav")},
+                headers={"Authorization": "Bearer gsk_test"},
+            )
+
+        self.assertEqual(response.status_code, 502)
+        self.assertEqual(api._STT_HISTORY[-1]["error"], "boom")
+
+    def test_missing_credentials_are_rejected_before_any_upstream_call(self):
+        with patch.dict(os.environ, {"GROQ_API_KEY": "", "OPENAI_API_KEY": ""}, clear=False):
+            response = self.client.post(
+                "/v1/audio/transcriptions",
+                files={"file": ("mic.wav", self.audio, "audio/wav")},
+            )
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("GROQ_API_KEY", response.json()["detail"])
+
+    def test_recent_endpoint_reports_transcriptions_and_silence_count(self):
+        self._post("Who is Miraak?")
+        self._post("")
+
+        payload = self.client.get("/v1/audio/transcriptions/recent").json()
+        self.assertEqual(payload["count"], 2)
+        self.assertEqual(payload["empty_transcriptions"], 1)
+        # Newest first, so the silent attempt leads.
+        self.assertEqual(payload["transcriptions"][0]["text"], "")
+
 
 if __name__ == "__main__":
     unittest.main()
+

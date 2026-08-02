@@ -129,7 +129,6 @@ def stream_completion(llm: Any, messages: list[BaseMessage], model: str) -> Iter
             yield chunk({"content": content})
     yield chunk({}, finish_reason="stop")
     yield "data: [DONE]\n\n"
-    # StreamingResponse consumes this generator after the endpoint returns, so
-    # the full reply can only be logged here, once the stream has finished.
     reply = "".join(parts)
-    print(f"[Mantella]   << reply ({len(reply)} chars): {reply!r}")
+    print(f"[STT -> STREAM COMPLETE] Full LLM reply sent ({len(reply)} chars): {reply!r}")
+    print("=" * 65 + "\n")

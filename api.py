@@ -11,9 +11,10 @@ from typing import Any, List, Optional
 
 from fastapi import FastAPI, File, Form, Header, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import PlainTextResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
+from logic.audio_diagnostics import analyse_wav, explain_empty_transcription
 from logic.config import load_rag_settings
 from logic.ingestion import ArchivesIngestion
 from logic.openai_adapter import (
@@ -439,12 +440,15 @@ def openai_chat_completions(request: ChatCompletionRequest):
         model_name = settings.llm_model
 
         query = last_user_text(request.messages)
-        # Log every incoming Mantella request so you can watch traffic in the
-        # terminal and confirm the mod is actually reaching the backend.
-        print(
-            f"[Mantella] >> {settings.llm_provider}/{model_name} "
-            f"(stream={request.stream}) | query: {query.strip()!r}"
-        )
+        timestamp = datetime.now().strftime("%H:%M:%S")
+
+        # Enhanced STT & Mantella Request Logging
+        print("\n" + "=" * 65)
+        print(f"[STT TRANSCRIPTION RECEIVED] [{timestamp}]")
+        print(f"   Transcribed Input : {query.strip()!r}")
+        print(f"   Target LLM Model  : {settings.llm_provider}/{model_name}")
+        print(f"   Stream Mode       : {request.stream}")
+        print("=" * 65)
 
         chunks: list = []
         if query.strip():
@@ -457,10 +461,16 @@ def openai_chat_completions(request: ChatCompletionRequest):
                     search_type="similarity",
                     min_score=settings.score_threshold,
                 )
+                print(f"[LORE RETRIEVAL] Found {len(chunks)} relevant lore chunk(s)")
+                for idx, (doc, score) in enumerate(chunks, 1):
+                    src = doc.metadata.get("source", "unknown")
+                    score_str = f"{score:.4f}" if score is not None else "N/A"
+                    snippet = doc.page_content.strip().replace("\n", " ")[:80]
+                    print(f"   [{idx}] score={score_str} | source={src} | '{snippet}...'")
             except Exception as e:
-                print(f"Lore retrieval failed (answering without grounding): {e}")
-
-        print(f"[Mantella]   retrieved {len(chunks)} lore chunk(s)")
+                print(f"[LORE ERROR] Lore retrieval failed (answering without grounding): {e}")
+        else:
+            print("[LORE RETRIEVAL] Empty user query -- skipping lore search.")
 
         messages = inject_lore(to_langchain(request.messages), format_lore(chunks))
 
@@ -473,7 +483,7 @@ def openai_chat_completions(request: ChatCompletionRequest):
         )
 
         if request.stream:
-            print("[Mantella]   << streaming reply")
+            print(f"[LLM STREAMING] Streaming reply back to Mantella...")
             return StreamingResponse(
                 stream_completion(llm, messages, model_name),
                 media_type="text/event-stream",
@@ -481,11 +491,220 @@ def openai_chat_completions(request: ChatCompletionRequest):
 
         result = llm.invoke(messages)
         reply = str(result.content)
-        print(f"[Mantella]   << reply ({len(reply)} chars): {reply!r}")
+        print(f"[STT -> LLM RESPONSE SENT] Reply ({len(reply)} chars): {reply!r}")
+        print("=" * 65 + "\n")
         return build_completion_response(reply, model_name)
     except Exception as e:
-        print(f"Chat Completions Error: {e}")
+        print(f"[Chat Completions Error]: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# Groq only serves the large-v3 Whisper family; `whisper-1` is OpenAI-only. Mantella
+# sends whichever name is set in its UI, so the model is remapped to the provider that
+# actually ends up being used rather than 400ing on a mismatched pair.
+_GROQ_DEFAULT_STT_MODEL = "whisper-large-v3-turbo"
+_OPENAI_DEFAULT_STT_MODEL = "whisper-1"
+
+# Recent transcriptions, newest last, exposed via GET /v1/audio/transcriptions/recent
+# so mic problems can be reviewed after the fact instead of scrollbacking the console.
+_STT_HISTORY: list[dict] = []
+_STT_HISTORY_LIMIT = 50
+
+
+def _bearer_token(authorization: Optional[str]) -> Optional[str]:
+    if not authorization:
+        return None
+    token = authorization.strip()
+    if token.lower().startswith("bearer "):
+        token = token[7:].strip()
+    return token or None
+
+
+def _resolve_stt_provider(authorization: Optional[str]) -> tuple[Optional[str], Optional[str]]:
+    """Pick the upstream STT provider and the key to call it with.
+
+    Mantella already holds a key for whichever Whisper service it was pointed at and
+    forwards it as a bearer token, so that key is preferred over anything in `.env`.
+    That keeps the credential in exactly one place (Mantella's secret_keys.json) when
+    Sentient is used purely as a transcription proxy.
+    """
+    inbound = _bearer_token(authorization)
+    if inbound:
+        if inbound.startswith("gsk_"):
+            return "groq", inbound
+        if inbound.startswith("sk-"):
+            return "openai", inbound
+
+    groq_key = os.getenv("GROQ_API_KEY")
+    if groq_key:
+        return "groq", groq_key
+    openai_key = os.getenv("OPENAI_API_KEY")
+    if openai_key:
+        return "openai", openai_key
+
+    # A forwarded key of unknown shape is still worth trying against Groq, which is
+    # the only provider Mantella's dropdown offers alongside OpenAI.
+    if inbound:
+        return "groq", inbound
+    return None, None
+
+
+def _record_stt_history(entry: dict) -> None:
+    _STT_HISTORY.append(entry)
+    del _STT_HISTORY[:-_STT_HISTORY_LIMIT]
+
+
+@app.post("/v1/audio/transcriptions")
+async def audio_transcriptions(
+    file: UploadFile = File(...),
+    model: str = Form(_GROQ_DEFAULT_STT_MODEL),
+    language: Optional[str] = Form(None),
+    prompt: Optional[str] = Form(None),
+    response_format: Optional[str] = Form("json"),
+    temperature: Optional[float] = Form(0.0),
+    authorization: Optional[str] = Header(None),
+):
+    """OpenAI-compatible speech-to-text endpoint that doubles as a mic diagnostic.
+
+    Point Mantella's `Speech-to-Text`->`Whisper URL` at this endpoint and every
+    utterance is measured (duration, RMS, peak, clipping) and printed alongside the
+    text before being handed back, which is the only way to tell a dead microphone
+    apart from an STT model that simply heard nothing.
+    """
+    timestamp = datetime.now().strftime("%H:%M:%S")
+    contents = await file.read()
+    filename = file.filename or "audio.wav"
+    report = analyse_wav(contents)
+
+    print("\n" + "=" * 65)
+    print(f"[STT] Mic input received at {timestamp}")
+    print(f"   File     : {filename} ({len(contents) / 1024:.1f} KB)")
+    if report.sample_rate:
+        print(
+            f"   Audio    : {report.duration_s:.2f}s  {report.sample_rate} Hz  "
+            f"{report.channels}ch  {report.sample_width * 8}-bit"
+        )
+        print(
+            f"   Level    : [{report.level_bar()}] RMS {report.rms * 100:5.2f}%  "
+            f"peak {report.peak * 100:5.1f}%"
+        )
+    print(f"   Verdict  : {report.verdict} - {report.detail}")
+    for warning in report.warnings:
+        print(f"   ! {warning}")
+    print(f"   Language : {language or 'auto'}   Requested model: {model}")
+
+    provider, api_key = _resolve_stt_provider(authorization)
+    if provider is None:
+        message = (
+            "No speech-to-text credential available: set GROQ_API_KEY or OPENAI_API_KEY "
+            "in .env, or let Mantella forward its own key via the Authorization header."
+        )
+        print(f"   [ERROR] {message}")
+        print("=" * 65 + "\n")
+        raise HTTPException(status_code=400, detail=message)
+
+    if provider == "groq":
+        stt_model = model if "whisper" in model and model != "whisper-1" else _GROQ_DEFAULT_STT_MODEL
+    else:
+        stt_model = model if model.startswith("whisper-1") else _OPENAI_DEFAULT_STT_MODEL
+
+    # The SDKs treat an explicit ``None`` as a value to serialise, so optional fields
+    # are only included when actually set.
+    options: dict[str, Any] = {
+        "file": (filename, contents),
+        "model": stt_model,
+        "response_format": "json",
+        "temperature": temperature or 0.0,
+    }
+    if language and language not in ("default", "auto"):
+        options["language"] = language
+    if prompt:
+        options["prompt"] = prompt
+
+    key_source = "Mantella (forwarded)" if _bearer_token(authorization) else ".env"
+    print(f"   Upstream : {provider} / {stt_model}  (key from {key_source})")
+
+    started = perf_counter()
+    try:
+        if provider == "groq":
+            from groq import Groq
+
+            response = Groq(api_key=api_key).audio.transcriptions.create(**options)
+        else:
+            from openai import OpenAI
+
+            response = OpenAI(api_key=api_key).audio.transcriptions.create(**options)
+    except Exception as e:
+        print(f"   [ERROR] {provider} transcription failed: {e}")
+        print("=" * 65 + "\n")
+        _record_stt_history(
+            {
+                "time": timestamp,
+                "text": "",
+                "error": str(e),
+                "provider": provider,
+                "model": stt_model,
+                "audio": report.as_dict(),
+            }
+        )
+        raise HTTPException(status_code=502, detail=f"{provider} STT failed: {e}")
+
+    elapsed = perf_counter() - started
+    transcription_text = str(getattr(response, "text", response) or "").strip()
+
+    discarded_text = ""
+    if transcription_text and report.carries_no_speech:
+        discarded_text = transcription_text
+        # The waveform holds no speech, so this text was invented by the model.
+        # Dropping it makes Mantella report "could not detect speech" and replay the
+        # cough cue, instead of the NPC answering a line the player never spoke.
+        print(f'   DISCARDED: "{transcription_text}" - hallucinated from {report.verdict.lower()} audio')
+        print(f"   [WHY] {report.detail}")
+        transcription_text = ""
+
+    if transcription_text:
+        print(f'   HEARD    : "{transcription_text}"   ({elapsed:.2f}s)')
+    else:
+        print(f"   HEARD    : <nothing>   ({elapsed:.2f}s)")
+        if not discarded_text:  # the discard branch already explained itself
+            print(f"   [WHY] {explain_empty_transcription(report)}")
+    print("=" * 65 + "\n")
+
+    _record_stt_history(
+        {
+            "time": timestamp,
+            "text": transcription_text,
+            "discarded_hallucination": discarded_text,
+            "error": None,
+            "provider": provider,
+            "model": stt_model,
+            "elapsed_s": round(elapsed, 3),
+            "audio": report.as_dict(),
+        }
+    )
+
+    if response_format == "text":
+        return PlainTextResponse(transcription_text)
+    if response_format == "verbose_json":
+        return {
+            "task": "transcribe",
+            "language": language or "auto",
+            "duration": round(report.duration_s, 3),
+            "text": transcription_text,
+            "segments": [],
+        }
+    return {"text": transcription_text}
+
+
+@app.get("/v1/audio/transcriptions/recent")
+def recent_transcriptions(limit: int = 20):
+    """The last few utterances with their measured mic levels, for debugging."""
+    window = _STT_HISTORY[-max(1, min(limit, _STT_HISTORY_LIMIT)):]
+    return {
+        "count": len(window),
+        "empty_transcriptions": sum(1 for item in window if not item["text"]),
+        "transcriptions": list(reversed(window)),
+    }
 
 
 @app.get("/v1/models")
