@@ -62,6 +62,25 @@ def any_provider_key_present() -> bool:
     return any(os.getenv(name) for name in _PROVIDER_KEY_ENV)
 
 
+def _warm_grounding_path() -> None:
+    """Pay every one-off cost on the lore path before the first player line does.
+
+    With local embeddings this is not a micro-optimisation: importing and loading
+    BAAI/bge-base-en-v1.5 takes ~9s, FAISS then has to be read off disk, and torch
+    only builds its execution graph on the first real forward pass. All three would
+    otherwise land on whichever utterance happens to arrive first, and that one is
+    always the player's opening line of a conversation.
+
+    `/v1/chat/completions` retrieves through `get_default_archives()`, which is a
+    different ArchivesIngestion instance to the brain's, so warming the brain alone
+    leaves that one cold. Run a real query through the real path instead.
+    """
+    started = perf_counter()
+    archives = get_default_archives()
+    archives.retrieve("warmup", k=1, search_type="similarity", min_score=0.0)
+    print(f"[WARMUP] Lore path ready in {perf_counter() - started:.1f}s")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Lifespan context manager for startup/shutdown events."""
@@ -75,6 +94,14 @@ async def lifespan(app: FastAPI):
             print("No default API key found. Brain will be initialized per-request.")
     except Exception as e:
         print(f"Startup initialization failed: {e}")
+
+    # Deliberately blocking: uvicorn should not report the server as ready while a
+    # request would still race the model load. A failure here is not fatal -- the
+    # lookup simply pays the cost on first use -- so it must never stop startup.
+    try:
+        _warm_grounding_path()
+    except Exception as e:
+        print(f"[WARMUP] Lore path warmup skipped ({e}); first request will be slower.")
 
     yield
 
@@ -428,17 +455,23 @@ def retrieve_endpoint(payload: RetrievalInput):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-# Retrieving lore means embedding the query, which is a network round trip to the
-# embedding provider -- measured at ~515ms against Google's gemini-embedding, versus
-# 0.2ms for the FAISS search it feeds. That single call used to cost more than the
-# whole LLM reply, and it sat squarely on the critical path between the player
-# speaking and the NPC starting to talk.
+# Speculative lore lookup -- now an optimisation of last resort rather than the
+# load-bearing trick it once was.
 #
-# Mantella always asks this server to transcribe an utterance immediately before it
-# asks for a completion, and the retrieval query is that same transcript. So the
-# lookup is started the moment the transcript exists -- while Mantella is still
-# receiving the STT response and assembling its prompt -- and by the time the
-# completion request lands the chunks are already in hand.
+# Retrieving lore means embedding the query before FAISS (0.2ms) can search. When
+# embeddings were a network round trip to Google that cost ~511ms, more than the
+# entire LLM reply, and it sat squarely between the player speaking and the NPC
+# starting to talk. The workaround: Mantella always asks this server to transcribe
+# an utterance immediately before asking for a completion, and the retrieval query
+# is that same transcript -- so the lookup was kicked off the moment the transcript
+# existed and the chunks were in hand before the completion request even landed.
+#
+# Embeddings now run locally in ~48ms, so that saving no longer justifies making
+# Mantella route its microphone through this server, and it doesn't (see
+# `whisper_url` in config/config.ini). This path therefore stays dormant: with no
+# STT call, `take_prefetched_lore` returns None and the lookup simply runs inline.
+# It is kept because it is free when unused and still correct when someone points
+# Mantella's Whisper URL back here for mic diagnostics.
 _LORE_POOL = ThreadPoolExecutor(max_workers=1, thread_name_prefix="lore-prefetch")
 _lore_prefetch: Optional[tuple[str, Future]] = None
 
@@ -549,7 +582,7 @@ def openai_chat_completions(request: ChatCompletionRequest):
         )
 
         if request.stream:
-            print(f"[LLM STREAMING] Streaming reply back to Mantella...")
+            print("[LLM STREAMING] Streaming reply back to Mantella...")
             return StreamingResponse(
                 stream_completion(llm, messages, model_name),
                 media_type="text/event-stream",
