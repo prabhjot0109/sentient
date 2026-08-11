@@ -1375,6 +1375,18 @@ async def list_project_threads(
     return {"threads": await state_store.list_threads(project_id)}
 
 
+@app.get("/v1/projects/{project_id}/documents")
+async def list_project_documents(
+    project_id: str,
+    user: tuple[str, str] = Depends(current_user),
+):
+    """Ingestion status per document — the completion signal for /v1/upload's 202."""
+    user_id, _ = user
+    if await state_store.get_project(user_id, project_id) is None:
+        raise HTTPException(status_code=404, detail="project not found")
+    return {"documents": await state_store.list_documents(project_id)}
+
+
 @app.get("/v1/threads/{thread_id}/messages")
 async def list_thread_messages(
     thread_id: str,
@@ -1534,9 +1546,21 @@ async def upload_file(
 
 
 @app.get("/v1/sources")
-def list_sources():
-    """List all uploaded source documents."""
-    sources = get_default_archives().list_sources()
+async def list_sources(
+    project_id: Optional[str] = None,
+    x_api_key: Optional[str] = Header(default=None, alias="X-API-Key"),
+):
+    """List source documents for the caller's archive partition.
+
+    Uploads land in `get_archives_for_context(ctx)` — a per-user/per-project FAISS
+    partition — so listing must resolve the same context, or it reports a different
+    archive than the one just written to. No key and no project_id resolves to the
+    default partition, identical to the pre-R8 behaviour.
+    """
+    ctx = await _completions_ctx(x_api_key, project_id)
+    archives = await get_archives_for_context(ctx)
+    # stat()s every file in the partition: filesystem I/O, off the event loop.
+    sources = await asyncio.to_thread(archives.list_sources)
     return {"sources": sources, "count": len(sources)}
 
 
