@@ -226,14 +226,35 @@ async def current_user(
         raise HTTPException(status_code=401, detail=str(e)) from e
 
 
+async def _warm_grounding_path() -> None:
+    """Pay every one-off cost on the lore path before the first player line does.
+
+    With local embeddings this is not a micro-optimisation: loading
+    BAAI/bge-base-en-v1.5 takes ~9s, FAISS then has to be read off disk, and torch
+    only builds its execution graph on the first real forward pass. All three would
+    otherwise land on whichever utterance happens to arrive first, and that one is
+    always the player's opening line of a conversation.
+
+    It must be a real retrieval — building the client without embedding anything
+    leaves the torch cost unpaid. build_embeddings is lru_cached, so warming this
+    instance warms every archive that resolves to the same embedding config.
+    """
+    started = perf_counter()
+    await get_default_archives().retrieve(
+        "warmup", k=1, search_type="similarity", min_score=0.0
+    )
+    print(f"[WARMUP] Lore path ready in {perf_counter() - started:.1f}s")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Start process-local workers and drain accepted work during shutdown."""
     await ingest_queue.start()
     await reindex_queue.start()
     try:
+        have_provider_key = any_provider_key_present()
         try:
-            if any_provider_key_present():
+            if have_provider_key:
                 # Build the on-disk index from data/ at boot if missing, so the Mantella
                 # completions path has lore to ground on. Async so startup embedding
                 # never blocks the event loop. No global brain — clients resolve per turn.
@@ -242,6 +263,18 @@ async def lifespan(app: FastAPI):
                 print("No default API key found. Clients will initialize per-request.")
         except Exception as e:
             print(f"Startup initialization failed: {e}")
+
+        # Deliberately awaited, not deferred: uvicorn should not report the server
+        # ready while a request would still race the model load. A failure here is
+        # not fatal — the cost is simply paid on first use — so it must never stop
+        # startup (an empty data/ directory is a normal fresh-clone state). Skipped
+        # without a provider key: there is no embedding client to warm, and building
+        # one would load a model no request will resolve to.
+        if have_provider_key:
+            try:
+                await _warm_grounding_path()
+            except Exception as e:
+                print(f"[WARMUP] Lore path warmup skipped ({e}); first request will be slower.")
 
         yield
     finally:
