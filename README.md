@@ -277,6 +277,8 @@ A warm `IdentityCache` (TTL, keyed by the token/key hash) memoizes the resolved 
 | POST | `/v1/{api_key}/chat/completions` | Project-less game route using a Sentient key (legacy provider keys remain supported) |
 | POST | `/v1/{api_key}/{project_id}/chat/completions` | Project-aware game route with ownership, persona, config, and retrieval isolation |
 | GET | `/v1/models` | Minimal model list for OpenAI-compatible clients |
+| POST | `/v1/audio/transcriptions` | Optional speech-to-text proxy with mic diagnostics (see below) |
+| GET | `/v1/audio/transcriptions/recent` | Recent transcriptions with their measured mic levels |
 | POST / GET | `/v1/credentials` | Store a Fernet-encrypted provider key or list hint-only credential metadata |
 | DELETE | `/v1/credentials/{provider}` | Delete an owned provider credential |
 | POST / GET | `/v1/keys` | Mint a key (raw value returned once) or list the current user's key metadata |
@@ -296,6 +298,33 @@ A warm `IdentityCache` (TTL, keyed by the token/key hash) memoizes the resolved 
 For Mantella, set `baseUrl` to `http://<host>:8000/v1/<api_key>/<project_id>`; Mantella appends `/chat/completions`. The old `http://<host>:8000/v1` base URL remains supported. Project config and persona edits invalidate the `RuntimeCache` immediately; its TTL is only a backstop.
 
 `/health` reports the active LLM provider, embedding provider, retrieval mode, local vs Supabase chat storage, and index manifest metadata so you can confirm the runtime configuration quickly.
+
+## Speech-to-text proxy (R8)
+
+`POST /v1/audio/transcriptions` is an OpenAI-compatible Whisper proxy that exists to answer one
+question Mantella cannot: when the mod reports `Could not detect speech from mic input`, was the
+microphone dead, was the level too low, or did the STT model genuinely hear nothing? Those need
+opposite fixes, so every payload is measured (duration, sample rate, RMS, peak, clipping) and the
+verdict is printed next to the transcription.
+
+**It is entirely optional and off by default.** Nothing calls it unless you point Mantella's
+Speech-to-Text → `whisper_url` at it (with `external_whisper_service = True`); leaving that pointed
+straight at Groq keeps the pre-R8 behaviour.
+
+- **Credential precedence:** a forwarded `Authorization: Bearer` key first, then — per provider,
+  Groq before OpenAI — the user's stored credential from `POST /v1/credentials`, then the
+  `GROQ_API_KEY` / `OPENAI_API_KEY` env floor. With no credential anywhere the request is rejected
+  with `400` before any upstream call. Only the *source* of a key is ever logged, never the key.
+- **This is the one route where `Authorization: Bearer` is a provider key, not a Neon Auth JWT** —
+  Mantella has a single field for its Whisper credential. Sentient identity comes from `X-API-Key`
+  only, and is optional.
+- **Model remapping:** Groq serves only the `whisper-large-v3` family and OpenAI only `whisper-1`,
+  so a mismatched name is corrected rather than forwarded into a `400`.
+- **Hallucination discard:** Whisper reliably invents stock phrases ("Thank you.") from silence. When
+  the waveform provably carries no speech (`SILENT` / `VERY_QUIET`), the text is dropped and `""` is
+  returned, so Mantella replays its "could not detect speech" cue instead of making the NPC answer a
+  line the player never spoke. Healthy audio is never discarded, and an unparseable payload degrades
+  to `UNREADABLE` — diagnostics never cause a transcription to be lost.
 
 ## License
 

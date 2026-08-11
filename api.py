@@ -17,9 +17,11 @@ from uuid import uuid4
 
 from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import PlainTextResponse, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 
+from logic import stt
+from logic.audio_diagnostics import analyse_wav, explain_empty_transcription
 from logic.auth import (
     AuthError,
     IdentityCache,
@@ -1067,6 +1069,182 @@ def list_models():
                 "owned_by": "sentient",
             }
         ],
+    }
+
+
+# Recent transcriptions, newest last. Exposed so mic problems can be reviewed after
+# the fact instead of scrollbacking the console during a play session.
+_STT_HISTORY: list[dict] = []
+_STT_HISTORY_LIMIT = 50
+
+
+def _record_stt_history(entry: dict) -> None:
+    _STT_HISTORY.append(entry)
+    del _STT_HISTORY[:-_STT_HISTORY_LIMIT]
+
+
+@app.post("/v1/audio/transcriptions")
+async def audio_transcriptions(
+    file: UploadFile = File(...),
+    model: str = Form(stt.GROQ_DEFAULT_MODEL),
+    language: Optional[str] = Form(None),
+    prompt: Optional[str] = Form(None),
+    response_format: Optional[str] = Form("json"),
+    temperature: Optional[float] = Form(0.0),
+    authorization: Optional[str] = Header(default=None),
+    x_api_key: Optional[str] = Header(default=None, alias="X-API-Key"),
+):
+    """OpenAI-compatible speech-to-text that doubles as a microphone diagnostic.
+
+    NOTE: this is the ONE route where `Authorization: Bearer` is a *provider* key
+    rather than a Neon Auth JWT — Mantella's UI has a single field for its Whisper
+    credential and forwards it here. It therefore does not use `Depends(current_user)`;
+    Sentient identity comes from `X-API-Key` only. Do not "fix" this to match the
+    other routes without changing what Mantella sends.
+
+    Point Mantella's Speech-to-Text -> Whisper URL at this endpoint and every
+    utterance is measured (duration, RMS, peak, clipping) and printed alongside the
+    text, which is the only way to tell a dead microphone apart from an STT model
+    that simply heard nothing.
+    """
+    timestamp = datetime.now().strftime("%H:%M:%S")
+    contents = await file.read()
+    filename = file.filename or "audio.wav"
+    # numpy work on a multi-second capture: cheap (~1ms) but still CPU, and this
+    # route is on the critical path of every spoken line.
+    report = await asyncio.to_thread(analyse_wav, contents)
+
+    user_id = None
+    if x_api_key:
+        try:
+            user_id, _ = await resolve_user(
+                state_store, _settings, api_key=x_api_key, cache=identity_cache
+            )
+        except AuthError as e:
+            raise HTTPException(status_code=401, detail=str(e)) from e
+
+    provider, api_key, key_source = await stt.resolve_stt_credential(
+        state_store, _settings, authorization=authorization, user_id=user_id
+    )
+
+    print("\n" + "=" * 65)
+    print(f"[STT] Mic input received at {timestamp}")
+    print(f"   File     : {filename} ({len(contents) / 1024:.1f} KB)")
+    if report.sample_rate:
+        print(
+            f"   Audio    : {report.duration_s:.2f}s  {report.sample_rate} Hz  "
+            f"{report.channels}ch  {report.sample_width * 8}-bit"
+        )
+        print(
+            f"   Level    : [{report.level_bar()}] RMS {report.rms * 100:5.2f}%  "
+            f"peak {report.peak * 100:5.1f}%"
+        )
+    print(f"   Verdict  : {report.verdict} - {report.detail}")
+    for warning in report.warnings:
+        print(f"   ! {warning}")
+
+    if provider is None:
+        message = (
+            "No speech-to-text credential available: set GROQ_API_KEY or OPENAI_API_KEY "
+            "in .env, upload one via POST /v1/credentials, or let Mantella forward its "
+            "own key via the Authorization header."
+        )
+        print(f"   [ERROR] {message}")
+        print("=" * 65 + "\n")
+        raise HTTPException(status_code=400, detail=message)
+
+    stt_model = stt.upstream_model(provider, model)
+    # The key itself is never logged, only where it came from.
+    print(f"   Upstream : {provider} / {stt_model}  (key from {key_source})")
+
+    # The SDKs serialise an explicit None, so optional fields are only sent when set.
+    options: dict[str, Any] = {
+        "file": (filename, contents),
+        "model": stt_model,
+        "response_format": "json",
+        "temperature": temperature or 0.0,
+    }
+    if language and language not in ("default", "auto"):
+        options["language"] = language
+    if prompt:
+        options["prompt"] = prompt
+
+    started = perf_counter()
+    try:
+        # The SDK call is blocking; running it inline would stall the event loop for
+        # the whole upload + transcription, starving every other tenant's turn.
+        client = stt.stt_client(provider, api_key)
+        response = await asyncio.to_thread(client.audio.transcriptions.create, **options)
+    except Exception as e:
+        print(f"   [ERROR] {provider} transcription failed: {e}")
+        print("=" * 65 + "\n")
+        _record_stt_history(
+            {
+                "time": timestamp,
+                "text": "",
+                "error": str(e),
+                "provider": provider,
+                "model": stt_model,
+                "audio": report.as_dict(),
+            }
+        )
+        raise HTTPException(status_code=502, detail=f"{provider} STT failed: {e}") from e
+
+    elapsed = perf_counter() - started
+    text = str(getattr(response, "text", response) or "").strip()
+
+    discarded = ""
+    if text and report.carries_no_speech:
+        discarded = text
+        # The waveform holds no speech, so this text was invented by the model.
+        # Dropping it makes Mantella report "could not detect speech" and replay the
+        # cue, instead of the NPC answering a line the player never spoke.
+        print(f'   DISCARDED: "{text}" - hallucinated from {report.verdict.lower()} audio')
+        print(f"   [WHY] {report.detail}")
+        text = ""
+
+    if text:
+        print(f'   HEARD    : "{text}"   ({elapsed:.2f}s)')
+    else:
+        print(f"   HEARD    : <nothing>   ({elapsed:.2f}s)")
+        if not discarded:
+            print(f"   [WHY] {explain_empty_transcription(report)}")
+    print("=" * 65 + "\n")
+
+    _record_stt_history(
+        {
+            "time": timestamp,
+            "text": text,
+            "discarded_hallucination": discarded,
+            "error": None,
+            "provider": provider,
+            "model": stt_model,
+            "elapsed_s": round(elapsed, 3),
+            "audio": report.as_dict(),
+        }
+    )
+
+    if response_format == "text":
+        return PlainTextResponse(text)
+    if response_format == "verbose_json":
+        return {
+            "task": "transcribe",
+            "language": language or "auto",
+            "duration": round(report.duration_s, 3),
+            "text": text,
+            "segments": [],
+        }
+    return {"text": text}
+
+
+@app.get("/v1/audio/transcriptions/recent")
+def recent_transcriptions(limit: int = 20):
+    """The last few utterances with their measured mic levels, for debugging."""
+    window = _STT_HISTORY[-max(1, min(limit, _STT_HISTORY_LIMIT)):]
+    return {
+        "count": len(window),
+        "empty_transcriptions": sum(1 for item in window if not item["text"]),
+        "transcriptions": list(reversed(window)),
     }
 
 
