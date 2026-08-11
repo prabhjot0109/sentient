@@ -44,5 +44,27 @@ class BackendSettingsDefaultsTests(unittest.TestCase):
         self.assertEqual(settings.vector_backend, "faiss")
 
 
+class CorsOriginSettingsTests(unittest.TestCase):
+    def test_unset_means_no_extra_origins(self):
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("CORS_ALLOW_ORIGINS", None)
+            self.assertEqual(load_rag_settings().cors_allow_origins, ())
+
+    def test_comma_separated_origins_are_parsed_and_trimmed(self):
+        with patch.dict(
+            os.environ,
+            {"CORS_ALLOW_ORIGINS": "https://app.example.com, https://sentient.gg "},
+        ):
+            self.assertEqual(
+                load_rag_settings().cors_allow_origins,
+                ("https://app.example.com", "https://sentient.gg"),
+            )
+
+    def test_empty_and_whitespace_entries_are_dropped(self):
+        with patch.dict(os.environ, {"CORS_ALLOW_ORIGINS": " , ,https://a.dev, "}):
+            # A trailing comma in .env must not turn into an empty allowed origin.
+            self.assertEqual(load_rag_settings().cors_allow_origins, ("https://a.dev",))
+
+
 if __name__ == "__main__":
     unittest.main()

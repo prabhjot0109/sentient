@@ -256,6 +256,20 @@ If Tesseract is missing, scanned PDFs simply ingest as empty with a warning in t
 
 `python run_rag.py` sanity-checks the RAG pipeline (index rebuild, retrieval, and — if an API key is set — generation) from the terminal, without starting the API server.
 
+### Deployment (Docker)
+
+```bash
+docker build -t sentient .
+docker run -p 8000:8000 --env-file .env -v sentient-data:/app/data sentient
+```
+
+Two things the image deliberately does:
+
+- **`db/migrations/` ships in the image.** With `DATABASE_URL` set, `PostgresStateStore` applies every `.sql` file in that directory the first time it opens a pool, so migrations run automatically on first DB connection — but only if the directory is present. Without it the pool opens, zero migrations apply, and the first real query fails on a missing relation.
+- **`data/` is *not* baked in.** It is per-tenant runtime state (uploads, FAISS partitions, the SQLite fallback DB), so it must be a **mounted volume**. Baking one deployment's lore into the image is wrong for a multi-project runtime, and any write inside the container would be lost on the next deploy.
+
+Set `CORS_ALLOW_ORIGINS` to your deployed frontend origin(s), comma-separated. Local Vite dev ports (`http://localhost:*` / `http://127.0.0.1:*`) stay allowed regardless, so the same value works in dev and production.
+
 ## Authentication
 
 Sentient resolves every request to a `user_id` two ways, and enforces auth **only when it is configured**:

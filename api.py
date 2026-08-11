@@ -293,6 +293,9 @@ app.add_middleware(
     # taken by another running dev server, so pin the allow-list to a regex
     # instead of a fixed port list to avoid breaking on port bumps.
     allow_origin_regex=r"http://(localhost|127\.0\.0\.1):\d+",
+    # Deployed frontends, from CORS_ALLOW_ORIGINS. FastAPI honours the list and the
+    # regex together, so a production origin does not cost the dev-port coverage.
+    allow_origins=list(_settings.cors_allow_origins),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
