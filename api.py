@@ -1375,6 +1375,54 @@ async def list_project_threads(
     return {"threads": await state_store.list_threads(project_id)}
 
 
+class ProjectRenameInput(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+
+
+@app.patch("/v1/projects/{project_id}")
+async def rename_project_endpoint(
+    project_id: str,
+    payload: ProjectRenameInput,
+    user: tuple[str, str] = Depends(current_user),
+):
+    user_id, _ = user
+    project = await state_store.rename_project(user_id, project_id, payload.name)
+    if project is None:
+        raise HTTPException(status_code=404, detail="project not found")
+    return project
+
+
+@app.delete("/v1/projects/{project_id}")
+async def delete_project_endpoint(
+    project_id: str,
+    user: tuple[str, str] = Depends(current_user),
+):
+    """Delete a project and everything under it (config, threads, messages, documents).
+
+    Vectors are NOT removed here — orphaned partitions are unreachable because every
+    query filters on user_key+project_id, so this is disk cost, not a leak. Reclaiming
+    it is tracked in the post-R8 TODO under "Storage reclamation".
+    """
+    user_id, _ = user
+    if not await state_store.delete_project(user_id, project_id):
+        raise HTTPException(status_code=404, detail="project not found")
+    # Without this, cached contexts keep serving turns for a deleted project until
+    # the RuntimeCache TTL expires.
+    runtime_cache.invalidate(project_id)
+    return {"deleted": True}
+
+
+@app.delete("/v1/threads/{thread_id}")
+async def delete_thread_endpoint(
+    thread_id: str,
+    user: tuple[str, str] = Depends(current_user),
+):
+    user_id, _ = user
+    if not await state_store.delete_thread(user_id, thread_id):
+        raise HTTPException(status_code=404, detail="thread not found")
+    return {"deleted": True}
+
+
 @app.get("/v1/projects/{project_id}/documents")
 async def list_project_documents(
     project_id: str,
@@ -1565,26 +1613,44 @@ async def list_sources(
 
 
 @app.delete("/v1/sources/{filename}")
-async def delete_source(filename: str, x_api_key: Optional[str] = Header(default=None, alias="X-API-Key")):
-    """Delete a source document."""
-    archives = get_archives(x_api_key)
-    safe_name = os.path.basename(filename)
-    file_path = str(archives.data_dir / safe_name)
+async def delete_source(
+    filename: str,
+    project_id: Optional[str] = None,
+    x_api_key: Optional[str] = Header(default=None, alias="X-API-Key"),
+):
+    """Delete a source document from the caller's partition and its registry row.
 
-    if not os.path.exists(file_path):
+    Resolving through _completions_ctx (rather than the api-key-only helper it used
+    before) is what makes a project's documents deletable at all; clearing the
+    documents row is what stops /v1/projects/{id}/documents reporting a file that is
+    no longer on disk.
+    """
+    ctx = await _completions_ctx(x_api_key, project_id)
+    archives = await get_archives_for_context(ctx)
+    safe_name = os.path.basename(filename)
+    file_path = archives.data_dir / safe_name
+
+    if not await asyncio.to_thread(file_path.exists):
         raise HTTPException(status_code=404, detail="File not found")
 
     try:
-        os.remove(file_path)
+        await asyncio.to_thread(os.remove, file_path)
         index_metadata = await archives.remove_file(safe_name)
+        if project_id is not None:
+            await state_store.delete_document(project_id, safe_name)
 
         return {
             "success": True,
             "message": f"File '{safe_name}' deleted.",
             "index_metadata": index_metadata,
         }
+    except HTTPException:
+        # R7's delta records that chat_endpoint's blanket `except Exception -> 500`
+        # swallowed its ownership HTTPExceptions and turned every 404 into a 500.
+        # This handler has the same shape; do not repeat that bug.
+        raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @app.get("/v1/chats")
