@@ -176,5 +176,66 @@ class DeferredTurnTests(unittest.IsolatedAsyncioTestCase):
         schedule.assert_called_once_with(ctx)
 
 
+class SessionLockEvictionTests(unittest.IsolatedAsyncioTestCase):
+    async def test_lock_table_is_bounded(self):
+        from logic.workers import SessionLocks
+
+        locks = SessionLocks(maxsize=8)
+        for i in range(100):
+            locks.lock(f"session-{i}")
+
+        self.assertLessEqual(len(locks._locks), 8)
+
+    async def test_a_held_lock_is_never_evicted(self):
+        from logic.workers import SessionLocks
+
+        locks = SessionLocks(maxsize=4)
+        held = locks.lock("busy")
+        await held.acquire()
+        try:
+            for i in range(50):
+                locks.lock(f"session-{i}")
+            # Same object => the in-flight critical section still excludes others.
+            self.assertIs(locks.lock("busy"), held)
+        finally:
+            held.release()
+
+    async def test_the_same_session_keeps_the_same_lock(self):
+        from logic.workers import SessionLocks
+
+        locks = SessionLocks(maxsize=64)
+        self.assertIs(locks.lock("sess-1"), locks.lock("sess-1"))
+
+    async def test_growing_past_maxsize_beats_breaking_mutual_exclusion(self):
+        from logic.workers import SessionLocks
+
+        locks = SessionLocks(maxsize=3)
+        held = [locks.lock(f"busy-{i}") for i in range(3)]
+        for lock in held:
+            await lock.acquire()
+        try:
+            # Every entry is in use, so the table has to grow rather than hand a
+            # fresh lock to a session that is mid-write.
+            fresh = locks.lock("newcomer")
+            self.assertGreater(len(locks._locks), 3)
+            for i, lock in enumerate(held):
+                self.assertIs(locks.lock(f"busy-{i}"), lock)
+            self.assertIsNot(fresh, held[0])
+        finally:
+            for lock in held:
+                lock.release()
+
+    async def test_recently_used_locks_survive_eviction(self):
+        from logic.workers import SessionLocks
+
+        locks = SessionLocks(maxsize=4)
+        keep = locks.lock("keep-me")
+        for i in range(20):
+            locks.lock(f"filler-{i}")
+            locks.lock("keep-me")  # touch it so LRU order favours it
+
+        self.assertIs(locks.lock("keep-me"), keep)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from collections import OrderedDict
 from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable
 
@@ -92,14 +93,38 @@ def defer(coro: Awaitable[Any], *, label: str = "task") -> None:
 
 
 class SessionLocks:
-    """Per-session FIFO locks for background mutations only."""
+    """Per-session FIFO locks for background mutations only.
 
-    def __init__(self) -> None:
-        self._locks: dict[str, asyncio.Lock] = {}
+    Bounded: one lock per distinct session id would otherwise live for the process
+    lifetime. Only *unlocked* entries are ever evicted — dropping a held lock would
+    hand the next caller a fresh one and silently break mutual exclusion for the
+    session that is mid-write.
+
+    No internal synchronisation is needed: `lock` is sync and contains no await, so
+    it runs to completion within one event-loop step and cannot interleave.
+    """
+
+    def __init__(self, maxsize: int = 1024) -> None:
+        self._locks: OrderedDict[str, asyncio.Lock] = OrderedDict()
+        self._maxsize = maxsize
 
     def lock(self, session_id: str) -> asyncio.Lock:
-        lock = self._locks.get(session_id)
-        if lock is None:
-            lock = asyncio.Lock()
-            self._locks[session_id] = lock
+        existing = self._locks.get(session_id)
+        if existing is not None:
+            self._locks.move_to_end(session_id)
+            return existing
+
+        self._evict()
+        lock = self._locks[session_id] = asyncio.Lock()
         return lock
+
+    def _evict(self) -> None:
+        while len(self._locks) >= self._maxsize:
+            for key, lock in self._locks.items():
+                if not lock.locked():
+                    del self._locks[key]
+                    break
+            else:
+                # Every lock is in use. Growing past maxsize is the safe failure:
+                # correctness beats the bound.
+                return
