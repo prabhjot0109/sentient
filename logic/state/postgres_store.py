@@ -97,6 +97,24 @@ class PostgresStateStore:
         async with pool.acquire() as conn:
             await conn.execute("UPDATE projects SET status=$1 WHERE id=$2", status, project_id)
 
+    async def delete_project(self, user_id, project_id):
+        # user_id is filtered in the statement, so a wrong owner deletes nothing.
+        # Configs, threads, messages and documents go with it via ON DELETE CASCADE.
+        pool = await self._pool_()
+        async with pool.acquire() as conn:
+            res = await conn.execute(
+                "DELETE FROM projects WHERE id=$1 AND user_id=$2", project_id, user_id)
+        return res.endswith(" 1")
+
+    async def rename_project(self, user_id, project_id, name):
+        pool = await self._pool_()
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                "UPDATE projects SET name=$3 WHERE id=$1 AND user_id=$2 "
+                "RETURNING id::text, user_id::text, name, base_preset, status",
+                project_id, user_id, name)
+        return dict(row) if row else None
+
     async def get_project_config(self, project_id):
         pool = await self._pool_()
         async with pool.acquire() as conn:
@@ -140,6 +158,14 @@ class PostgresStateStore:
         async with pool.acquire() as conn:
             rows = await conn.fetch("SELECT * FROM documents WHERE project_id=$1", project_id)
         return [dict(r) for r in rows]
+
+    async def delete_document(self, project_id, filename):
+        pool = await self._pool_()
+        async with pool.acquire() as conn:
+            res = await conn.execute(
+                "DELETE FROM documents WHERE project_id=$1 AND filename=$2",
+                project_id, filename)
+        return res.endswith(" 1")
 
     async def upsert_credential(self, user_id, provider, encrypted_key, key_hint):
         pool = await self._pool_()
@@ -201,6 +227,16 @@ class PostgresStateStore:
                 "WHERE t.id=$1 AND p.user_id=$2", thread_id, user_id
             )
         return dict(row) if row else None
+
+    async def delete_thread(self, user_id, thread_id):
+        # Ownership rides through the thread's project; a thread has no user_id.
+        # Messages go with it via ON DELETE CASCADE.
+        pool = await self._pool_()
+        async with pool.acquire() as conn:
+            res = await conn.execute(
+                "DELETE FROM chat_threads WHERE id=$1 AND project_id IN "
+                "(SELECT id FROM projects WHERE user_id=$2)", thread_id, user_id)
+        return res.endswith(" 1")
 
     async def add_message(self, thread_id, role, content):
         pool = await self._pool_()

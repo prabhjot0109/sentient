@@ -69,6 +69,126 @@ class SQLiteStateStoreTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(docs[0]["status"], "reindexing")
 
 
+class LifecycleTests(unittest.IsolatedAsyncioTestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.store = SQLiteStateStore(str(Path(self.tmp.name) / "s.db"))
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    async def test_delete_project_cascades_to_threads_and_documents(self):
+        user = await self.store.ensure_user("A")
+        project = await self.store.create_project(user["id"], "P")
+        thread = await self.store.upsert_thread(project["id"], "sess-1")
+        await self.store.add_message(thread["id"], "user", "hello")
+        await self.store.register_document(project["id"], "lore.pdf", 3, "sig")
+
+        self.assertTrue(await self.store.delete_project(user["id"], project["id"]))
+        self.assertIsNone(await self.store.get_project(user["id"], project["id"]))
+        self.assertEqual(await self.store.list_threads(project["id"]), [])
+        self.assertEqual(await self.store.list_documents(project["id"]), [])
+        self.assertEqual(await self.store.list_messages(thread["id"]), [])
+
+    async def test_delete_project_also_drops_its_config(self):
+        user = await self.store.ensure_user("A")
+        project = await self.store.create_project(user["id"], "P")
+        await self.store.upsert_project_config(project["id"], persona_prompt="voice")
+
+        await self.store.delete_project(user["id"], project["id"])
+        self.assertIsNone(await self.store.get_project_config(project["id"]))
+
+    async def test_delete_project_refuses_another_users_project(self):
+        a = await self.store.ensure_user("A")
+        b = await self.store.ensure_user("B")
+        project = await self.store.create_project(a["id"], "P")
+
+        self.assertFalse(await self.store.delete_project(b["id"], project["id"]))
+        self.assertIsNotNone(await self.store.get_project(a["id"], project["id"]))
+
+    async def test_delete_unknown_project_is_false(self):
+        user = await self.store.ensure_user("A")
+        self.assertFalse(await self.store.delete_project(user["id"], "no-such-project"))
+
+    async def test_rename_project(self):
+        user = await self.store.ensure_user("A")
+        project = await self.store.create_project(user["id"], "Old")
+
+        renamed = await self.store.rename_project(user["id"], project["id"], "New")
+        self.assertEqual(renamed["name"], "New")
+        self.assertIsNone(await self.store.rename_project("nobody", project["id"], "Hax"))
+
+    async def test_rename_leaves_another_users_project_untouched(self):
+        a = await self.store.ensure_user("A")
+        b = await self.store.ensure_user("B")
+        project = await self.store.create_project(a["id"], "Original")
+
+        self.assertIsNone(await self.store.rename_project(b["id"], project["id"], "Hax"))
+        # Ownership is filtered in the UPDATE itself, not just in the row we return.
+        still = await self.store.get_project(a["id"], project["id"])
+        self.assertEqual(still["name"], "Original")
+
+    async def test_delete_thread_cascades_to_messages(self):
+        user = await self.store.ensure_user("A")
+        project = await self.store.create_project(user["id"], "P")
+        thread = await self.store.upsert_thread(project["id"], "sess-1")
+        await self.store.add_message(thread["id"], "user", "hello")
+
+        self.assertTrue(await self.store.delete_thread(user["id"], thread["id"]))
+        self.assertIsNone(await self.store.get_thread(user["id"], thread["id"]))
+        self.assertEqual(await self.store.list_messages(thread["id"]), [])
+
+    async def test_delete_thread_refuses_another_users_thread(self):
+        a = await self.store.ensure_user("A")
+        b = await self.store.ensure_user("B")
+        project = await self.store.create_project(a["id"], "P")
+        thread = await self.store.upsert_thread(project["id"], "sess-1")
+
+        self.assertFalse(await self.store.delete_thread(b["id"], thread["id"]))
+        self.assertIsNotNone(await self.store.get_thread(a["id"], thread["id"]))
+
+    async def test_delete_document(self):
+        user = await self.store.ensure_user("A")
+        project = await self.store.create_project(user["id"], "P")
+        await self.store.register_document(project["id"], "lore.pdf", 3, "sig")
+
+        self.assertTrue(await self.store.delete_document(project["id"], "lore.pdf"))
+        self.assertEqual(await self.store.list_documents(project["id"]), [])
+        self.assertFalse(await self.store.delete_document(project["id"], "lore.pdf"))
+
+    async def test_delete_document_is_scoped_to_its_project(self):
+        user = await self.store.ensure_user("A")
+        mine = await self.store.create_project(user["id"], "Mine")
+        other = await self.store.create_project(user["id"], "Other")
+        await self.store.register_document(mine["id"], "lore.pdf", 3, "sig")
+
+        # Same filename, different project: must not be collateral damage.
+        self.assertFalse(await self.store.delete_document(other["id"], "lore.pdf"))
+        self.assertEqual(len(await self.store.list_documents(mine["id"])), 1)
+
+
+class PostgresStoreSurfaceTests(unittest.TestCase):
+    """The asyncpg impl is only exercised for real at the V3 gate, so pin the one
+    thing that is checkable offline: it implements every StateStore method the
+    SQLite store does. Constructing it opens no connection (the pool is lazy)."""
+
+    def test_satisfies_protocol(self):
+        from logic.state.postgres_store import PostgresStateStore
+
+        self.assertIsInstance(PostgresStateStore("postgres://user@host/db"), StateStore)
+
+    def test_lifecycle_methods_mirror_the_sqlite_store(self):
+        from logic.state.postgres_store import PostgresStateStore
+
+        for name in (
+            "delete_project", "rename_project", "delete_thread", "delete_document",
+        ):
+            self.assertTrue(
+                callable(getattr(PostgresStateStore, name, None)),
+                f"PostgresStateStore is missing {name}",
+            )
+
+
 class StateStoreFactoryTests(unittest.TestCase):
     def test_factory_uses_sqlite_by_default(self):
         from logic.state import get_state_store

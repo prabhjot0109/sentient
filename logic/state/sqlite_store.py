@@ -174,6 +174,33 @@ class SQLiteStateStore:
     async def set_project_status(self, project_id, status):
         await asyncio.to_thread(self._set_project_status, project_id, status)
 
+    def _delete_project(self, user_id, project_id):
+        # user_id is in the WHERE clause, not checked by the caller: a wrong owner
+        # deletes nothing instead of someone else's project. Child rows go with it
+        # through the ON DELETE CASCADE keys (PRAGMA foreign_keys is ON in _connect).
+        with closing(self._connect()) as conn, conn:
+            cursor = conn.execute(
+                "DELETE FROM projects WHERE id=? AND user_id=?", (project_id, user_id)
+            )
+        return cursor.rowcount > 0
+
+    async def delete_project(self, user_id, project_id):
+        return await asyncio.to_thread(self._delete_project, user_id, project_id)
+
+    def _rename_project(self, user_id, project_id, name):
+        with closing(self._connect()) as conn, conn:
+            conn.execute(
+                "UPDATE projects SET name=? WHERE id=? AND user_id=?",
+                (name, project_id, user_id),
+            )
+            row = conn.execute(
+                "SELECT * FROM projects WHERE id=? AND user_id=?", (project_id, user_id)
+            ).fetchone()
+        return dict(row) if row else None
+
+    async def rename_project(self, user_id, project_id, name):
+        return await asyncio.to_thread(self._rename_project, user_id, project_id, name)
+
     # ---- project_configs ----
     def _get_project_config(self, project_id):
         with closing(self._connect()) as conn:
@@ -229,6 +256,17 @@ class SQLiteStateStore:
         with closing(self._connect()) as conn:
             rows = conn.execute("SELECT * FROM documents WHERE project_id=?", (project_id,)).fetchall()
         return [dict(r) for r in rows]
+
+    def _delete_document(self, project_id, filename):
+        with closing(self._connect()) as conn, conn:
+            cursor = conn.execute(
+                "DELETE FROM documents WHERE project_id=? AND filename=?",
+                (project_id, filename),
+            )
+        return cursor.rowcount > 0
+
+    async def delete_document(self, project_id, filename):
+        return await asyncio.to_thread(self._delete_document, project_id, filename)
 
     async def list_documents(self, project_id):
         return await asyncio.to_thread(self._list_documents, project_id)
@@ -317,6 +355,19 @@ class SQLiteStateStore:
 
     async def get_thread(self, user_id, thread_id):
         return await asyncio.to_thread(self._get_thread, user_id, thread_id)
+
+    def _delete_thread(self, user_id, thread_id):
+        with closing(self._connect()) as conn, conn:
+            # Ownership rides through the thread's project; a thread has no user_id.
+            cursor = conn.execute(
+                "DELETE FROM chat_threads WHERE id=? AND project_id IN "
+                "(SELECT id FROM projects WHERE user_id=?)",
+                (thread_id, user_id),
+            )
+        return cursor.rowcount > 0
+
+    async def delete_thread(self, user_id, thread_id):
+        return await asyncio.to_thread(self._delete_thread, user_id, thread_id)
 
     def _add_message(self, thread_id, role, content):
         message_id = uuid4().hex
