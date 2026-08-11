@@ -10,10 +10,16 @@ multi-provider LLMs). It is mid-refactor into a **multi-project AI runtime**: on
 users, many game "projects" — each project a database row owning its config, **one editable
 persona** (per game, never per NPC), documents, and chat threads. Direction and contracts live in
 `docs/superpowers/plans/2026-07-07-sentient-world-runtime-overview.md`; execution order in
-`order.md`. Plans 01 (async VectorBackend seam) and 02 (Qdrant hybrid backend) and R1–R7 (Neon
+`order.md`. Plans 01 (async VectorBackend seam) and 02 (Qdrant hybrid backend), R1–R7 (Neon
 Postgres state, Neon Auth, RuntimeContext, routing, concurrency, reindex guard, encrypted user
-credentials + per-thread memory) are all implemented on `dev`. The remaining gap is the frontend:
-`frontend/` has no UI for the credential vault or the thread sidebar, though both APIs exist.
+credentials + per-thread memory) and R8 (mainline port: startup warmup, STT proxy + mic
+diagnostics, resource lifecycle, deployable container) are all implemented on `dev`.
+
+Two gaps remain. **Verification:** the V1–V3 gates in `2026-08-11-post-R8-launch-todo.md` are
+manual and unrun — no fresh-clone smoke run, no live Mantella session, and no real Neon/Qdrant
+exercise, so `logic/state/postgres_store.py` and the Qdrant payload filters are fake-only today.
+**Frontend:** `frontend/` has no UI for the credential vault, the thread sidebar, or the R8
+lifecycle/document endpoints, though every API exists.
 
 ## Commands
 
@@ -39,6 +45,12 @@ uv add <package>                           # deps via uv only; never hand-edit u
   backend. `logic/rag_engine.py` — `NPCBrain` (prompt + retrieval + answer).
 - `logic/openai_adapter.py` — OpenAI wire-format translation + SSE streaming.
   `logic/sqlite_chat_store.py` / Supabase — chat history. `frontend/` — static test UI.
+- `logic/stt.py` — STT provider/credential resolution + cached upstream client for the
+  optional `/v1/audio/transcriptions` proxy. `logic/audio_diagnostics.py` — pure numpy/`wave`
+  WAV measurement (RMS/peak/clipping → verdict); its thresholds are fitted to real captures,
+  so do not retune them without new measurements.
+- `config/config.ini` — **Mantella's** config, checked in as reference wiring only. Sentient
+  never reads it; Mantella reads `Documents/My Games/Mantella/config.ini`.
 - `tests/` — `unittest.TestCase` / `IsolatedAsyncioTestCase` + pytest runner.
 
 ## Hard constraints (from the runtime overview §8 — apply to all new code)
@@ -49,6 +61,9 @@ uv add <package>                           # deps via uv only; never hand-edit u
 - **Defaults preserve behavior:** `VECTOR_BACKEND=faiss`, no `DATABASE_URL` ⇒ SQLite, flags off.
   A fresh clone must behave like `main`. Back-compat on existing endpoints is a hard constraint.
 - **No network in tests:** Qdrant uses `location=":memory:"`, fake embeddings, patched clients.
+- **Clients connect over `127.0.0.1`, never `localhost`.** Uvicorn binds IPv4 only and Windows
+  resolves `localhost` to `::1` first: measured 208 ms of wasted connect time per request,
+  invisible in server-side logs. See README "Latency: what actually matters".
 - Python ≥3.12, LangChain <1.0.0. TDD per task: failing test → green → commit
   (`feat:`/`refactor:`/`test:`/`docs:` prefixes, one commit per task).
 - `.env.example` + `README.md` updated in the same change that adds a flag.

@@ -298,20 +298,52 @@ A warm `IdentityCache` (TTL, keyed by the token/key hash) memoizes the resolved 
 | POST / GET | `/v1/keys` | Mint a key (raw value returned once) or list the current user's key metadata |
 | DELETE | `/v1/keys/{key_id}` | Revoke an owned key |
 | POST / GET | `/v1/projects` | Create or list owned projects |
+| PATCH | `/v1/projects/{project_id}` | Rename an owned project |
+| DELETE | `/v1/projects/{project_id}` | Delete a project and its config, threads, messages, and documents |
+| GET | `/v1/projects/{project_id}/documents` | Per-document ingestion status (`processing` / `ready` / `failed`) |
 | GET | `/v1/projects/{project_id}/threads` | List owned project threads for the sidebar |
 | GET | `/v1/threads/{thread_id}/messages` | Return an owned thread's chronological message history |
+| DELETE | `/v1/threads/{thread_id}` | Delete an owned thread and its messages |
 | PUT | `/v1/projects/{project_id}/config` | Partially update validated project configuration |
 | PUT | `/v1/projects/{project_id}/persona` | Set or clear the project's single persona prompt |
 | GET | `/v1/presets` | List built-in project presets |
 | POST | `/v1/upload` | Upload document (PDF/TXT) |
-| GET | `/v1/sources` | List uploaded sources |
-| DELETE | `/v1/sources/{filename}` | Delete a source |
+| GET | `/v1/sources` | List uploaded sources; `?project_id=` scopes to that project's partition |
+| DELETE | `/v1/sources/{filename}` | Delete a source; `?project_id=` also clears its documents row |
 | GET / POST | `/v1/chats` | List or create saved chats |
 | GET / PUT / DELETE | `/v1/chats/{chat_id}` | Load, update, or delete a saved chat |
 
 For Mantella, set `baseUrl` to `http://<host>:8000/v1/<api_key>/<project_id>`; Mantella appends `/chat/completions`. The old `http://<host>:8000/v1` base URL remains supported. Project config and persona edits invalidate the `RuntimeCache` immediately; its TTL is only a backstop.
 
 `/health` reports the active LLM provider, embedding provider, retrieval mode, local vs Supabase chat storage, and index manifest metadata so you can confirm the runtime configuration quickly.
+
+## Latency: what actually matters
+
+Measured against a live Skyrim session, in descending order of impact. The first item
+dwarfs every server-side optimisation in this list.
+
+- **Never point a client at `http://localhost:8000` on Windows — use `http://127.0.0.1:8000`.**
+  Uvicorn binds IPv4 only, and Windows resolves `localhost` to `::1` first, so every
+  connection stalls on a refused IPv6 attempt before falling back. Measured: **208 ms via
+  `localhost` versus 0.8 ms via `127.0.0.1`**, paid per request before any work happens.
+  End-to-end streaming TTFT for one NPC line went from ~3200 ms to ~780 ms on this change
+  alone. It is invisible in Sentient's own logs, because the server never sees the wasted
+  time — which is exactly why it went unnoticed for so long.
+- **Reasoning models are a TTFT trap.** `openai/gpt-oss-20b` measured 583 ms TTFT versus
+  146 ms for `llama-3.1-8b-instant`, because it emits an entire chain-of-thought before the
+  first spoken word. For dialogue, time-to-first-token *is* the perceived latency.
+- **Query embedding is the retrieval cost, not the search.** Local
+  `BAAI/bge-base-en-v1.5` ≈ 48 ms; the Google round trip it replaced was ≈ 511 ms; the FAISS
+  search they feed is 0.2 ms. Optimising the vector search would have been optimising 0.4% of
+  the work.
+- **The embedding model costs ~7–9 s to load**, and is warmed at startup by
+  `_warm_grounding_path()` so the player's opening line does not pay it. Changing
+  `EMBEDDING_MODEL_NAME` re-embeds the whole corpus on next start (~110 s for 96 chunks,
+  local, one-off).
+- **STT client reuse: 389 ms → 185 ms per transcription.** The SDK client owns an HTTP
+  connection pool; rebuilding it per utterance pays a fresh TCP+TLS handshake on the critical
+  path between the player finishing a sentence and the NPC answering.
+- **Mic diagnostics cost 1.2 ms** on a 3 s 16 kHz capture — free at this scale.
 
 ## Speech-to-text proxy (R8)
 
