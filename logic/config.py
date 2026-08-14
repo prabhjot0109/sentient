@@ -253,17 +253,21 @@ def load_rag_settings(api_key: str | None = None) -> RAGSettings:
     # Groq/Cerebras/OpenRouter serve chat models only — no embeddings API. If one
     # auto-resolved for embeddings (e.g. only that provider's key is set), fall
     # back to local HuggingFace embeddings, which need no key.
-    if embedding_provider in LLM_ONLY_PROVIDERS:
+    embedding_fallback = embedding_provider in LLM_ONLY_PROVIDERS
+    if embedding_fallback:
         embedding_provider = "huggingface"
     embedding_api_key = provider_api_key(embedding_provider, api_key)
-    embedding_model = os.getenv(
-        "EMBEDDING_MODEL_NAME",
-        {
-            "google": "models/gemini-embedding-001",
-            "openai": "text-embedding-3-small",
-            "huggingface": "BAAI/bge-base-en-v1.5",
-        }[embedding_provider],
-    )
+    # EMBEDDING_MODEL_NAME names a model on the provider it was configured for. Once
+    # the fallback above has replaced that provider, the name no longer belongs to
+    # anything — honouring it asks HuggingFace to load e.g. a Google model from the
+    # Hub, which fails. Settings must never carry a provider/model pair that
+    # disagree, so the fallback takes the model with it.
+    embedding_model_override = None if embedding_fallback else os.getenv("EMBEDDING_MODEL_NAME")
+    embedding_model = embedding_model_override or {
+        "google": "models/gemini-embedding-001",
+        "openai": "text-embedding-3-small",
+        "huggingface": "BAAI/bge-base-en-v1.5",
+    }[embedding_provider]
     embedding_base_url = provider_base_url(embedding_provider)
 
     chunk_size = _env_int("RAG_CHUNK_SIZE", 900)

@@ -13,7 +13,7 @@ from langchain_groq import ChatGroq
 from langchain_huggingface import ChatHuggingFace, HuggingFaceEndpoint
 from langchain_openai import ChatOpenAI
 
-from logic.config import load_rag_settings
+from logic.config import RAGSettings, load_rag_settings
 from logic.ingestion import ArchivesIngestion
 from logic.persona import build_system_prompt
 
@@ -90,8 +90,12 @@ def build_chat_model(
 
 
 class NPCBrain:
-    def __init__(self, api_key: str | None = None):
-        self.settings = load_rag_settings(api_key)
+    def __init__(self, api_key: str | None = None, *, settings: RAGSettings | None = None):
+        # `settings` lets a caller that has already resolved a runtime context hand
+        # it in, instead of having it re-derived from api_key alone: resolving from
+        # an LLM key also re-resolves *embeddings* from that key, which can land the
+        # brain in a different embedding space than the index was built with.
+        self.settings = settings or load_rag_settings(api_key)
         self.ingestion = ArchivesIngestion(api_key=api_key, settings=self.settings)
 
         if self.settings.llm_provider != "huggingface" and not self.settings.llm_api_key:

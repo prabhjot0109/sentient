@@ -191,7 +191,14 @@ async def get_archives_for_context(ctx: RuntimeContext) -> ArchivesIngestion:
 
 async def _build_brain_bundle(ctx: RuntimeContext) -> NPCBrain:
     # NPCBrain construction is sync/CPU (embeddings + settings); offload.
-    return await asyncio.to_thread(NPCBrain, ctx.llm_settings["api_key"])
+    # Hand it the context's already-resolved settings. Passing only the LLM key made
+    # NPCBrain re-resolve embeddings from that key too, so a chat-only key (Groq,
+    # Cerebras, OpenRouter) silently moved the brain to a different embedding
+    # provider than ingest, /health and the warmup use — a different vector space
+    # than the index it then queries.
+    return await asyncio.to_thread(
+        NPCBrain, ctx.llm_settings["api_key"], settings=_archive_settings(ctx)
+    )
 
 
 async def get_brain(ctx: RuntimeContext) -> NPCBrain:
