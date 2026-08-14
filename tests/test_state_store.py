@@ -69,6 +69,39 @@ class SQLiteStateStoreTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(docs[0]["status"], "reindexing")
 
 
+class FreshCloneStartupTests(unittest.IsolatedAsyncioTestCase):
+    """data_dir is gitignored, so a fresh clone has no data/ at all. The store is
+    built at api.py import time, before any lifespan handler could create it."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    async def test_creates_missing_data_dir(self):
+        missing = Path(self.tmp.name) / "data"
+        self.assertFalse(missing.exists())
+
+        store = SQLiteStateStore(str(missing / "state.db"))
+
+        self.assertTrue((missing / "state.db").exists())
+        user = await store.ensure_user(None)
+        self.assertIsNotNone(user["id"])
+
+    async def test_get_state_store_boots_without_data_dir(self):
+        from logic.config import load_rag_settings
+        from logic.state import get_state_store
+
+        data_dir = str(Path(self.tmp.name) / "nested" / "data")
+        with patch.dict(os.environ, {"DATA_DIR": data_dir}, clear=False):
+            os.environ.pop("DATABASE_URL", None)
+            store = get_state_store(load_rag_settings())
+
+        self.assertIsInstance(store, SQLiteStateStore)
+        self.assertTrue(Path(data_dir, "state.db").exists())
+
+
 class LifecycleTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()

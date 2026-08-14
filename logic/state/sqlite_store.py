@@ -4,6 +4,7 @@ import asyncio
 import sqlite3
 from contextlib import closing
 from datetime import datetime, timezone
+from pathlib import Path
 from uuid import uuid4
 
 # Whitelisted project_config columns — guards the **fields upsert against SQL injection
@@ -38,6 +39,11 @@ class SQLiteStateStore:
         return conn
 
     def _init(self) -> None:
+        # sqlite cannot create a database inside a directory that does not exist,
+        # and data_dir is gitignored — a fresh clone has no data/ at all. This store
+        # is constructed at api import time, before any lifespan handler could make
+        # it, so the guard belongs here (as in SQLiteChatStore._ensure_storage).
+        Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
         with closing(self._connect()) as conn, conn:
             conn.executescript(
                 """
