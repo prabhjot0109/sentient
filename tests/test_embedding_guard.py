@@ -70,7 +70,7 @@ class ReindexGuardTests(unittest.IsolatedAsyncioTestCase):
         self.tmp.cleanup()
 
     async def test_embedding_change_requires_reindex_and_enqueues_once(self) -> None:
-        with patch.object(self.api, "enqueue_reindex", new_callable=AsyncMock) as enqueue:
+        with patch.object(self.deps, "enqueue_reindex", new_callable=AsyncMock) as enqueue:
             transport = httpx.ASGITransport(app=self.api.app)
             async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
                 project = await client.post("/v1/projects", json={"name": "P"})
@@ -121,7 +121,7 @@ class ReindexGuardTests(unittest.IsolatedAsyncioTestCase):
         )
 
         with patch.object(self.deps, "get_archives", return_value=archives):
-            await self.api._reindex_handler(
+            await self.deps._reindex_handler(
                 ReindexJob(project["id"], "user-key", None, "new-signature")
             )
 

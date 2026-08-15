@@ -35,7 +35,7 @@ from sentient.adapters.stt import client as stt
 from sentient.adapters.stt.diagnostics import analyse_wav, explain_empty_transcription
 from sentient.api import deps
 from sentient.api.routers import credentials, health, keys, threads
-from sentient.core.concurrency import IngestJob, IngestQueue, ReindexJob, defer
+from sentient.core.concurrency import IngestJob, ReindexJob, defer
 from sentient.core.config import Provider, SearchType, load_rag_settings
 from sentient.core.presets import list_presets
 from sentient.services.condense import condense_query
@@ -68,8 +68,8 @@ async def _warm_grounding_path() -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Start process-local workers and drain accepted work during shutdown."""
-    await ingest_queue.start()
-    await reindex_queue.start()
+    await deps.ingest_queue.start()
+    await deps.reindex_queue.start()
     try:
         have_provider_key = deps.any_provider_key_present()
         try:
@@ -97,8 +97,8 @@ async def lifespan(app: FastAPI):
 
         yield
     finally:
-        await reindex_queue.stop()
-        await ingest_queue.stop()
+        await deps.reindex_queue.stop()
+        await deps.ingest_queue.stop()
         print("Shutting down...")
 
 
@@ -194,99 +194,6 @@ class ConfigInput(BaseModel):
 
 class PersonaInput(BaseModel):
     system_prompt: str
-
-
-async def _ingest_handler(job: IngestJob) -> None:
-    archives = job.archives or deps.get_archives(job.api_key)
-    staged_path = Path(job.file_path)
-    final_path = archives.data_dir / job.filename
-    try:
-        if staged_path != final_path:
-            await asyncio.to_thread(final_path.parent.mkdir, parents=True, exist_ok=True)
-            await asyncio.to_thread(os.replace, staged_path, final_path)
-
-        metadata = await archives.add_file(
-            str(final_path),
-            user_key=job.user_key,
-            project_id=job.project_id,
-            embedding_signature=job.embedding_signature,
-        )
-        if job.project_id is not None:
-            await deps.state_store.register_document(
-                job.project_id,
-                job.filename,
-                (metadata or {}).get("added_chunk_count", 0),
-                job.embedding_signature,
-                status="ready",
-            )
-    except Exception:
-        if job.project_id is not None:
-            await deps.state_store.set_document_status(
-                job.project_id, job.filename, "failed"
-            )
-        raise
-    finally:
-        if staged_path != final_path and staged_path.exists():
-            await asyncio.to_thread(staged_path.unlink)
-
-
-ingest_queue = IngestQueue(_ingest_handler)
-
-
-async def enqueue_ingest(job: IngestJob) -> None:
-    """Stable enqueue seam for replacing the process-local worker later."""
-    await ingest_queue.enqueue(job)
-
-
-async def _reindex_handler(job: ReindexJob) -> None:
-    if job.user_id is None:
-        archives = deps.get_archives(job.api_key)
-    else:
-        ctx = await resolve_runtime_context(
-            deps.state_store,
-            deps._settings,
-            user_id=job.user_id,
-            user_key=job.user_key or "default",
-            project_id=job.project_id,
-            provider_key=job.api_key,
-        )
-        archives = await deps.get_archives_for_context(ctx)
-
-    documents = await deps.state_store.list_documents(job.project_id)
-    try:
-        await asyncio.to_thread(archives.clear_project, job.user_key, job.project_id)
-        if archives.settings.vector_backend == "faiss":
-            await asyncio.to_thread(archives.reset_index)
-
-        for document in documents:
-            await deps.state_store.set_document_status(
-                job.project_id, document["filename"], "reindexing"
-            )
-            metadata = await archives.add_file(
-                str(archives.data_dir / document["filename"]),
-                user_key=job.user_key,
-                project_id=job.project_id,
-                embedding_signature=job.embedding_signature,
-            )
-            await deps.state_store.register_document(
-                job.project_id,
-                document["filename"],
-                (metadata or {}).get("added_chunk_count", 0),
-                job.embedding_signature,
-                status="ready",
-            )
-        await deps.state_store.set_project_status(job.project_id, "active")
-    except Exception:
-        await deps.state_store.set_project_status(job.project_id, "reindexing_required")
-        raise
-
-
-reindex_queue = IngestQueue(_reindex_handler)
-
-
-async def enqueue_reindex(job: ReindexJob) -> None:
-    """Stable enqueue seam for project reindex jobs."""
-    await reindex_queue.enqueue(job)
 
 
 @app.post("/v1/chat", response_model=ChatResponse)
@@ -951,7 +858,7 @@ async def update_config(
         and project["status"] != "reindexing_required"
     ):
         await deps.state_store.set_project_status(project_id, "reindexing_required")
-        await enqueue_reindex(
+        await deps.enqueue_reindex(
             ReindexJob(
                 project_id=project_id,
                 user_key=user[1],
@@ -1041,7 +948,7 @@ async def upload_file(
             archives=archives,
         )
         try:
-            await enqueue_ingest(job)
+            await deps.enqueue_ingest(job)
         except (asyncio.QueueFull, RuntimeError) as exc:
             if project_id is not None:
                 await deps.state_store.set_document_status(project_id, safe_name, "failed")

@@ -45,10 +45,15 @@ from sentient.adapters.documents import ArchivesIngestion
 from sentient.adapters.llm.models import build_chat_model
 from sentient.adapters.state import get_state_store
 from sentient.core.cache import ObjectRegistry
-from sentient.core.concurrency import SessionLocks
+from sentient.core.concurrency import IngestJob, IngestQueue, ReindexJob, SessionLocks
 from sentient.core.config import load_rag_settings, provider_base_url
+from sentient.services import ingestion
 from sentient.services.rag import NPCBrain
-from sentient.services.runtime import RuntimeCache, RuntimeContext
+from sentient.services.runtime import (
+    RuntimeCache,
+    RuntimeContext,
+    resolve_runtime_context,
+)
 
 # Runtime caches (not a global brain). Clients are built once per config_signature
 # and reused; config/persona writes invalidate RuntimeCache for that project.
@@ -228,3 +233,48 @@ async def current_user(
         )
     except AuthError as e:
         raise HTTPException(status_code=401, detail=str(e)) from e
+
+
+# --- Ingestion / reindex workers ---------------------------------------------
+# The queues are process-local infrastructure: `lifespan` starts and stops them,
+# so they sit here with the other singletons. The handlers below are thin
+# bindings -- they resolve the archive client (an api-layer concern, because it
+# goes through object_registry) and hand the work to sentient.services.ingestion.
+
+
+async def _ingest_handler(job: IngestJob) -> None:
+    archives = job.archives or get_archives(job.api_key)
+    await ingestion.run_ingest_job(job, state_store=state_store, archives=archives)
+
+
+ingest_queue = IngestQueue(_ingest_handler)
+
+
+async def enqueue_ingest(job: IngestJob) -> None:
+    """Stable enqueue seam for replacing the process-local worker later."""
+    await ingest_queue.enqueue(job)
+
+
+async def _reindex_handler(job: ReindexJob) -> None:
+    if job.user_id is None:
+        archives = get_archives(job.api_key)
+    else:
+        ctx = await resolve_runtime_context(
+            state_store,
+            _settings,
+            user_id=job.user_id,
+            user_key=job.user_key or "default",
+            project_id=job.project_id,
+            provider_key=job.api_key,
+        )
+        archives = await get_archives_for_context(ctx)
+
+    await ingestion.run_reindex_job(job, state_store=state_store, archives=archives)
+
+
+reindex_queue = IngestQueue(_reindex_handler)
+
+
+async def enqueue_reindex(job: ReindexJob) -> None:
+    """Stable enqueue seam for project reindex jobs."""
+    await reindex_queue.enqueue(job)

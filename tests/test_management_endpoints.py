@@ -103,8 +103,7 @@ class ManagementEndpointTests(unittest.IsolatedAsyncioTestCase):
                 new_callable=AsyncMock,
                 return_value=archives,
             ),
-            patch.object(
-                self.api, "enqueue_ingest", new_callable=AsyncMock
+            patch.object(self.deps, "enqueue_ingest", new_callable=AsyncMock
             ) as enqueue,
         ):
             transport = httpx.ASGITransport(app=self.api.app)

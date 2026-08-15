@@ -100,7 +100,7 @@ class IngestHandlerTests(unittest.IsolatedAsyncioTestCase):
             )
 
             with patch.object(deps, "state_store", store):
-                await api._ingest_handler(job)
+                await deps._ingest_handler(job)
 
         archives.add_file.assert_awaited_once_with(
             str(path),
@@ -132,7 +132,7 @@ class IngestHandlerTests(unittest.IsolatedAsyncioTestCase):
 
         with patch.object(deps, "state_store", store):
             with self.assertRaisesRegex(RuntimeError, "embed failed"):
-                await api._ingest_handler(job)
+                await deps._ingest_handler(job)
 
         store.set_document_status.assert_awaited_once_with(
             "project-a", "lore.txt", "failed"
