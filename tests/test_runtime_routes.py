@@ -8,6 +8,11 @@ from unittest.mock import AsyncMock, patch
 
 import httpx
 
+from sentient.api.routers import completions as completions_router
+
+from sentient.adapters.llm.openai_wire import ChatCompletionRequest
+from sentient.services import chat as chat_service
+
 
 class RuntimeCompletionsTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self) -> None:
@@ -22,6 +27,8 @@ class RuntimeCompletionsTests(unittest.IsolatedAsyncioTestCase):
             os.environ.pop(name, None)
 
         from sentient.api import app as api
+
+
         from sentient.api import deps
         from sentient.adapters.auth import IdentityCache
         from sentient.core.config import load_rag_settings
@@ -255,11 +262,11 @@ class RuntimeCompletionsTests(unittest.IsolatedAsyncioTestCase):
             ),
         ):
             ctx = await self.deps.completions_ctx(None, None)
-            request = self.api.ChatCompletionRequest(
+            request = ChatCompletionRequest(
                 messages=[{"role": "user", "content": "hi"}]
             )
             response = await asyncio.wait_for(
-                self.api._run_completions(request, ctx), timeout=0.3
+                completions_router._run_completions(request, ctx), timeout=0.3
             )
 
         self.assertEqual(response["choices"][0]["message"]["content"], "Ready.")
@@ -353,7 +360,7 @@ class RuntimeCompletionsTests(unittest.IsolatedAsyncioTestCase):
                 return_value=_StubArchives(),
             ),
             patch.object(
-                self.api,
+                chat_service,
                 "condense_query",
                 new_callable=AsyncMock,
                 return_value="What skills do Nords have?",

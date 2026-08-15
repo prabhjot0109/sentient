@@ -63,9 +63,10 @@ class BrainEmbeddingSpaceTests(unittest.TestCase):
 
     def test_brain_uses_the_context_embedding_settings_not_the_llm_key(self):
         from sentient.api import app as api
+        from sentient.services.runtime import RuntimeContext
         from sentient.api import deps
 
-        ctx = api.RuntimeContext(
+        ctx = RuntimeContext(
             user_key="default",
             user_id=None,
             project_id=None,

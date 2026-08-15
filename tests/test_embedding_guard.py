@@ -9,6 +9,12 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import httpx
 
+from sentient.api.routers import completions as completions_router
+
+from fastapi import HTTPException
+
+from sentient.adapters.llm.openai_wire import ChatCompletionRequest
+
 
 class EmbeddingSignatureTests(unittest.TestCase):
     def test_signature_stable_and_dimension_sensitive(self) -> None:
@@ -50,6 +56,8 @@ class ReindexGuardTests(unittest.IsolatedAsyncioTestCase):
             os.environ.pop(name, None)
 
         from sentient.api import app as api
+
+
         from sentient.api import deps
         from sentient.adapters.auth import IdentityCache
         from sentient.core.config import load_rag_settings
@@ -96,10 +104,10 @@ class ReindexGuardTests(unittest.IsolatedAsyncioTestCase):
             user_key="default",
             project_id=project["id"],
         )
-        request = self.api.ChatCompletionRequest(messages=[{"role": "user", "content": "hi"}])
+        request = ChatCompletionRequest(messages=[{"role": "user", "content": "hi"}])
 
-        with self.assertRaises(self.api.HTTPException) as raised:
-            await self.api._run_completions(request, ctx)
+        with self.assertRaises(HTTPException) as raised:
+            await completions_router._run_completions(request, ctx)
 
         self.assertEqual(raised.exception.status_code, 409)
 

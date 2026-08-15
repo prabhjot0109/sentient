@@ -7,6 +7,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
+from sentient.api.routers import completions as completions_router
+
 
 class IngestQueueTests(unittest.IsolatedAsyncioTestCase):
     async def test_processes_jobs_and_reports_done(self):
@@ -167,10 +169,10 @@ class DeferredTurnTests(unittest.IsolatedAsyncioTestCase):
                 yield SimpleNamespace(content="Done.")
 
         ctx = SimpleNamespace()
-        with patch.object(api, "_schedule_deferred_turn_work") as schedule:
+        with patch.object(completions_router, "_schedule_deferred_turn_work") as schedule:
             events = [
                 event
-                async for event in api._stream_with_deferred_turn_work(
+                async for event in completions_router._stream_with_deferred_turn_work(
                     _LLM(), [], "test-model", ctx
                 )
             ]
