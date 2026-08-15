@@ -146,6 +146,7 @@ class UpstreamModelTests(unittest.TestCase):
 class TranscriptionEndpointTests(unittest.IsolatedAsyncioTestCase):
     async def _post(self, audio: bytes, **kwargs):
         from sentient.api import app as api
+        from sentient.services import transcription
 
         transport = httpx.ASGITransport(app=api.app)
         async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
@@ -224,6 +225,7 @@ class TranscriptionEndpointTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_optional_fields_are_only_sent_when_set(self):
         from sentient.api import app as api
+        from sentient.services import transcription
         import sentient.adapters.stt.client as stt
 
         fake = MagicMock()
@@ -248,9 +250,10 @@ class TranscriptionEndpointTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_recent_endpoint_reports_transcriptions_and_silence_count(self):
         from sentient.api import app as api
+        from sentient.services import transcription
         import sentient.adapters.stt.client as stt
 
-        api._STT_HISTORY.clear()
+        transcription._STT_HISTORY.clear()
         fake = MagicMock()
         fake.audio.transcriptions.create.return_value = SimpleNamespace(text="hello")
         with patch.object(stt, "stt_client", return_value=fake):
@@ -271,14 +274,15 @@ class TranscriptionEndpointTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_history_is_bounded(self):
         from sentient.api import app as api
+        from sentient.services import transcription
 
-        api._STT_HISTORY.clear()
-        for i in range(api._STT_HISTORY_LIMIT + 10):
-            api._record_stt_history({"time": str(i), "text": "x"})
+        transcription._STT_HISTORY.clear()
+        for i in range(transcription._STT_HISTORY_LIMIT + 10):
+            transcription.record_history({"time": str(i), "text": "x"})
 
-        self.assertEqual(len(api._STT_HISTORY), api._STT_HISTORY_LIMIT)
+        self.assertEqual(len(transcription._STT_HISTORY), transcription._STT_HISTORY_LIMIT)
         # Oldest dropped, newest kept.
-        self.assertEqual(api._STT_HISTORY[-1]["time"], str(api._STT_HISTORY_LIMIT + 9))
+        self.assertEqual(transcription._STT_HISTORY[-1]["time"], str(transcription._STT_HISTORY_LIMIT + 9))
 
     async def test_no_raw_key_is_returned_on_any_path(self):
         import sentient.adapters.stt.client as stt
