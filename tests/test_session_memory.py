@@ -4,7 +4,7 @@ import unittest
 
 from langchain_core.messages import AIMessage, HumanMessage
 
-from logic.memory import SessionMemory
+from sentient.services.memory import SessionMemory
 
 
 class SessionMemoryTests(unittest.TestCase):

@@ -18,7 +18,7 @@ class RuntimeContextTests(unittest.IsolatedAsyncioTestCase):
         self.tmp.cleanup()
 
     async def test_no_project_matches_env_floor(self):
-        from logic.runtime import resolve_runtime_context
+        from sentient.services.runtime import resolve_runtime_context
         ctx = await resolve_runtime_context(self.store, self.settings,
                                             user_id="u", user_key="default")
         self.assertEqual(ctx.llm_settings["model"], self.settings.llm_model)
@@ -27,7 +27,7 @@ class RuntimeContextTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(ctx.project_id)
 
     async def test_project_config_overrides_floor(self):
-        from logic.runtime import resolve_runtime_context
+        from sentient.services.runtime import resolve_runtime_context
         user = await self.store.ensure_user("A")
         proj = await self.store.create_project(user["id"], "Skyrim", base_preset="skyrim")
         await self.store.upsert_project_config(proj["id"], model_name="gemini-2.5-flash", rag_top_k=7)
@@ -38,7 +38,7 @@ class RuntimeContextTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("Skyrim", ctx.system_prompt)                        # base_preset applied
 
     async def test_persona_prompt_beats_preset(self):
-        from logic.runtime import resolve_runtime_context
+        from sentient.services.runtime import resolve_runtime_context
         user = await self.store.ensure_user("A")
         proj = await self.store.create_project(user["id"], "Skyrim", base_preset="skyrim")
         await self.store.upsert_project_config(
@@ -48,7 +48,7 @@ class RuntimeContextTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(ctx.system_prompt, "You are the voice of this world.")
 
     async def test_signature_changes_with_model(self):
-        from logic.runtime import resolve_runtime_context
+        from sentient.services.runtime import resolve_runtime_context
         user = await self.store.ensure_user("A")
         p1 = await self.store.create_project(user["id"], "P1")
         p2 = await self.store.create_project(user["id"], "P2")
@@ -71,7 +71,7 @@ class RuntimeCacheTests(unittest.IsolatedAsyncioTestCase):
         self.tmp.cleanup()
 
     async def test_memoizes_and_invalidates(self):
-        from logic.runtime import RuntimeCache
+        from sentient.services.runtime import RuntimeCache
         user = await self.store.ensure_user("A")
         proj = await self.store.create_project(user["id"], "P")
         await self.store.upsert_project_config(proj["id"], model_name="m1")
@@ -99,7 +99,7 @@ class RuntimeCacheTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(c3.llm_settings["model"], "m2")  # re-resolved after invalidation
 
     async def test_provider_key_is_part_of_cache_identity(self):
-        from logic.runtime import RuntimeCache
+        from sentient.services.runtime import RuntimeCache
 
         cache = RuntimeCache()
         first = await cache.resolve(
@@ -124,7 +124,7 @@ class RuntimeCacheTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotEqual(first.config_signature, second.config_signature)
 
     async def test_user_key_is_part_of_cache_identity(self):
-        from logic.runtime import RuntimeCache
+        from sentient.services.runtime import RuntimeCache
 
         cache = RuntimeCache()
         first = await cache.resolve(

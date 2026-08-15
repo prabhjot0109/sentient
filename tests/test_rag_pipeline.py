@@ -110,7 +110,7 @@ class SentientRAGTests(unittest.TestCase):
 
         from sentient.adapters.auth import IdentityCache
         from sentient.core.cache import ObjectRegistry
-        from logic.runtime import RuntimeCache
+        from sentient.services.runtime import RuntimeCache
         from sentient.adapters.state import get_state_store
 
         api._settings = load_rag_settings()
@@ -202,7 +202,7 @@ class SentientRAGTests(unittest.TestCase):
             clear=False,
         ), patch("sentient.adapters.documents.build_embeddings", return_value=FakeEmbeddings()):
             from sentient.adapters.documents import ArchivesIngestion
-            from npc_brain import NPCBrain
+            from sentient.services.rag import NPCBrain
 
             brain = NPCBrain(api_key="AIzaTest")
             uploader = ArchivesIngestion(api_key="AIzaTest")

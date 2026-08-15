@@ -12,7 +12,7 @@ from cryptography.fernet import Fernet
 
 from sentient.core.config import load_rag_settings
 from sentient.core.crypto import decrypt_key
-from logic.runtime import RuntimeCache
+from sentient.services.runtime import RuntimeCache
 from sentient.adapters.state.sqlite_store import SQLiteStateStore
 
 
@@ -74,7 +74,7 @@ class CredentialResolutionTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_stored_credentials_override_env_floor_and_change_signature(self):
         from sentient.core.crypto import encrypt_key
-        from logic.runtime import resolve_runtime_context
+        from sentient.services.runtime import resolve_runtime_context
 
         user = await self.store.ensure_user("A")
         project = await self.store.create_project(user["id"], "P")
@@ -99,7 +99,7 @@ class CredentialResolutionTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_embedding_key_follows_the_project_provider_not_the_env_default(self):
         """A project may override embedding_provider; the key must follow it."""
-        from logic.runtime import resolve_runtime_context
+        from sentient.services.runtime import resolve_runtime_context
 
         user = await self.store.ensure_user("A")
         project = await self.store.create_project(user["id"], "P")
@@ -116,7 +116,7 @@ class CredentialResolutionTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_explicit_provider_key_beats_the_stored_key(self):
         from sentient.core.crypto import encrypt_key
-        from logic.runtime import resolve_runtime_context
+        from sentient.services.runtime import resolve_runtime_context
 
         user = await self.store.ensure_user("A")
         project = await self.store.create_project(user["id"], "P")

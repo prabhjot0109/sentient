@@ -8,7 +8,7 @@ sys.path.append(os.path.abspath(os.path.dirname(__file__)))
 
 from sentient.core.config import load_rag_settings
 from sentient.adapters.documents import ArchivesIngestion
-from logic.rag_engine import NPCBrain
+from sentient.services.rag import NPCBrain
 
 
 async def main():

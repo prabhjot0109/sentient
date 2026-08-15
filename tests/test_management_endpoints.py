@@ -22,7 +22,7 @@ class ManagementEndpointTests(unittest.IsolatedAsyncioTestCase):
         from sentient.adapters.auth import IdentityCache
         from sentient.core.config import load_rag_settings
         from sentient.core.cache import ObjectRegistry
-        from logic.runtime import RuntimeCache
+        from sentient.services.runtime import RuntimeCache
         from sentient.adapters.state import get_state_store
 
         self.api = api

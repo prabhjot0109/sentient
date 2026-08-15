@@ -29,7 +29,7 @@ from sentient.adapters.auth import (
     generate_api_key,
     resolve_user,
 )
-from logic.condense import condense_query
+from sentient.services.condense import condense_query
 from sentient.core.config import (
     Provider,
     SearchType,
@@ -53,10 +53,10 @@ from sentient.core.presets import list_presets
 from sentient.core.crypto import crypto_available, encrypt_key, key_hint
 from sentient.adapters.llm.models import build_chat_model
 from sentient.core.cache import ObjectRegistry
-from logic.runtime import RuntimeCache, RuntimeContext, embedding_signature, resolve_runtime_context
+from sentient.services.runtime import RuntimeCache, RuntimeContext, embedding_signature, resolve_runtime_context
 from sentient.adapters.state import get_state_store
 from sentient.core.concurrency import IngestJob, IngestQueue, ReindexJob, SessionLocks, defer
-from npc_brain import NPCBrain
+from sentient.services.rag import NPCBrain
 
 # Runtime caches (not a global brain). Clients are built once per config_signature
 # and reused; config/persona writes invalidate RuntimeCache for that project.

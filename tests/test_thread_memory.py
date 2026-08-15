@@ -13,7 +13,7 @@ from cryptography.fernet import Fernet
 
 from sentient.adapters.auth import IdentityCache
 from sentient.core.cache import ObjectRegistry
-from logic.runtime import RuntimeCache
+from sentient.services.runtime import RuntimeCache
 from sentient.adapters.state.sqlite_store import SQLiteStateStore
 
 

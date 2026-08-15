@@ -12,7 +12,7 @@ import httpx
 
 class EmbeddingSignatureTests(unittest.TestCase):
     def test_signature_stable_and_dimension_sensitive(self) -> None:
-        from logic.runtime import embedding_signature
+        from sentient.services.runtime import embedding_signature
 
         base = {
             "embedding_provider": "google",
@@ -26,7 +26,7 @@ class EmbeddingSignatureTests(unittest.TestCase):
         )
 
     def test_model_change_changes_signature(self) -> None:
-        from logic.runtime import embedding_signature
+        from sentient.services.runtime import embedding_signature
 
         a = embedding_signature({
             "embedding_provider": "google", "embedding_model": "m-a", "mrl_vector_size": None,
@@ -53,7 +53,7 @@ class ReindexGuardTests(unittest.IsolatedAsyncioTestCase):
         from sentient.adapters.auth import IdentityCache
         from sentient.core.config import load_rag_settings
         from sentient.core.cache import ObjectRegistry
-        from logic.runtime import RuntimeCache
+        from sentient.services.runtime import RuntimeCache
         from sentient.adapters.state import get_state_store
 
         self.api = api
