@@ -118,9 +118,7 @@ class SentientRAGTests(unittest.TestCase):
         api.identity_cache = IdentityCache()
         api.runtime_cache = RuntimeCache()
         api.object_registry = ObjectRegistry()
-        api.supabase_client = None
         api.get_default_archives.cache_clear()
-        api.get_local_chat_store.cache_clear()
 
     def tearDown(self):
         self.env_patcher.stop()
@@ -236,37 +234,6 @@ class SentientRAGTests(unittest.TestCase):
                 sources,
                 "deleted document should no longer be retrievable after refresh_knowledge()",
             )
-
-    def test_chat_history_falls_back_to_local_store(self):
-        client = TestClient(api.app)
-        payload = {
-            "client_id": "test-client",
-            "title": "Sentinel chat",
-            "preview": "Preview",
-            "messages": [
-                {
-                    "id": "message-1",
-                    "role": "user",
-                    "content": "Hello Sentinel",
-                    "timestamp": "2026-03-30T00:00:00+00:00",
-                }
-            ],
-        }
-
-        create_response = client.post("/v1/chats", json=payload)
-        self.assertEqual(create_response.status_code, 200)
-        created_chat = create_response.json()
-
-        list_response = client.get("/v1/chats", params={"client_id": "test-client"})
-        self.assertEqual(list_response.status_code, 200)
-        self.assertEqual(list_response.json()["count"], 1)
-
-        get_response = client.get(
-            f"/v1/chats/{created_chat['id']}",
-            params={"client_id": "test-client"},
-        )
-        self.assertEqual(get_response.status_code, 200)
-        self.assertEqual(get_response.json()["title"], "Sentinel chat")
 
 
 if __name__ == "__main__":

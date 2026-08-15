@@ -34,7 +34,6 @@ class RuntimeCompletionsTests(unittest.IsolatedAsyncioTestCase):
         api.identity_cache = IdentityCache()
         api.runtime_cache = RuntimeCache()
         api.object_registry = ObjectRegistry()
-        api.supabase_client = None
         api.get_default_archives.cache_clear()
 
     async def asyncTearDown(self) -> None:
