@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from logic.config import load_rag_settings
+from sentient.core.config import load_rag_settings
 from logic.state.sqlite_store import SQLiteStateStore
 
 

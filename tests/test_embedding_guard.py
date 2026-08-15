@@ -51,8 +51,8 @@ class ReindexGuardTests(unittest.IsolatedAsyncioTestCase):
 
         import api
         from logic.auth import IdentityCache
-        from logic.config import load_rag_settings
-        from logic.registry import ObjectRegistry
+        from sentient.core.config import load_rag_settings
+        from sentient.core.cache import ObjectRegistry
         from logic.runtime import RuntimeCache
         from logic.state import get_state_store
 
@@ -102,7 +102,7 @@ class ReindexGuardTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(raised.exception.status_code, 409)
 
     async def test_reindex_handler_purges_then_restores_project(self) -> None:
-        from logic.workers import ReindexJob
+        from sentient.core.concurrency import ReindexJob
 
         user = await self.api.state_store.ensure_user(None)
         project = await self.api.state_store.create_project(user["id"], "P")

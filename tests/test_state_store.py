@@ -90,7 +90,7 @@ class FreshCloneStartupTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNotNone(user["id"])
 
     async def test_get_state_store_boots_without_data_dir(self):
-        from logic.config import load_rag_settings
+        from sentient.core.config import load_rag_settings
         from logic.state import get_state_store
 
         data_dir = str(Path(self.tmp.name) / "nested" / "data")
@@ -226,7 +226,7 @@ class StateStoreFactoryTests(unittest.TestCase):
     def test_factory_uses_sqlite_by_default(self):
         from logic.state import get_state_store
         from logic.state.sqlite_store import SQLiteStateStore
-        from logic.config import load_rag_settings
+        from sentient.core.config import load_rag_settings
         with patch.dict(os.environ, {"DATA_DIR": tempfile.mkdtemp()}, clear=True):
             store = get_state_store(load_rag_settings())
         self.assertIsInstance(store, SQLiteStateStore)
@@ -234,7 +234,7 @@ class StateStoreFactoryTests(unittest.TestCase):
     def test_factory_uses_postgres_for_neon(self):
         from logic.state import get_state_store
         from logic.state.postgres_store import PostgresStateStore
-        from logic.config import load_rag_settings
+        from sentient.core.config import load_rag_settings
         with patch.dict(os.environ, {"DATABASE_URL": "postgres://x", "DB_BACKEND": "neon"}, clear=True):
             store = get_state_store(load_rag_settings())
         self.assertIsInstance(store, PostgresStateStore)

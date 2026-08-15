@@ -62,7 +62,7 @@ class STTCredentialResolutionTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(key)
 
     async def test_stored_credential_beats_env_when_no_bearer(self):
-        from logic.credentials import encrypt_key
+        from sentient.core.crypto import encrypt_key
         from logic.stt import resolve_stt_credential
 
         secret = Fernet.generate_key().decode()

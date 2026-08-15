@@ -20,8 +20,8 @@ class LoadConcurrencyTests(unittest.IsolatedAsyncioTestCase):
 
         import api
         from logic.auth import IdentityCache
-        from logic.config import load_rag_settings
-        from logic.registry import ObjectRegistry
+        from sentient.core.config import load_rag_settings
+        from sentient.core.cache import ObjectRegistry
         from logic.runtime import RuntimeCache
         from logic.state import get_state_store
 

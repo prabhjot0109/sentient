@@ -4,7 +4,7 @@ import os
 import unittest
 from unittest.mock import patch
 
-from logic.config import load_rag_settings
+from sentient.core.config import load_rag_settings
 
 
 class BackendSettingsDefaultsTests(unittest.TestCase):

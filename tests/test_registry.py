@@ -6,7 +6,7 @@ import unittest
 
 class ObjectRegistryTests(unittest.IsolatedAsyncioTestCase):
     async def test_builds_once_per_signature(self):
-        from logic.registry import ObjectRegistry
+        from sentient.core.cache import ObjectRegistry
         reg = ObjectRegistry()
         calls = {"n": 0}
         async def builder():
@@ -18,7 +18,7 @@ class ObjectRegistryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(calls["n"], 1)
 
     async def test_concurrent_first_hits_build_once(self):
-        from logic.registry import ObjectRegistry
+        from sentient.core.cache import ObjectRegistry
         reg = ObjectRegistry()
         calls = {"n": 0}
         async def builder():
@@ -30,14 +30,14 @@ class ObjectRegistryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len({id(r) for r in results}), 1)
 
     async def test_maxsize_bounds(self):
-        from logic.registry import ObjectRegistry
+        from sentient.core.cache import ObjectRegistry
         reg = ObjectRegistry(maxsize=2, ttl=100)
         async def b(): return object()
         await reg.get("a", b); await reg.get("b", b); await reg.get("c", b)
         self.assertLessEqual(reg.size(), 2)
 
     async def test_distinct_signatures_build_concurrently(self):
-        from logic.registry import ObjectRegistry
+        from sentient.core.cache import ObjectRegistry
         reg = ObjectRegistry()
         started = asyncio.Event()
         release = asyncio.Event()

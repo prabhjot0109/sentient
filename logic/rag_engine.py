@@ -13,7 +13,7 @@ from langchain_groq import ChatGroq
 from langchain_huggingface import ChatHuggingFace, HuggingFaceEndpoint
 from langchain_openai import ChatOpenAI
 
-from logic.config import RAGSettings, load_rag_settings
+from sentient.core.config import RAGSettings, load_rag_settings
 from logic.ingestion import ArchivesIngestion
 from logic.persona import build_system_prompt
 

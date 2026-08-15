@@ -10,7 +10,7 @@ from unittest.mock import AsyncMock, patch
 
 class IngestQueueTests(unittest.IsolatedAsyncioTestCase):
     async def test_processes_jobs_and_reports_done(self):
-        from logic.workers import IngestJob, IngestQueue
+        from sentient.core.concurrency import IngestJob, IngestQueue
 
         processed = []
 
@@ -27,7 +27,7 @@ class IngestQueueTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(processed, ["a.pdf"])
 
     async def test_handler_error_does_not_kill_worker(self):
-        from logic.workers import IngestJob, IngestQueue
+        from sentient.core.concurrency import IngestJob, IngestQueue
 
         seen = []
 
@@ -45,7 +45,7 @@ class IngestQueueTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(seen, ["good"])
 
     async def test_stop_drains_accepted_jobs_in_fifo_order(self):
-        from logic.workers import IngestJob, IngestQueue
+        from sentient.core.concurrency import IngestJob, IngestQueue
 
         started = asyncio.Event()
         release = asyncio.Event()
@@ -81,7 +81,7 @@ class IngestQueueTests(unittest.IsolatedAsyncioTestCase):
 class IngestHandlerTests(unittest.IsolatedAsyncioTestCase):
     async def test_ingest_handler_awaits_add_and_marks_project_ready(self):
         import api
-        from logic.workers import IngestJob
+        from sentient.core.concurrency import IngestJob
 
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "lore.txt"
@@ -114,7 +114,7 @@ class IngestHandlerTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_ingest_handler_marks_project_failed(self):
         import api
-        from logic.workers import IngestJob
+        from sentient.core.concurrency import IngestJob
 
         archives = SimpleNamespace(
             data_dir=Path("/tmp"),
@@ -139,7 +139,7 @@ class IngestHandlerTests(unittest.IsolatedAsyncioTestCase):
 
 class SessionLockTests(unittest.IsolatedAsyncioTestCase):
     async def test_mutations_for_a_session_serialize(self):
-        from logic.workers import SessionLocks
+        from sentient.core.concurrency import SessionLocks
 
         locks = SessionLocks()
         order = []
@@ -178,7 +178,7 @@ class DeferredTurnTests(unittest.IsolatedAsyncioTestCase):
 
 class SessionLockEvictionTests(unittest.IsolatedAsyncioTestCase):
     async def test_lock_table_is_bounded(self):
-        from logic.workers import SessionLocks
+        from sentient.core.concurrency import SessionLocks
 
         locks = SessionLocks(maxsize=8)
         for i in range(100):
@@ -187,7 +187,7 @@ class SessionLockEvictionTests(unittest.IsolatedAsyncioTestCase):
         self.assertLessEqual(len(locks._locks), 8)
 
     async def test_a_held_lock_is_never_evicted(self):
-        from logic.workers import SessionLocks
+        from sentient.core.concurrency import SessionLocks
 
         locks = SessionLocks(maxsize=4)
         held = locks.lock("busy")
@@ -201,13 +201,13 @@ class SessionLockEvictionTests(unittest.IsolatedAsyncioTestCase):
             held.release()
 
     async def test_the_same_session_keeps_the_same_lock(self):
-        from logic.workers import SessionLocks
+        from sentient.core.concurrency import SessionLocks
 
         locks = SessionLocks(maxsize=64)
         self.assertIs(locks.lock("sess-1"), locks.lock("sess-1"))
 
     async def test_growing_past_maxsize_beats_breaking_mutual_exclusion(self):
-        from logic.workers import SessionLocks
+        from sentient.core.concurrency import SessionLocks
 
         locks = SessionLocks(maxsize=3)
         held = [locks.lock(f"busy-{i}") for i in range(3)]
@@ -226,7 +226,7 @@ class SessionLockEvictionTests(unittest.IsolatedAsyncioTestCase):
                 lock.release()
 
     async def test_recently_used_locks_survive_eviction(self):
-        from logic.workers import SessionLocks
+        from sentient.core.concurrency import SessionLocks
 
         locks = SessionLocks(maxsize=4)
         keep = locks.lock("keep-me")

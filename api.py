@@ -30,7 +30,7 @@ from logic.auth import (
     resolve_user,
 )
 from logic.condense import condense_query
-from logic.config import (
+from sentient.core.config import (
     Provider,
     SearchType,
     load_rag_settings,
@@ -49,13 +49,13 @@ from logic.openai_adapter import (
     to_history,
     to_langchain,
 )
-from logic.presets import list_presets
-from logic.credentials import crypto_available, encrypt_key, key_hint
+from sentient.core.presets import list_presets
+from sentient.core.crypto import crypto_available, encrypt_key, key_hint
 from logic.rag_engine import build_chat_model
-from logic.registry import ObjectRegistry
+from sentient.core.cache import ObjectRegistry
 from logic.runtime import RuntimeCache, RuntimeContext, embedding_signature, resolve_runtime_context
 from logic.state import get_state_store
-from logic.workers import IngestJob, IngestQueue, ReindexJob, SessionLocks, defer
+from sentient.core.concurrency import IngestJob, IngestQueue, ReindexJob, SessionLocks, defer
 from npc_brain import NPCBrain
 
 # Runtime caches (not a global brain). Clients are built once per config_signature

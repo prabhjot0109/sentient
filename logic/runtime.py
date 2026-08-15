@@ -9,9 +9,9 @@ from typing import Any
 
 from cachetools import TTLCache
 
-from logic.config import provider_api_key, resolve_provider
-from logic.presets import get_preset
-from logic.credentials import crypto_available, decrypt_key
+from sentient.core.config import provider_api_key, resolve_provider
+from sentient.core.presets import get_preset
+from sentient.core.crypto import crypto_available, decrypt_key
 
 logger = logging.getLogger(__name__)
 

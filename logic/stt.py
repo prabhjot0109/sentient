@@ -53,7 +53,7 @@ async def _stored_key(state, settings, user_id: str | None, provider: str) -> st
     if state is None or not user_id or not getattr(settings, "sentient_secret_key", None):
         return None
     try:
-        from logic.credentials import decrypt_key
+        from sentient.core.crypto import decrypt_key
 
         row = await state.get_credential(user_id, provider)
         if not row:

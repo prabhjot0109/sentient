@@ -7,7 +7,7 @@ from langchain_core.documents import Document
 from langchain_qdrant import FastEmbedSparse, QdrantVectorStore, RetrievalMode
 from qdrant_client import QdrantClient, models
 
-from logic.config import RAGSettings
+from sentient.core.config import RAGSettings
 
 DENSE = "dense"
 SPARSE = "sparse"

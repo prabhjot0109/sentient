@@ -7,7 +7,7 @@ from unittest.mock import patch
 from langchain_core.documents import Document
 from langchain_core.embeddings import Embeddings
 
-from logic.config import load_rag_settings
+from sentient.core.config import load_rag_settings
 
 
 class _FakeDense(Embeddings):

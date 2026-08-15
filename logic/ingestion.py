@@ -14,7 +14,7 @@ from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_openai import OpenAIEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
-from logic.config import RAGSettings, load_rag_settings
+from sentient.core.config import RAGSettings, load_rag_settings
 
 # OCR is optional: scanned/image-only PDFs need it, but text PDFs don't, and the
 # Tesseract binary may not be installed. Import lazily so ingestion never hard-fails.

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 
-from logic.config import RAGSettings
+from sentient.core.config import RAGSettings
 from logic.state.base import StateStore
 from logic.state.sqlite_store import SQLiteStateStore
 

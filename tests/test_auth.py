@@ -35,7 +35,7 @@ class JwtVerificationTests(_ut.TestCase):
         _jwks_client.cache_clear()
 
     def _settings(self, **over):
-        from logic.config import load_rag_settings
+        from sentient.core.config import load_rag_settings
         s = load_rag_settings()
         return s.__class__(**{**s.__dict__, **over})
 
@@ -88,7 +88,7 @@ class JwtVerificationTests(_ut.TestCase):
 
 class ResolveUserTests(_ut.IsolatedAsyncioTestCase):
     def _settings(self, **over):
-        from logic.config import load_rag_settings
+        from sentient.core.config import load_rag_settings
         s = load_rag_settings()
         return s.__class__(**{**s.__dict__, **over})
 

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from logic.presets import get_preset, list_presets
+from sentient.core.presets import get_preset, list_presets
 
 
 class PresetTests(unittest.TestCase):

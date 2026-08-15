@@ -10,7 +10,7 @@ from typing import Any
 from langchain_community.vectorstores import FAISS
 from langchain_core.documents import Document
 
-from logic.config import RAGSettings
+from sentient.core.config import RAGSettings
 
 MANIFEST_FILE = "manifest.json"
 

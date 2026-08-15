@@ -10,7 +10,7 @@ from unittest.mock import patch
 from langchain_core.documents import Document
 from langchain_core.embeddings import Embeddings
 
-from logic.config import load_rag_settings
+from sentient.core.config import load_rag_settings
 from logic.retrieval.base import VectorBackend
 from logic.retrieval.factory import get_vector_backend
 from logic.retrieval.faiss_store import FaissBackend

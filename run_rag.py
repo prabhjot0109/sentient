@@ -6,7 +6,7 @@ from time import perf_counter
 # Add current directory to path so we can import logic modules
 sys.path.append(os.path.abspath(os.path.dirname(__file__)))
 
-from logic.config import load_rag_settings
+from sentient.core.config import load_rag_settings
 from logic.ingestion import ArchivesIngestion
 from logic.rag_engine import NPCBrain
 

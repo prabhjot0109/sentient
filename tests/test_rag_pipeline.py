@@ -12,7 +12,7 @@ from fastapi.testclient import TestClient
 from langchain_core.embeddings import Embeddings
 
 import api
-from logic.config import load_rag_settings
+from sentient.core.config import load_rag_settings
 
 
 class FakeEmbeddings(Embeddings):
@@ -109,7 +109,7 @@ class SentientRAGTests(unittest.TestCase):
         self.env_patcher.start()
 
         from logic.auth import IdentityCache
-        from logic.registry import ObjectRegistry
+        from sentient.core.cache import ObjectRegistry
         from logic.runtime import RuntimeCache
         from logic.state import get_state_store
 

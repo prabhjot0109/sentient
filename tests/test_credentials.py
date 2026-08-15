@@ -10,8 +10,8 @@ from unittest.mock import patch
 import httpx
 from cryptography.fernet import Fernet
 
-from logic.config import load_rag_settings
-from logic.credentials import decrypt_key
+from sentient.core.config import load_rag_settings
+from sentient.core.crypto import decrypt_key
 from logic.runtime import RuntimeCache
 from logic.state.sqlite_store import SQLiteStateStore
 
@@ -21,17 +21,17 @@ class CryptoPrimitiveTests(unittest.TestCase):
         self.secret = Fernet.generate_key().decode()
 
     def test_roundtrip(self):
-        from logic.credentials import decrypt_key, encrypt_key
+        from sentient.core.crypto import decrypt_key, encrypt_key
         token = encrypt_key("AIza-super-secret", self.secret)
         self.assertNotIn("super-secret", token)          # ciphertext, not plaintext
         self.assertEqual(decrypt_key(token, self.secret), "AIza-super-secret")
 
     def test_hint_shows_only_tail(self):
-        from logic.credentials import key_hint
+        from sentient.core.crypto import key_hint
         self.assertEqual(key_hint("sk-abcdefgh1234"), "…1234")
 
     def test_wrong_secret_fails_loudly(self):
-        from logic.credentials import decrypt_key, encrypt_key
+        from sentient.core.crypto import decrypt_key, encrypt_key
         token = encrypt_key("k", self.secret)
         with self.assertRaises(Exception):
             decrypt_key(token, Fernet.generate_key().decode())
@@ -73,7 +73,7 @@ class CredentialResolutionTests(unittest.IsolatedAsyncioTestCase):
         self.tmp.cleanup()
 
     async def test_stored_credentials_override_env_floor_and_change_signature(self):
-        from logic.credentials import encrypt_key
+        from sentient.core.crypto import encrypt_key
         from logic.runtime import resolve_runtime_context
 
         user = await self.store.ensure_user("A")
@@ -115,7 +115,7 @@ class CredentialResolutionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(resolved.rag_settings["embedding_api_key"], "sk-env-openai")
 
     async def test_explicit_provider_key_beats_the_stored_key(self):
-        from logic.credentials import encrypt_key
+        from sentient.core.crypto import encrypt_key
         from logic.runtime import resolve_runtime_context
 
         user = await self.store.ensure_user("A")

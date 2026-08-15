@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from logic.config import RAGSettings
+from sentient.core.config import RAGSettings
 from logic.retrieval.base import VectorBackend
 from logic.retrieval.faiss_store import FaissBackend
 

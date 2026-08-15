@@ -12,7 +12,7 @@ import httpx
 from cryptography.fernet import Fernet
 
 from logic.auth import IdentityCache
-from logic.registry import ObjectRegistry
+from sentient.core.cache import ObjectRegistry
 from logic.runtime import RuntimeCache
 from logic.state.sqlite_store import SQLiteStateStore
 
