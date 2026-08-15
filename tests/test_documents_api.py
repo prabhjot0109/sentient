@@ -31,17 +31,17 @@ class DocumentsEndpointTests(unittest.IsolatedAsyncioTestCase):
         # Scoped listing resolves a real ArchivesIngestion, which would otherwise
         # load BAAI/bge-base-en-v1.5 (~9s, and a download on a cold cache).
         embeddings = patch(
-            "logic.ingestion.build_embeddings", return_value=FakeEmbeddings()
+            "sentient.adapters.documents.build_embeddings", return_value=FakeEmbeddings()
         )
         embeddings.start()
         self.addCleanup(embeddings.stop)
 
         import api
-        from logic.auth import IdentityCache
+        from sentient.adapters.auth import IdentityCache
         from sentient.core.config import load_rag_settings
         from sentient.core.cache import ObjectRegistry
         from logic.runtime import RuntimeCache
-        from logic.state import get_state_store
+        from sentient.adapters.state import get_state_store
 
         # api.py builds these at import time, so a module cached by an earlier test
         # still points at that test's tmpdir. Rebind them the way

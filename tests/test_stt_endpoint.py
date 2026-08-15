@@ -29,7 +29,7 @@ SILENCE = wav_bytes(0.0)
 
 class STTCredentialResolutionTests(unittest.IsolatedAsyncioTestCase):
     async def test_forwarded_groq_key_wins_over_environment(self):
-        from logic.stt import resolve_stt_credential
+        from sentient.adapters.stt.client import resolve_stt_credential
 
         settings = SimpleNamespace(sentient_secret_key=None)
         with patch.dict("os.environ", {"GROQ_API_KEY": "gsk_from_env"}, clear=False):
@@ -40,7 +40,7 @@ class STTCredentialResolutionTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("forward", source.lower())
 
     async def test_forwarded_openai_key_selects_openai(self):
-        from logic.stt import resolve_stt_credential
+        from sentient.adapters.stt.client import resolve_stt_credential
 
         settings = SimpleNamespace(sentient_secret_key=None)
         provider, key, _ = await resolve_stt_credential(
@@ -49,7 +49,7 @@ class STTCredentialResolutionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((provider, key), ("openai", "sk-abc123"))
 
     async def test_a_sentient_product_key_is_never_used_as_a_provider_key(self):
-        from logic.stt import resolve_stt_credential
+        from sentient.adapters.stt.client import resolve_stt_credential
 
         settings = SimpleNamespace(sentient_secret_key=None)
         with patch.dict("os.environ", {}, clear=True):
@@ -63,7 +63,7 @@ class STTCredentialResolutionTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_stored_credential_beats_env_when_no_bearer(self):
         from sentient.core.crypto import encrypt_key
-        from logic.stt import resolve_stt_credential
+        from sentient.adapters.stt.client import resolve_stt_credential
 
         secret = Fernet.generate_key().decode()
         settings = SimpleNamespace(sentient_secret_key=secret)
@@ -83,7 +83,7 @@ class STTCredentialResolutionTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("stored", source.lower())
 
     async def test_an_unusable_stored_credential_degrades_to_env(self):
-        from logic.stt import resolve_stt_credential
+        from sentient.adapters.stt.client import resolve_stt_credential
 
         settings = SimpleNamespace(sentient_secret_key=Fernet.generate_key().decode())
         store = SimpleNamespace()
@@ -101,7 +101,7 @@ class STTCredentialResolutionTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("env", source.lower())
 
     async def test_env_is_the_floor(self):
-        from logic.stt import resolve_stt_credential
+        from sentient.adapters.stt.client import resolve_stt_credential
 
         settings = SimpleNamespace(sentient_secret_key=None)
         with patch.dict("os.environ", {"GROQ_API_KEY": "gsk_env"}, clear=False):
@@ -112,7 +112,7 @@ class STTCredentialResolutionTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("env", source.lower())
 
     async def test_no_credential_anywhere_resolves_to_nothing(self):
-        from logic.stt import resolve_stt_credential
+        from sentient.adapters.stt.client import resolve_stt_credential
 
         settings = SimpleNamespace(sentient_secret_key=None)
         with patch.dict("os.environ", {}, clear=True):
@@ -125,20 +125,20 @@ class STTCredentialResolutionTests(unittest.IsolatedAsyncioTestCase):
 
 class UpstreamModelTests(unittest.TestCase):
     def test_whisper_1_is_remapped_for_groq(self):
-        from logic.stt import upstream_model
+        from sentient.adapters.stt.client import upstream_model
 
         # Groq only serves the large-v3 family; whisper-1 is OpenAI-only and 400s.
         self.assertEqual(upstream_model("groq", "whisper-1"), "whisper-large-v3-turbo")
 
     def test_groq_model_is_passed_through(self):
-        from logic.stt import upstream_model
+        from sentient.adapters.stt.client import upstream_model
 
         self.assertEqual(
             upstream_model("groq", "whisper-large-v3"), "whisper-large-v3"
         )
 
     def test_openai_falls_back_to_its_only_model(self):
-        from logic.stt import upstream_model
+        from sentient.adapters.stt.client import upstream_model
 
         self.assertEqual(upstream_model("openai", "whisper-large-v3-turbo"), "whisper-1")
 
@@ -157,7 +157,7 @@ class TranscriptionEndpointTests(unittest.IsolatedAsyncioTestCase):
             )
 
     async def test_transcription_is_returned_and_uses_the_forwarded_key(self):
-        import logic.stt as stt
+        import sentient.adapters.stt.client as stt
 
         fake = MagicMock()
         fake.audio.transcriptions.create.return_value = SimpleNamespace(text="hello there")
@@ -171,7 +171,7 @@ class TranscriptionEndpointTests(unittest.IsolatedAsyncioTestCase):
         build.assert_called_once_with("groq", "gsk_forwarded")
 
     async def test_text_invented_from_silence_is_discarded(self):
-        import logic.stt as stt
+        import sentient.adapters.stt.client as stt
 
         fake = MagicMock()
         # Whisper's signature hallucination on a dead mic.
@@ -187,7 +187,7 @@ class TranscriptionEndpointTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response.json()["text"], "")
 
     async def test_healthy_audio_is_never_discarded(self):
-        import logic.stt as stt
+        import sentient.adapters.stt.client as stt
 
         fake = MagicMock()
         fake.audio.transcriptions.create.return_value = SimpleNamespace(text="Thank you.")
@@ -199,7 +199,7 @@ class TranscriptionEndpointTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response.json()["text"], "Thank you.")
 
     async def test_missing_credentials_are_rejected_before_any_upstream_call(self):
-        import logic.stt as stt
+        import sentient.adapters.stt.client as stt
 
         with (
             patch.dict("os.environ", {}, clear=True),
@@ -211,7 +211,7 @@ class TranscriptionEndpointTests(unittest.IsolatedAsyncioTestCase):
         build.assert_not_called()
 
     async def test_upstream_failure_surfaces_as_bad_gateway(self):
-        import logic.stt as stt
+        import sentient.adapters.stt.client as stt
 
         fake = MagicMock()
         fake.audio.transcriptions.create.side_effect = RuntimeError("groq is down")
@@ -224,7 +224,7 @@ class TranscriptionEndpointTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_optional_fields_are_only_sent_when_set(self):
         import api
-        import logic.stt as stt
+        import sentient.adapters.stt.client as stt
 
         fake = MagicMock()
         fake.audio.transcriptions.create.return_value = SimpleNamespace(text="hi")
@@ -248,7 +248,7 @@ class TranscriptionEndpointTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_recent_endpoint_reports_transcriptions_and_silence_count(self):
         import api
-        import logic.stt as stt
+        import sentient.adapters.stt.client as stt
 
         api._STT_HISTORY.clear()
         fake = MagicMock()
@@ -281,7 +281,7 @@ class TranscriptionEndpointTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(api._STT_HISTORY[-1]["time"], str(api._STT_HISTORY_LIMIT + 9))
 
     async def test_no_raw_key_is_returned_on_any_path(self):
-        import logic.stt as stt
+        import sentient.adapters.stt.client as stt
 
         fake = MagicMock()
         fake.audio.transcriptions.create.return_value = SimpleNamespace(text="hi")

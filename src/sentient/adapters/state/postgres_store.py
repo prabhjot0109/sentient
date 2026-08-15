@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncpg
 
-from logic.state.sqlite_store import _CONFIG_COLUMNS, _DEFAULT_USER_SENTINEL
+from sentient.adapters.state.schema import _CONFIG_COLUMNS, _DEFAULT_USER_SENTINEL
 
 
 class PostgresStateStore:

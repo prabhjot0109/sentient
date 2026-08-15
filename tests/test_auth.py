@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib
 import unittest
 
-from logic.auth import generate_api_key, hash_key, user_key_of
+from sentient.adapters.auth import generate_api_key, hash_key, user_key_of
 
 
 class KeyPrimitiveTests(unittest.TestCase):
@@ -31,7 +31,7 @@ class JwtVerificationTests(_ut.TestCase):
     def setUp(self):
         # _jwks_client is lru_cached (one PyJWKClient per URL in prod); clear it so
         # tests sharing a JWKS URL don't reuse a previous test's patched signing key.
-        from logic.auth import _jwks_client
+        from sentient.adapters.auth import _jwks_client
         _jwks_client.cache_clear()
 
     def _settings(self, **over):
@@ -40,14 +40,14 @@ class JwtVerificationTests(_ut.TestCase):
         return s.__class__(**{**s.__dict__, **over})
 
     def test_auth_disabled_without_jwks_url(self):
-        from logic.auth import auth_enabled
+        from sentient.adapters.auth import auth_enabled
         self.assertFalse(auth_enabled(self._settings(neon_auth_jwks_url=None)))
 
     def test_verify_valid_rs256_token(self):
         import jwt
         from cryptography.hazmat.primitives.asymmetric import rsa
         from unittest.mock import patch
-        from logic.auth import verify_jwt
+        from sentient.adapters.auth import verify_jwt
 
         priv = rsa.generate_private_key(public_exponent=65537, key_size=2048)
         token = jwt.encode({"sub": "user-123", "iss": "https://neon.example"}, priv,
@@ -59,7 +59,7 @@ class JwtVerificationTests(_ut.TestCase):
         class _FakeSigningKey:
             key = priv.public_key()
 
-        with patch("logic.auth.jwt.PyJWKClient") as MockClient:
+        with patch("sentient.adapters.auth.jwt.PyJWKClient") as MockClient:
             MockClient.return_value.get_signing_key_from_jwt.return_value = _FakeSigningKey()
             claims = verify_jwt(token, settings)
         self.assertEqual(claims["sub"], "user-123")
@@ -68,7 +68,7 @@ class JwtVerificationTests(_ut.TestCase):
         import jwt
         from cryptography.hazmat.primitives.asymmetric import rsa
         from unittest.mock import patch
-        from logic.auth import verify_jwt, AuthError
+        from sentient.adapters.auth import verify_jwt, AuthError
 
         priv = rsa.generate_private_key(public_exponent=65537, key_size=2048)
         token = jwt.encode({"sub": "u", "iss": "https://evil.example"}, priv,
@@ -80,7 +80,7 @@ class JwtVerificationTests(_ut.TestCase):
         class _FakeSigningKey:
             key = priv.public_key()
 
-        with patch("logic.auth.jwt.PyJWKClient") as MockClient:
+        with patch("sentient.adapters.auth.jwt.PyJWKClient") as MockClient:
             MockClient.return_value.get_signing_key_from_jwt.return_value = _FakeSigningKey()
             with self.assertRaises(AuthError):
                 verify_jwt(token, settings)
@@ -95,19 +95,19 @@ class ResolveUserTests(_ut.IsolatedAsyncioTestCase):
     async def _store(self):
         import tempfile
         from pathlib import Path
-        from logic.state.sqlite_store import SQLiteStateStore
+        from sentient.adapters.state.sqlite_store import SQLiteStateStore
         self._tmp = tempfile.TemporaryDirectory()
         return SQLiteStateStore(str(Path(self._tmp.name) / "s.db"))
 
     async def test_default_user_when_no_auth(self):
-        from logic.auth import resolve_user
+        from sentient.adapters.auth import resolve_user
         store = await self._store()
         uid, uk = await resolve_user(store, self._settings(neon_auth_jwks_url=None))
         self.assertEqual(uk, "default")
         self.assertTrue(uid)
 
     async def test_api_key_resolves_owner_and_caches(self):
-        from logic.auth import resolve_user, hash_key, IdentityCache
+        from sentient.adapters.auth import resolve_user, hash_key, IdentityCache
         store = await self._store()
         user = await store.ensure_user("owner-1")
         await store.create_api_key(user["id"], hash_key("sk-sent-abc"))
@@ -126,13 +126,13 @@ class ResolveUserTests(_ut.IsolatedAsyncioTestCase):
         self.assertEqual(calls["n"], 1)  # second hit served from cache, no DB
 
     async def test_unknown_api_key_rejected(self):
-        from logic.auth import resolve_user, AuthError
+        from sentient.adapters.auth import resolve_user, AuthError
         store = await self._store()
         with self.assertRaises(AuthError):
             await resolve_user(store, self._settings(neon_auth_jwks_url=None), api_key="sk-sent-nope")
 
     async def test_identity_cache_can_be_cleared_after_key_revocation(self):
-        from logic.auth import AuthError, IdentityCache, hash_key, resolve_user
+        from sentient.adapters.auth import AuthError, IdentityCache, hash_key, resolve_user
 
         store = await self._store()
         user = await store.ensure_user("owner-1")

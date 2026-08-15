@@ -7,7 +7,7 @@ from time import perf_counter
 sys.path.append(os.path.abspath(os.path.dirname(__file__)))
 
 from sentient.core.config import load_rag_settings
-from logic.ingestion import ArchivesIngestion
+from sentient.adapters.documents import ArchivesIngestion
 from logic.rag_engine import NPCBrain
 
 

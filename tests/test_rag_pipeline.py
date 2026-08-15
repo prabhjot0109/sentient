@@ -30,7 +30,7 @@ class FakeEmbeddings(Embeddings):
 
 class BuildEmbeddingsProviderTests(unittest.TestCase):
     def test_google_provider_constructs_google_embeddings(self):
-        import logic.ingestion as ingestion_module
+        import sentient.adapters.documents as ingestion_module
 
         ingestion_module.build_embeddings.cache_clear()
         with patch.object(ingestion_module, "GoogleGenerativeAIEmbeddings") as mock_cls:
@@ -49,12 +49,12 @@ class BuildEmbeddingsProviderTests(unittest.TestCase):
 
 class BuildChatModelProviderTests(unittest.TestCase):
     def test_google_provider_constructs_chat_google_generative_ai(self):
-        import logic.rag_engine as rag_engine_module
+        import sentient.adapters.llm.models as models_module
 
-        rag_engine_module.build_chat_model.cache_clear()
-        with patch.object(rag_engine_module, "ChatGoogleGenerativeAI") as mock_cls:
+        models_module.build_chat_model.cache_clear()
+        with patch.object(models_module, "ChatGoogleGenerativeAI") as mock_cls:
             mock_cls.return_value = "google-chat-instance"
-            result = rag_engine_module.build_chat_model(
+            result = models_module.build_chat_model(
                 "google", "gemini-2.5-flash", None, "AIzaTest", 60.0
             )
 
@@ -66,18 +66,18 @@ class BuildChatModelProviderTests(unittest.TestCase):
             max_retries=2,
         )
         self.assertEqual(result, "google-chat-instance")
-        rag_engine_module.build_chat_model.cache_clear()
+        models_module.build_chat_model.cache_clear()
 
     def test_huggingface_provider_allows_no_api_key(self):
-        import logic.rag_engine as rag_engine_module
+        import sentient.adapters.llm.models as models_module
 
-        rag_engine_module.build_chat_model.cache_clear()
-        with patch.object(rag_engine_module, "ChatHuggingFace") as mock_chat_cls, patch.object(
-            rag_engine_module, "HuggingFaceEndpoint"
+        models_module.build_chat_model.cache_clear()
+        with patch.object(models_module, "ChatHuggingFace") as mock_chat_cls, patch.object(
+            models_module, "HuggingFaceEndpoint"
         ) as mock_endpoint_cls:
             mock_endpoint_cls.return_value = "endpoint-instance"
             mock_chat_cls.return_value = "hf-chat-instance"
-            result = rag_engine_module.build_chat_model(
+            result = models_module.build_chat_model(
                 "huggingface", "Qwen/Qwen2.5-7B-Instruct", None, None, 60.0
             )
 
@@ -88,7 +88,7 @@ class BuildChatModelProviderTests(unittest.TestCase):
         )
         mock_chat_cls.assert_called_once_with(llm="endpoint-instance")
         self.assertEqual(result, "hf-chat-instance")
-        rag_engine_module.build_chat_model.cache_clear()
+        models_module.build_chat_model.cache_clear()
 
 
 class SentientRAGTests(unittest.TestCase):
@@ -108,10 +108,10 @@ class SentientRAGTests(unittest.TestCase):
         )
         self.env_patcher.start()
 
-        from logic.auth import IdentityCache
+        from sentient.adapters.auth import IdentityCache
         from sentient.core.cache import ObjectRegistry
         from logic.runtime import RuntimeCache
-        from logic.state import get_state_store
+        from sentient.adapters.state import get_state_store
 
         api._settings = load_rag_settings()
         api.state_store = get_state_store(api._settings)
@@ -153,7 +153,7 @@ class SentientRAGTests(unittest.TestCase):
             "The core technology is Retrieval Augmented Generation."
         )
 
-        with patch("logic.ingestion.build_embeddings", return_value=FakeEmbeddings()):
+        with patch("sentient.adapters.documents.build_embeddings", return_value=FakeEmbeddings()):
             with TestClient(api.app) as client:
                 upload_response = client.post(
                     "/v1/upload",
@@ -200,8 +200,8 @@ class SentientRAGTests(unittest.TestCase):
             os.environ,
             {"GOOGLE_API_KEY": "AIzaTest", "RAG_SCORE_THRESHOLD": "0"},
             clear=False,
-        ), patch("logic.ingestion.build_embeddings", return_value=FakeEmbeddings()):
-            from logic.ingestion import ArchivesIngestion
+        ), patch("sentient.adapters.documents.build_embeddings", return_value=FakeEmbeddings()):
+            from sentient.adapters.documents import ArchivesIngestion
             from npc_brain import NPCBrain
 
             brain = NPCBrain(api_key="AIzaTest")

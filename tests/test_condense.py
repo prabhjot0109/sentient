@@ -61,7 +61,7 @@ class CondenseQueryTests(_ut.IsolatedAsyncioTestCase):
 
 class ToHistoryTests(unittest.TestCase):
     def test_to_history_excludes_final_user_turn(self):
-        from logic.openai_adapter import OpenAIMessage, to_history
+        from sentient.adapters.llm.openai_wire import OpenAIMessage, to_history
         msgs = [OpenAIMessage(role="system", content="You are Lydia."),
                 OpenAIMessage(role="user", content="What skills do Nords have?"),
                 OpenAIMessage(role="assistant", content="Strong warriors."),

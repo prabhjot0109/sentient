@@ -13,7 +13,7 @@ from cryptography.fernet import Fernet
 from sentient.core.config import load_rag_settings
 from sentient.core.crypto import decrypt_key
 from logic.runtime import RuntimeCache
-from logic.state.sqlite_store import SQLiteStateStore
+from sentient.adapters.state.sqlite_store import SQLiteStateStore
 
 
 class CryptoPrimitiveTests(unittest.TestCase):

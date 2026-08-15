@@ -7,17 +7,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
 
-# Whitelisted project_config columns — guards the **fields upsert against SQL injection
-# and typos (only these keys are ever written).
-_CONFIG_COLUMNS = (
-    "llm_provider", "embedding_provider", "model_name", "embedding_model_name",
-    "temperature", "max_tokens", "mrl_vector_size", "reasoning_effort", "reasoning_format",
-    "rag_search_type", "rag_top_k", "rag_fetch_k", "rag_mmr_lambda", "rag_score_threshold",
-    "rag_chunk_size", "rag_chunk_overlap", "persona_prompt", "history_window",
-    "embedding_signature",
-)
-
-_DEFAULT_USER_SENTINEL = "__default__"
+from sentient.adapters.state.schema import _CONFIG_COLUMNS, _DEFAULT_USER_SENTINEL
 
 
 def _now() -> str:

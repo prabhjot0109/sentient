@@ -19,11 +19,11 @@ class ManagementEndpointTests(unittest.IsolatedAsyncioTestCase):
             os.environ.pop(name, None)
 
         import api
-        from logic.auth import IdentityCache
+        from sentient.adapters.auth import IdentityCache
         from sentient.core.config import load_rag_settings
         from sentient.core.cache import ObjectRegistry
         from logic.runtime import RuntimeCache
-        from logic.state import get_state_store
+        from sentient.adapters.state import get_state_store
 
         self.api = api
         api._settings = load_rag_settings()
@@ -88,7 +88,7 @@ class ManagementEndpointTests(unittest.IsolatedAsyncioTestCase):
         invalidate.assert_any_call(project_id)
 
     async def test_project_upload_is_scoped_and_reports_processing(self) -> None:
-        from logic.auth import hash_key, user_key_of
+        from sentient.adapters.auth import hash_key, user_key_of
 
         owner = await self.api.state_store.ensure_user("upload-owner")
         raw_key = "sk-sent-upload"
@@ -169,7 +169,7 @@ class ManagementEndpointTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response.status_code, 401)
 
     async def test_cannot_edit_another_users_project(self) -> None:
-        from logic.auth import hash_key
+        from sentient.adapters.auth import hash_key
 
         owner = await self.api.state_store.ensure_user("owner")
         other = await self.api.state_store.ensure_user("other")

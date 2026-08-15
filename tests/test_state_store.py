@@ -7,8 +7,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from logic.state.base import StateStore
-from logic.state.sqlite_store import SQLiteStateStore
+from sentient.adapters.state.base import StateStore
+from sentient.adapters.state.sqlite_store import SQLiteStateStore
 
 
 class SQLiteStateStoreTests(unittest.IsolatedAsyncioTestCase):
@@ -91,7 +91,7 @@ class FreshCloneStartupTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_get_state_store_boots_without_data_dir(self):
         from sentient.core.config import load_rag_settings
-        from logic.state import get_state_store
+        from sentient.adapters.state import get_state_store
 
         data_dir = str(Path(self.tmp.name) / "nested" / "data")
         with patch.dict(os.environ, {"DATA_DIR": data_dir}, clear=False):
@@ -206,12 +206,12 @@ class PostgresStoreSurfaceTests(unittest.TestCase):
     SQLite store does. Constructing it opens no connection (the pool is lazy)."""
 
     def test_satisfies_protocol(self):
-        from logic.state.postgres_store import PostgresStateStore
+        from sentient.adapters.state.postgres_store import PostgresStateStore
 
         self.assertIsInstance(PostgresStateStore("postgres://user@host/db"), StateStore)
 
     def test_lifecycle_methods_mirror_the_sqlite_store(self):
-        from logic.state.postgres_store import PostgresStateStore
+        from sentient.adapters.state.postgres_store import PostgresStateStore
 
         for name in (
             "delete_project", "rename_project", "delete_thread", "delete_document",
@@ -224,20 +224,42 @@ class PostgresStoreSurfaceTests(unittest.TestCase):
 
 class StateStoreFactoryTests(unittest.TestCase):
     def test_factory_uses_sqlite_by_default(self):
-        from logic.state import get_state_store
-        from logic.state.sqlite_store import SQLiteStateStore
+        from sentient.adapters.state import get_state_store
+        from sentient.adapters.state.sqlite_store import SQLiteStateStore
         from sentient.core.config import load_rag_settings
         with patch.dict(os.environ, {"DATA_DIR": tempfile.mkdtemp()}, clear=True):
             store = get_state_store(load_rag_settings())
         self.assertIsInstance(store, SQLiteStateStore)
 
     def test_factory_uses_postgres_for_neon(self):
-        from logic.state import get_state_store
-        from logic.state.postgres_store import PostgresStateStore
+        from sentient.adapters.state import get_state_store
+        from sentient.adapters.state.postgres_store import PostgresStateStore
         from sentient.core.config import load_rag_settings
         with patch.dict(os.environ, {"DATABASE_URL": "postgres://x", "DB_BACKEND": "neon"}, clear=True):
             store = get_state_store(load_rag_settings())
         self.assertIsInstance(store, PostgresStateStore)
+
+
+class StateSchemaSharingTests(unittest.TestCase):
+    """Both stores are peers behind one Protocol; neither may reach into the
+    other's privates. Before R9, postgres_store.py imported _CONFIG_COLUMNS
+    and _DEFAULT_USER_SENTINEL from sqlite_store.py (spec section 7.3)."""
+
+    def test_both_stores_read_the_shared_schema_module(self):
+        import inspect
+
+        from sentient.adapters.state import postgres_store, schema, sqlite_store
+
+        self.assertIsInstance(schema._CONFIG_COLUMNS, tuple)
+        self.assertEqual(schema._DEFAULT_USER_SENTINEL, "__default__")
+
+        for module in (sqlite_store, postgres_store):
+            source = inspect.getsource(module)
+            self.assertNotIn(
+                "from sentient.adapters.state.sqlite_store import _CONFIG_COLUMNS",
+                source,
+                f"{module.__name__} still reaches into a sibling store's privates",
+            )
 
 
 if __name__ == "__main__":

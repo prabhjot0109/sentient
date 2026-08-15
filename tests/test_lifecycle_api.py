@@ -28,17 +28,17 @@ class LifecycleEndpointTests(unittest.IsolatedAsyncioTestCase):
         self.addCleanup(self.env.stop)
 
         embeddings = patch(
-            "logic.ingestion.build_embeddings", return_value=FakeEmbeddings()
+            "sentient.adapters.documents.build_embeddings", return_value=FakeEmbeddings()
         )
         embeddings.start()
         self.addCleanup(embeddings.stop)
 
         import api
-        from logic.auth import IdentityCache
+        from sentient.adapters.auth import IdentityCache
         from sentient.core.config import load_rag_settings
         from sentient.core.cache import ObjectRegistry
         from logic.runtime import RuntimeCache
-        from logic.state import get_state_store
+        from sentient.adapters.state import get_state_store
 
         # api.py builds these at import time; rebind them so this test does not
         # inherit an earlier test's tmpdir (see tests/test_management_endpoints.py).

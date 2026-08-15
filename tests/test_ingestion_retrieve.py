@@ -7,8 +7,8 @@ from typing import cast
 
 from langchain_core.documents import Document
 
-from logic.ingestion import ArchivesIngestion
-from logic.retrieval.base import VectorBackend
+from sentient.adapters.documents import ArchivesIngestion
+from sentient.adapters.retrieval.base import VectorBackend
 
 
 class IngestionRetrieveForwardTests(unittest.IsolatedAsyncioTestCase):

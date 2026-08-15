@@ -11,10 +11,10 @@ from unittest.mock import AsyncMock, patch
 import httpx
 from cryptography.fernet import Fernet
 
-from logic.auth import IdentityCache
+from sentient.adapters.auth import IdentityCache
 from sentient.core.cache import ObjectRegistry
 from logic.runtime import RuntimeCache
-from logic.state.sqlite_store import SQLiteStateStore
+from sentient.adapters.state.sqlite_store import SQLiteStateStore
 
 
 class ThreadStoreTests(unittest.IsolatedAsyncioTestCase):
@@ -43,7 +43,7 @@ class ThreadStoreTests(unittest.IsolatedAsyncioTestCase):
         """A coarse clock must not let the assistant reply sort before its question."""
         _, project = await self._project()
         thread = await self.store.upsert_thread(project["id"], "session")
-        with patch("logic.state.sqlite_store._now", return_value="2026-07-10T00:00:00+00:00"):
+        with patch("sentient.adapters.state.sqlite_store._now", return_value="2026-07-10T00:00:00+00:00"):
             for index in range(6):
                 await self.store.add_message(thread["id"], "user", f"m{index}")
         tail = await self.store.list_messages(thread["id"], limit=4)
@@ -207,7 +207,7 @@ class ThreadMemoryEndpointTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(await self.store.list_threads(self.project["id"]), [])
 
     async def test_game_route_records_the_session_without_reading_memory(self):
-        from logic.auth import hash_key
+        from sentient.adapters.auth import hash_key
 
         await self.store.create_api_key(self.owner["id"], hash_key("sk-sent-game"))
         _, build_llm, archives = self._fake_generation()

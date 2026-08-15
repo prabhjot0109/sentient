@@ -29,7 +29,7 @@ def _qdrant_settings():
 
 class QdrantBackendTests(unittest.IsolatedAsyncioTestCase):
     async def test_index_and_hybrid_retrieve(self):
-        from logic.retrieval.qdrant_store import QdrantBackend
+        from sentient.adapters.retrieval.qdrant_store import QdrantBackend
 
         backend = QdrantBackend(_qdrant_settings(), _FakeDense(), location=":memory:")
         await backend.index([
@@ -43,7 +43,7 @@ class QdrantBackendTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsInstance(results[0][0], Document)
 
     async def test_user_key_isolation(self):
-        from logic.retrieval.qdrant_store import QdrantBackend
+        from sentient.adapters.retrieval.qdrant_store import QdrantBackend
 
         backend = QdrantBackend(_qdrant_settings(), _FakeDense(), location=":memory:")
         await backend.add([Document(page_content="tenant A lore",
@@ -56,7 +56,7 @@ class QdrantBackendTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("b.txt", sources)
 
     async def test_explicit_user_key_overrides_document_metadata(self):
-        from logic.retrieval.qdrant_store import QdrantBackend
+        from sentient.adapters.retrieval.qdrant_store import QdrantBackend
 
         backend = QdrantBackend(_qdrant_settings(), _FakeDense(), location=":memory:")
         await backend.add(
@@ -74,7 +74,7 @@ class QdrantBackendTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(stale_hits, [])
 
     async def test_index_replaces_only_requested_user_project_scope(self):
-        from logic.retrieval.qdrant_store import QdrantBackend
+        from sentient.adapters.retrieval.qdrant_store import QdrantBackend
 
         backend = QdrantBackend(_qdrant_settings(), _FakeDense(), location=":memory:")
         await backend.add(
@@ -105,7 +105,7 @@ class QdrantBackendTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual({d.metadata.get("source") for d, _ in tenant_b}, {"b.txt"})
 
     async def test_project_id_isolation_and_clear(self):
-        from logic.retrieval.qdrant_store import QdrantBackend
+        from sentient.adapters.retrieval.qdrant_store import QdrantBackend
 
         backend = QdrantBackend(_qdrant_settings(), _FakeDense(), location=":memory:")
         await backend.add([Document(page_content="skyrim lore", metadata={"source": "sky.txt"})],
@@ -124,7 +124,7 @@ class QdrantBackendTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual({d.metadata.get("source") for d, _ in fallout}, {"fo.txt"})
 
     async def test_embedding_signature_filters_stale_vectors(self):
-        from logic.retrieval.qdrant_store import QdrantBackend
+        from sentient.adapters.retrieval.qdrant_store import QdrantBackend
 
         backend = QdrantBackend(_qdrant_settings(), _FakeDense(), location=":memory:")
         await backend.add([Document(page_content="v1 lore", metadata={"source": "v1.txt"})],
@@ -136,7 +136,7 @@ class QdrantBackendTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(stale, [])
 
     async def test_remove_source_drops_chunks(self):
-        from logic.retrieval.qdrant_store import QdrantBackend
+        from sentient.adapters.retrieval.qdrant_store import QdrantBackend
 
         backend = QdrantBackend(_qdrant_settings(), _FakeDense(), location=":memory:")
         await backend.add([
@@ -150,8 +150,8 @@ class QdrantBackendTests(unittest.IsolatedAsyncioTestCase):
 
 class QdrantFactoryTests(unittest.TestCase):
     def test_factory_returns_qdrant_backend(self):
-        from logic.retrieval.factory import get_vector_backend
-        from logic.retrieval.qdrant_store import QdrantBackend
+        from sentient.adapters.retrieval.factory import get_vector_backend
+        from sentient.adapters.retrieval.qdrant_store import QdrantBackend
 
         with patch.dict(os.environ, {"VECTOR_BACKEND": "qdrant", "QDRANT_URL": "http://x:6333"},
                         clear=False):

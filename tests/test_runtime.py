@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 
 from sentient.core.config import load_rag_settings
-from logic.state.sqlite_store import SQLiteStateStore
+from sentient.adapters.state.sqlite_store import SQLiteStateStore
 
 
 class RuntimeContextTests(unittest.IsolatedAsyncioTestCase):

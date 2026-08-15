@@ -7,7 +7,7 @@ import wave
 
 import numpy as np
 
-from logic.audio_diagnostics import analyse_wav, explain_empty_transcription
+from sentient.adapters.stt.diagnostics import analyse_wav, explain_empty_transcription
 
 
 def wav_bytes(samples: np.ndarray, sample_rate: int = 16000) -> bytes:

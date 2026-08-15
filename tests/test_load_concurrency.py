@@ -19,11 +19,11 @@ class LoadConcurrencyTests(unittest.IsolatedAsyncioTestCase):
             os.environ.pop(name, None)
 
         import api
-        from logic.auth import IdentityCache
+        from sentient.adapters.auth import IdentityCache
         from sentient.core.config import load_rag_settings
         from sentient.core.cache import ObjectRegistry
         from logic.runtime import RuntimeCache
-        from logic.state import get_state_store
+        from sentient.adapters.state import get_state_store
 
         self.api = api
         api._settings = load_rag_settings()
@@ -37,7 +37,7 @@ class LoadConcurrencyTests(unittest.IsolatedAsyncioTestCase):
         self.tmp.cleanup()
 
     async def test_concurrent_tenants_interleave(self) -> None:
-        from logic.auth import hash_key
+        from sentient.adapters.auth import hash_key
 
         owner = await self.api.state_store.ensure_user("load-test-owner")
         keys = [f"sk-sent-load-{index}" for index in range(10)]

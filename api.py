@@ -20,9 +20,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 
-from logic import stt
-from logic.audio_diagnostics import analyse_wav, explain_empty_transcription
-from logic.auth import (
+from sentient.adapters.stt import client as stt
+from sentient.adapters.stt.diagnostics import analyse_wav, explain_empty_transcription
+from sentient.adapters.auth import (
     AuthError,
     IdentityCache,
     auth_enabled,
@@ -36,8 +36,8 @@ from sentient.core.config import (
     load_rag_settings,
     provider_base_url,
 )
-from logic.ingestion import ArchivesIngestion
-from logic.openai_adapter import (
+from sentient.adapters.documents import ArchivesIngestion
+from sentient.adapters.llm.openai_wire import (
     ChatCompletionRequest,
     OpenAIMessage,
     build_completion_response,
@@ -51,10 +51,10 @@ from logic.openai_adapter import (
 )
 from sentient.core.presets import list_presets
 from sentient.core.crypto import crypto_available, encrypt_key, key_hint
-from logic.rag_engine import build_chat_model
+from sentient.adapters.llm.models import build_chat_model
 from sentient.core.cache import ObjectRegistry
 from logic.runtime import RuntimeCache, RuntimeContext, embedding_signature, resolve_runtime_context
-from logic.state import get_state_store
+from sentient.adapters.state import get_state_store
 from sentient.core.concurrency import IngestJob, IngestQueue, ReindexJob, SessionLocks, defer
 from npc_brain import NPCBrain
 

@@ -15,7 +15,7 @@ class _FakeStreamLLM:
 
 class AstreamCompletionTests(unittest.IsolatedAsyncioTestCase):
     async def test_emits_openai_sse_chunks_and_done(self):
-        from logic.openai_adapter import astream_completion
+        from sentient.adapters.llm.openai_wire import astream_completion
 
         chunks = [
             chunk

@@ -50,11 +50,11 @@ class ReindexGuardTests(unittest.IsolatedAsyncioTestCase):
             os.environ.pop(name, None)
 
         import api
-        from logic.auth import IdentityCache
+        from sentient.adapters.auth import IdentityCache
         from sentient.core.config import load_rag_settings
         from sentient.core.cache import ObjectRegistry
         from logic.runtime import RuntimeCache
-        from logic.state import get_state_store
+        from sentient.adapters.state import get_state_store
 
         self.api = api
         api._settings = load_rag_settings()

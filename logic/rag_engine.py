@@ -1,92 +1,18 @@
 from __future__ import annotations
 
-import os
-from functools import lru_cache
 from typing import Any
 
 from dotenv import load_dotenv
 from langchain.chains.combine_documents import create_stuff_documents_chain
 from langchain_core.documents import Document
 from langchain_core.prompts import ChatPromptTemplate, HumanMessagePromptTemplate, PromptTemplate
-from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain_groq import ChatGroq
-from langchain_huggingface import ChatHuggingFace, HuggingFaceEndpoint
-from langchain_openai import ChatOpenAI
 
+from sentient.adapters.documents import ArchivesIngestion
+from sentient.adapters.llm.models import build_chat_model
+from sentient.adapters.llm.persona import build_system_prompt
 from sentient.core.config import RAGSettings, load_rag_settings
-from logic.ingestion import ArchivesIngestion
-from logic.persona import build_system_prompt
 
 load_dotenv()
-
-
-@lru_cache(maxsize=16)
-def build_chat_model(
-    provider: str,
-    model_name: str,
-    base_url: str | None,
-    api_key: str | None,
-    timeout: float,
-):
-    if provider == "google":
-        # Gemini Flash "thinks" before replying by default, which adds latency we
-        # don't want for short, spoken in-character answers. thinking_budget=0
-        # skips that reasoning pass and returns the answer directly.
-        # max_retries=2 (default 6) because the langchain client retries 429s
-        # with exponential backoff regardless of cause; a daily quota error
-        # isn't transient, so retrying it 6 times just makes every request
-        # hang for up to a minute before failing anyway.
-        return ChatGoogleGenerativeAI(
-            model=model_name,
-            google_api_key=api_key,
-            timeout=timeout,
-            thinking_budget=0,
-            max_retries=2,
-        )
-
-    if provider == "groq":
-        # The default model (llama-3.3-70b-versatile) doesn't reason, so replies
-        # are returned immediately. For reasoning-capable models like
-        # openai/gpt-oss-120b, set GROQ_REASONING_EFFORT (e.g. "low") and
-        # GROQ_REASONING_FORMAT="hidden" in .env to keep replies fast and free of
-        # visible chain-of-thought. We only forward them when set, because Groq
-        # 400s if reasoning params are sent to a non-reasoning model.
-        # max_retries=2 keeps a rate-limited request from hanging on long
-        # exponential backoff: Groq free-tier 429s are usually a spent quota.
-        groq_kwargs: dict[str, Any] = {}
-        effort = os.getenv("GROQ_REASONING_EFFORT")
-        if effort:
-            groq_kwargs["reasoning_effort"] = effort
-        reasoning_format = os.getenv("GROQ_REASONING_FORMAT")
-        if reasoning_format:
-            groq_kwargs["reasoning_format"] = reasoning_format
-        return ChatGroq(
-            model=model_name,
-            api_key=api_key,
-            timeout=timeout,
-            max_retries=2,
-            **groq_kwargs,
-        )
-
-    if provider == "huggingface":
-        return ChatHuggingFace(
-            llm=HuggingFaceEndpoint(
-                repo_id=model_name,
-                huggingfacehub_api_token=api_key,
-                timeout=timeout,
-            )
-        )
-
-    # openai, cerebras, and openrouter all speak the OpenAI wire format; they
-    # differ only in base_url (resolved in config) and their API key.
-    # max_retries=2 matches the other providers — don't hang on rate limits.
-    return ChatOpenAI(
-        model=model_name,
-        api_key=api_key,
-        base_url=base_url,
-        timeout=timeout,
-        max_retries=2,
-    )
 
 
 class NPCBrain:

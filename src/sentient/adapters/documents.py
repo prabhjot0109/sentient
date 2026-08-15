@@ -14,6 +14,8 @@ from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_openai import OpenAIEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
+from sentient.adapters.llm.models import build_chat_model
+from sentient.adapters.llm.persona import GENERIC_PERSONA, infer_persona_descriptor
 from sentient.core.config import RAGSettings, load_rag_settings
 
 # OCR is optional: scanned/image-only PDFs need it, but text PDFs don't, and the
@@ -93,7 +95,7 @@ class ArchivesIngestion:
             separators=["\n\n", "\n", ". ", " ", ""],
         )
 
-        from logic.retrieval.factory import get_vector_backend
+        from sentient.adapters.retrieval.factory import get_vector_backend
 
         self.backend = get_vector_backend(self.settings, self.index_path, self.embeddings)
 
@@ -227,16 +229,11 @@ class ArchivesIngestion:
     def _infer_persona(self, chunks: list[Document]) -> str:
         """Derive a one-line persona from the corpus so the standalone chat voice
         fits whatever was uploaded. Best-effort: falls back to a generic persona."""
-        # Imported lazily to avoid a circular import (rag_engine imports ingestion).
-        from logic.persona import GENERIC_PERSONA, infer_persona_descriptor
-
         if not chunks:
             return GENERIC_PERSONA
 
         sample = "\n\n".join(chunk.page_content for chunk in chunks[:8])
         try:
-            from logic.rag_engine import build_chat_model
-
             llm = build_chat_model(
                 self.settings.llm_provider,
                 self.settings.llm_model,

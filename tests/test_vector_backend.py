@@ -11,9 +11,9 @@ from langchain_core.documents import Document
 from langchain_core.embeddings import Embeddings
 
 from sentient.core.config import load_rag_settings
-from logic.retrieval.base import VectorBackend
-from logic.retrieval.factory import get_vector_backend
-from logic.retrieval.faiss_store import FaissBackend
+from sentient.adapters.retrieval.base import VectorBackend
+from sentient.adapters.retrieval.factory import get_vector_backend
+from sentient.adapters.retrieval.faiss_store import FaissBackend
 
 
 class _FakeBackend:
@@ -101,7 +101,7 @@ class FactoryTests(unittest.TestCase):
         self.assertIsInstance(backend, FaissBackend)
 
     def test_qdrant_backend_selected(self):
-        from logic.retrieval.qdrant_store import QdrantBackend
+        from sentient.adapters.retrieval.qdrant_store import QdrantBackend
 
         with patch.dict(os.environ, {"VECTOR_BACKEND": "qdrant"}, clear=False):
             settings = load_rag_settings()
