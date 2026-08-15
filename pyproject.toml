@@ -38,6 +38,7 @@ sentient = "sentient.cli:main"
 
 [dependency-groups]
 dev = [
+    "import-linter>=2.13",
     "mypy>=2.3.1",
     "pytest>=9.1.1",
     "ruff>=0.16.3",
@@ -77,3 +78,19 @@ module = ["sentient.core.*", "sentient.adapters.*"]
 disallow_untyped_defs = true
 disallow_incomplete_defs = true
 warn_return_any = true
+
+# The layer rule (spec §5): dependencies point one way only. A violation is an
+# architectural regression, not a style nit -- if this fails, move the code, do
+# not weaken the contract.
+[tool.importlinter]
+root_package = "sentient"
+
+[[tool.importlinter.contracts]]
+name = "Layers are one-directional: api -> services -> adapters -> core"
+type = "layers"
+layers = [
+    "sentient.api",
+    "sentient.services",
+    "sentient.adapters",
+    "sentient.core",
+]
