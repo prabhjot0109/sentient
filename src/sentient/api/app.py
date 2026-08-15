@@ -16,7 +16,7 @@ from uuid import uuid4
 from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse, StreamingResponse
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, Field
 
 from sentient.adapters.auth import AuthError, resolve_user
 from sentient.adapters.llm.openai_wire import (
@@ -34,10 +34,9 @@ from sentient.adapters.llm.openai_wire import (
 from sentient.adapters.stt import client as stt
 from sentient.adapters.stt.diagnostics import analyse_wav, explain_empty_transcription
 from sentient.api import deps
-from sentient.api.routers import credentials, health, keys, threads
+from sentient.api.routers import credentials, health, keys, projects, threads
 from sentient.core.concurrency import IngestJob, ReindexJob, defer
-from sentient.core.config import Provider, SearchType, load_rag_settings
-from sentient.core.presets import list_presets
+from sentient.core.config import load_rag_settings
 from sentient.services.condense import condense_query
 from sentient.services.runtime import (
     RuntimeContext,
@@ -122,6 +121,7 @@ app.include_router(health.router)
 app.include_router(keys.router)
 app.include_router(threads.router)
 app.include_router(credentials.router)
+app.include_router(projects.router)
 
 
 class RetrievedChunk(BaseModel):
@@ -162,38 +162,6 @@ class RetrievalResponse(BaseModel):
     top_k: int
     retrieval_ms: float
     chunks: list[RetrievedChunk] = Field(default_factory=list)
-
-
-class ProjectInput(BaseModel):
-    name: str = Field(min_length=1, max_length=200)
-    base_preset: str = Field(default="custom", min_length=1, max_length=100)
-
-
-class ConfigInput(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    llm_provider: Optional[Provider] = None
-    embedding_provider: Optional[Provider] = None
-    model_name: Optional[str] = None
-    embedding_model_name: Optional[str] = None
-    temperature: Optional[float] = Field(default=None, ge=0, le=2)
-    max_tokens: Optional[int] = Field(default=None, ge=1)
-    mrl_vector_size: Optional[int] = Field(default=None, ge=1)
-    reasoning_effort: Optional[str] = None
-    reasoning_format: Optional[str] = None
-    rag_search_type: Optional[SearchType] = None
-    rag_top_k: Optional[int] = Field(default=None, ge=1)
-    rag_fetch_k: Optional[int] = Field(default=None, ge=1)
-    rag_mmr_lambda: Optional[float] = Field(default=None, ge=0, le=1)
-    rag_score_threshold: Optional[float] = Field(default=None, ge=0, le=1)
-    rag_chunk_size: Optional[int] = Field(default=None, ge=1)
-    rag_chunk_overlap: Optional[int] = Field(default=None, ge=0)
-    persona_prompt: Optional[str] = None
-    history_window: Optional[int] = Field(default=None, ge=1)
-
-
-class PersonaInput(BaseModel):
-    system_prompt: str
 
 
 @app.post("/v1/chat", response_model=ChatResponse)
@@ -744,73 +712,6 @@ def recent_transcriptions(limit: int = 20):
     }
 
 
-@app.post("/v1/projects")
-async def create_project(
-    payload: ProjectInput,
-    user: tuple[str, str] = Depends(deps.current_user),
-):
-    user_id, _ = user
-    project = await deps.state_store.create_project(
-        user_id,
-        payload.name,
-        payload.base_preset,
-    )
-    ctx = await resolve_runtime_context(
-        deps.state_store,
-        deps._settings,
-        user_id=user_id,
-        user_key="_",
-        project_id=project["id"],
-    )
-    await deps.state_store.upsert_project_config(
-        project["id"], embedding_signature=embedding_signature(ctx.rag_settings)
-    )
-    return project
-
-
-@app.get("/v1/projects")
-async def list_projects(user: tuple[str, str] = Depends(deps.current_user)):
-    user_id, _ = user
-    return {"projects": await deps.state_store.list_projects(user_id)}
-
-
-class ProjectRenameInput(BaseModel):
-    name: str = Field(min_length=1, max_length=200)
-
-
-@app.patch("/v1/projects/{project_id}")
-async def rename_project_endpoint(
-    project_id: str,
-    payload: ProjectRenameInput,
-    user: tuple[str, str] = Depends(deps.current_user),
-):
-    user_id, _ = user
-    project = await deps.state_store.rename_project(user_id, project_id, payload.name)
-    if project is None:
-        raise HTTPException(status_code=404, detail="project not found")
-    return project
-
-
-@app.delete("/v1/projects/{project_id}")
-async def delete_project_endpoint(
-    project_id: str,
-    user: tuple[str, str] = Depends(deps.current_user),
-):
-    """Delete a project and everything under it (config, threads, messages, documents).
-
-    Vectors are NOT removed here — orphaned partitions are unreachable because every
-    query filters on user_key+project_id, so this is disk cost, not a leak. Reclaiming
-    it is tracked in the post-R8 TODO under "Storage reclamation".
-    """
-    user_id, _ = user
-    if not await deps.state_store.delete_project(user_id, project_id):
-        raise HTTPException(status_code=404, detail="project not found")
-    # Without this, cached contexts keep serving turns for a deleted project until
-    # the RuntimeCache TTL expires.
-    deps.runtime_cache.invalidate(project_id)
-    return {"deleted": True}
-
-
 @app.get("/v1/projects/{project_id}/documents")
 async def list_project_documents(
     project_id: str,
@@ -821,75 +722,6 @@ async def list_project_documents(
     if await deps.state_store.get_project(user_id, project_id) is None:
         raise HTTPException(status_code=404, detail="project not found")
     return {"documents": await deps.state_store.list_documents(project_id)}
-
-
-@app.put("/v1/projects/{project_id}/config")
-async def update_config(
-    project_id: str,
-    payload: ConfigInput,
-    user: tuple[str, str] = Depends(deps.current_user),
-):
-    user_id, _ = user
-    project = await deps.state_store.get_project(user_id, project_id)
-    if project is None:
-        raise HTTPException(status_code=404, detail="project not found")
-    prior = (await deps.state_store.get_project_config(project_id) or {}).get(
-        "embedding_signature"
-    )
-    await deps.state_store.upsert_project_config(
-        project_id,
-        **payload.model_dump(exclude_unset=True),
-    )
-    ctx = await resolve_runtime_context(
-        deps.state_store,
-        deps._settings,
-        user_id=user_id,
-        user_key="_",
-        project_id=project_id,
-    )
-    config = await deps.state_store.upsert_project_config(
-        project_id, embedding_signature=embedding_signature(ctx.rag_settings)
-    )
-    new_signature = config["embedding_signature"]
-    deps.runtime_cache.invalidate(project_id)
-    if (
-        prior is not None
-        and prior != new_signature
-        and project["status"] != "reindexing_required"
-    ):
-        await deps.state_store.set_project_status(project_id, "reindexing_required")
-        await deps.enqueue_reindex(
-            ReindexJob(
-                project_id=project_id,
-                user_key=user[1],
-                api_key=None,
-                embedding_signature=new_signature,
-                user_id=user_id,
-            )
-        )
-    return config
-
-
-@app.put("/v1/projects/{project_id}/persona")
-async def set_persona(
-    project_id: str,
-    payload: PersonaInput,
-    user: tuple[str, str] = Depends(deps.current_user),
-):
-    user_id, _ = user
-    if await deps.state_store.get_project(user_id, project_id) is None:
-        raise HTTPException(status_code=404, detail="project not found")
-    config = await deps.state_store.upsert_project_config(
-        project_id,
-        persona_prompt=payload.system_prompt,
-    )
-    deps.runtime_cache.invalidate(project_id)
-    return config
-
-
-@app.get("/v1/presets")
-async def presets_endpoint():
-    return {"presets": list_presets()}
 
 
 @app.post("/v1/upload", status_code=202)
