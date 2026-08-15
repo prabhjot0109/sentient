@@ -5,9 +5,11 @@ import json
 import shutil
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from langchain_community.vectorstores import FAISS
+from langchain_core.documents import Document
+from langchain_core.embeddings import Embeddings
 
 from sentient.core.config import RAGSettings
 
@@ -32,7 +34,9 @@ class FaissBackend:
     user_key/project_id/embedding_signature. Sync FAISS calls are offloaded with
     asyncio.to_thread; writes serialized by an asyncio.Lock."""
 
-    def __init__(self, settings: RAGSettings, index_path, embeddings) -> None:
+    def __init__(
+        self, settings: RAGSettings, index_path: str | Path, embeddings: Embeddings
+    ) -> None:
         self.settings = settings
         self.index_path = Path(index_path)
         self.embeddings = embeddings
@@ -46,19 +50,25 @@ class FaissBackend:
         if not self.manifest_path.exists():
             return None
         try:
-            return json.loads(self.manifest_path.read_text(encoding="utf-8"))
+            # json.loads is typed Any; the manifest we write is always an object.
+            manifest: dict[str, Any] = json.loads(self.manifest_path.read_text(encoding="utf-8"))
+            return manifest
         except json.JSONDecodeError:
             return None
 
-    def _manifest_matches_runtime(self, manifest) -> bool:
-        return bool(manifest) and (
+    def _manifest_matches_runtime(self, manifest: dict[str, Any] | None) -> bool:
+        if not manifest:
+            return False
+        return (
             manifest.get("embedding_provider") == self.settings.embedding_provider
             and manifest.get("embedding_model") == self.settings.embedding_model
             and manifest.get("chunk_size") == self.settings.chunk_size
             and manifest.get("chunk_overlap") == self.settings.chunk_overlap
         )
 
-    def _write_manifest(self, *, source_names, chunk_count, persona) -> dict[str, Any]:
+    def _write_manifest(
+        self, *, source_names: list[str], chunk_count: int, persona: str
+    ) -> dict[str, Any]:
         manifest = {
             "embedding_provider": self.settings.embedding_provider,
             "embedding_model": self.settings.embedding_model,
@@ -84,7 +94,7 @@ class FaissBackend:
         if self.index_path.exists():
             shutil.rmtree(self.index_path)
 
-    def clear_project(self, user_key, project_id) -> None:
+    def clear_project(self, user_key: str | None, project_id: str) -> None:
         # FAISS is single-project: nothing to partition. No-op (Qdrant impl in Plan 02).
         return None
 
@@ -103,7 +113,9 @@ class FaissBackend:
         return self._store
 
     # ---- write ops (each blocking part offloaded; the async wrapper holds the lock) ----
-    def _index_sync(self, chunks, source_names, persona):
+    def _index_sync(
+        self, chunks: list[Document], source_names: list[str] | None, persona: str
+    ) -> dict[str, Any]:
         db = FAISS.from_documents(chunks, self.embeddings)
         self.reset()
         self.index_path.mkdir(parents=True, exist_ok=True)
@@ -116,13 +128,13 @@ class FaissBackend:
 
     async def index(
         self,
-        chunks,
+        chunks: list[Document],
         *,
-        source_names=None,
-        persona="",
-        user_key=None,
-        project_id=None,
-        embedding_signature=None,
+        source_names: list[str] | None = None,
+        persona: str = "",
+        user_key: str | None = None,
+        project_id: str | None = None,
+        embedding_signature: str | None = None,
     ) -> dict[str, Any] | None:
         if not chunks:
             self.reset()
@@ -130,7 +142,9 @@ class FaissBackend:
         async with _get_index_lock():
             return await asyncio.to_thread(self._index_sync, chunks, source_names, persona)
 
-    def _add_sync(self, chunks, source_names, persona):
+    def _add_sync(
+        self, chunks: list[Document], source_names: list[str] | None, persona: str
+    ) -> dict[str, Any]:
         new_store = FAISS.from_documents(chunks, self.embeddings)
         existing = self._load_sync()
         if existing is not None:
@@ -152,25 +166,28 @@ class FaissBackend:
 
     async def add(
         self,
-        chunks,
+        chunks: list[Document],
         *,
-        source_names=None,
-        persona="",
-        user_key=None,
-        project_id=None,
-        embedding_signature=None,
+        source_names: list[str] | None = None,
+        persona: str = "",
+        user_key: str | None = None,
+        project_id: str | None = None,
+        embedding_signature: str | None = None,
     ) -> dict[str, Any] | None:
         if not chunks:
             return self.metadata()
         async with _get_index_lock():
             return await asyncio.to_thread(self._add_sync, chunks, source_names, persona)
 
-    def _remove_sync(self, source):
+    def _remove_sync(self, source: str) -> dict[str, Any] | None:
         store = self._load_sync()
         manifest = self.metadata() or {}
         if store is None:
             return manifest or None
-        ids = [i for i, d in store.docstore._dict.items() if d.metadata.get("source") == source]
+        # FAISS always builds an InMemoryDocstore, whose backing map is `_dict`;
+        # the abstract Docstore base it is typed as does not declare it.
+        docstore = store.docstore._dict  # type: ignore[attr-defined]
+        ids = [i for i, d in docstore.items() if d.metadata.get("source") == source]
         remaining = [n for n in manifest.get("sources", []) if n != source]
         if not remaining:
             self.reset()
@@ -185,12 +202,14 @@ class FaissBackend:
             source_names=remaining, chunk_count=total, persona=manifest.get("persona", "")
         )
 
-    async def remove(self, source) -> dict[str, Any] | None:
+    async def remove(self, source: str) -> dict[str, Any] | None:
         async with _get_index_lock():
             return await asyncio.to_thread(self._remove_sync, source)
 
     # ---- read ----
-    def _retrieve_sync(self, query, k, search_type, min_score):
+    def _retrieve_sync(
+        self, query: str, k: int | None, search_type: str | None, min_score: float | None
+    ) -> list[tuple[Document, float | None]]:
         store = self._load_sync()
         if store is None:
             return []
@@ -204,7 +223,10 @@ class FaissBackend:
                 return [(d, None) for d in store.similarity_search(query, k=resolved_k)]
             if threshold > 0:
                 scored = [(d, s) for d, s in scored if s >= threshold]
-            return scored
+            # list is invariant, so list[tuple[Document, float]] is not a
+            # list[tuple[Document, float | None]] even though every element is.
+            # Nothing writes to it, so widening is safe.
+            return cast(list[tuple[Document, float | None]], scored)
         fetch_k = max(self.settings.fetch_k, resolved_k)
         docs = store.max_marginal_relevance_search(
             query, k=resolved_k, fetch_k=fetch_k, lambda_mult=self.settings.lambda_mult
@@ -213,13 +235,13 @@ class FaissBackend:
 
     async def retrieve(
         self,
-        query,
+        query: str,
         *,
-        k=None,
-        search_type=None,
-        min_score=None,
-        user_key=None,
-        project_id=None,
-        embedding_signature=None,
-    ):
+        k: int | None = None,
+        search_type: str | None = None,
+        min_score: float | None = None,
+        user_key: str | None = None,
+        project_id: str | None = None,
+        embedding_signature: str | None = None,
+    ) -> list[tuple[Document, float | None]]:
         return await asyncio.to_thread(self._retrieve_sync, query, k, search_type, min_score)

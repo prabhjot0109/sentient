@@ -9,6 +9,7 @@ from typing import Any
 
 from langchain_community.document_loaders import PyPDFLoader, TextLoader
 from langchain_core.documents import Document
+from langchain_core.embeddings import Embeddings
 from langchain_google_genai import GoogleGenerativeAIEmbeddings
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_openai import OpenAIEmbeddings
@@ -28,7 +29,7 @@ try:
     _OCR_IMPORT_ERROR: Exception | None = None
 except Exception as exc:  # pragma: no cover - depends on the environment
     pymupdf = None  # type: ignore[assignment]
-    pytesseract = None  # type: ignore[assignment]
+    pytesseract = None  # pytesseract ships no stubs, so this needs no ignore
     Image = None  # type: ignore[assignment]
     _OCR_IMPORT_ERROR = exc
 
@@ -39,7 +40,7 @@ def build_embeddings(
     model_name: str,
     base_url: str | None,
     api_key: str | None,
-):
+) -> Embeddings:
     if provider == "huggingface":
         return HuggingFaceEmbeddings(
             model_name=model_name,
@@ -56,12 +57,13 @@ def build_embeddings(
     if provider == "google":
         return GoogleGenerativeAIEmbeddings(
             model=model_name,
-            google_api_key=api_key,
+            # LangChain declares SecretStr but its validator coerces a plain str.
+            google_api_key=api_key,  # type: ignore[arg-type]
         )
 
     return OpenAIEmbeddings(
         model=model_name,
-        api_key=api_key,
+        api_key=api_key,  # type: ignore[arg-type]
         base_url=base_url,
         timeout=60,
     )
@@ -100,7 +102,7 @@ class ArchivesIngestion:
         self.backend = get_vector_backend(self.settings, self.index_path, self.embeddings)
 
     @property
-    def embeddings(self):
+    def embeddings(self) -> Embeddings:
         return build_embeddings(
             self.settings.embedding_provider,
             self.settings.embedding_model,
@@ -250,7 +252,7 @@ class ArchivesIngestion:
         """
         self.backend.invalidate_cache()
 
-    def reset_index(self):
+    def reset_index(self) -> None:
         self.backend.reset()
 
     def clear_project(self, user_key: str | None, project_id: str) -> None:
@@ -263,7 +265,7 @@ class ArchivesIngestion:
         user_key: str | None = None,
         project_id: str | None = None,
         embedding_signature: str | None = None,
-    ):
+    ) -> dict[str, Any] | None:
         source_files = await asyncio.to_thread(self._resolve_source_files, source_path)
         documents = await asyncio.to_thread(self._load_documents, source_path)
         if not documents:
@@ -290,7 +292,7 @@ class ArchivesIngestion:
         user_key: str | None = None,
         project_id: str | None = None,
         embedding_signature: str | None = None,
-    ):
+    ) -> dict[str, Any] | None:
         return await self.rebuild_index(
             str(self.data_dir),
             user_key=user_key,
@@ -320,7 +322,9 @@ class ArchivesIngestion:
 
         chunks = await asyncio.to_thread(self._split_documents, documents)
         manifest = await asyncio.to_thread(self.backend.metadata) or {}
-        persona = manifest.get("persona") or await asyncio.to_thread(self._infer_persona, chunks)
+        persona: str = manifest.get("persona", "")
+        if not persona:
+            persona = await asyncio.to_thread(self._infer_persona, chunks)
         source_files = await asyncio.to_thread(self._resolve_source_files)
         metadata = await self.backend.add(
             chunks,
@@ -335,7 +339,7 @@ class ArchivesIngestion:
     async def remove_file(self, filename: str) -> dict[str, Any] | None:
         return await self.backend.remove(filename)
 
-    async def ensure_index(self):
+    async def ensure_index(self) -> dict[str, Any] | None:
         if self.backend.exists():
             return None
         return await self.rebuild_index(str(self.data_dir))

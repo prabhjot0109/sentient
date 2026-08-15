@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 import asyncpg
 
 from sentient.adapters.state.schema import _CONFIG_COLUMNS, _DEFAULT_USER_SENTINEL
@@ -35,7 +37,9 @@ class PostgresStateStore:
             for migration in migrations:
                 await conn.execute(migration.read_text(encoding="utf-8"))
 
-    async def ensure_user(self, external_auth_id, email=None):
+    async def ensure_user(
+        self, external_auth_id: str | None, email: str | None = None
+    ) -> dict[str, Any]:
         key = external_auth_id if external_auth_id is not None else _DEFAULT_USER_SENTINEL
         pool = await self._pool_()
         async with pool.acquire() as conn:
@@ -48,7 +52,7 @@ class PostgresStateStore:
             )
         return dict(row)
 
-    async def get_user_by_api_key_hash(self, key_hash):
+    async def get_user_by_api_key_hash(self, key_hash: str) -> dict[str, Any] | None:
         pool = await self._pool_()
         async with pool.acquire() as conn:
             row = await conn.fetchrow(
@@ -56,7 +60,9 @@ class PostgresStateStore:
             )
         return dict(row) if row else None
 
-    async def create_api_key(self, user_id, key_hash, label=None):
+    async def create_api_key(
+        self, user_id: str, key_hash: str, label: str | None = None
+    ) -> dict[str, Any]:
         pool = await self._pool_()
         async with pool.acquire() as conn:
             row = await conn.fetchrow(
@@ -68,15 +74,16 @@ class PostgresStateStore:
             )
         return {**dict(row), "user_id": user_id}
 
-    async def revoke_api_key(self, user_id, key_id):
+    async def revoke_api_key(self, user_id: str, key_id: str) -> bool:
         pool = await self._pool_()
         async with pool.acquire() as conn:
-            res = await conn.execute(
+            # asyncpg types execute() as Any; it returns the command status tag.
+            res: str = await conn.execute(
                 "UPDATE api_keys SET revoked=true WHERE id=$1 AND user_id=$2", key_id, user_id
             )
         return res.endswith("1")
 
-    async def list_api_keys(self, user_id):
+    async def list_api_keys(self, user_id: str) -> list[dict[str, Any]]:
         pool = await self._pool_()
         async with pool.acquire() as conn:
             rows = await conn.fetch(
@@ -85,7 +92,9 @@ class PostgresStateStore:
             )
         return [dict(r) for r in rows]
 
-    async def create_project(self, user_id, name, base_preset="custom"):
+    async def create_project(
+        self, user_id: str, name: str, base_preset: str = "custom"
+    ) -> dict[str, Any]:
         pool = await self._pool_()
         async with pool.acquire() as conn, conn.transaction():
             row = await conn.fetchrow(
@@ -98,7 +107,7 @@ class PostgresStateStore:
             await conn.execute("INSERT INTO project_configs (project_id) VALUES ($1)", row["id"])
         return {**dict(row), "user_id": user_id}
 
-    async def get_project(self, user_id, project_id):
+    async def get_project(self, user_id: str, project_id: str) -> dict[str, Any] | None:
         pool = await self._pool_()
         async with pool.acquire() as conn:
             row = await conn.fetchrow(
@@ -109,7 +118,7 @@ class PostgresStateStore:
             )
         return dict(row) if row else None
 
-    async def list_projects(self, user_id):
+    async def list_projects(self, user_id: str) -> list[dict[str, Any]]:
         pool = await self._pool_()
         async with pool.acquire() as conn:
             rows = await conn.fetch(
@@ -119,22 +128,25 @@ class PostgresStateStore:
             )
         return [dict(r) for r in rows]
 
-    async def set_project_status(self, project_id, status):
+    async def set_project_status(self, project_id: str, status: str) -> None:
         pool = await self._pool_()
         async with pool.acquire() as conn:
             await conn.execute("UPDATE projects SET status=$1 WHERE id=$2", status, project_id)
 
-    async def delete_project(self, user_id, project_id):
+    async def delete_project(self, user_id: str, project_id: str) -> bool:
         # user_id is filtered in the statement, so a wrong owner deletes nothing.
         # Configs, threads, messages and documents go with it via ON DELETE CASCADE.
         pool = await self._pool_()
         async with pool.acquire() as conn:
-            res = await conn.execute(
+            # asyncpg types execute() as Any; it returns the command status tag.
+            res: str = await conn.execute(
                 "DELETE FROM projects WHERE id=$1 AND user_id=$2", project_id, user_id
             )
         return res.endswith(" 1")
 
-    async def rename_project(self, user_id, project_id, name):
+    async def rename_project(
+        self, user_id: str, project_id: str, name: str
+    ) -> dict[str, Any] | None:
         pool = await self._pool_()
         async with pool.acquire() as conn:
             row = await conn.fetchrow(
@@ -146,7 +158,7 @@ class PostgresStateStore:
             )
         return dict(row) if row else None
 
-    async def get_project_config(self, project_id):
+    async def get_project_config(self, project_id: str) -> dict[str, Any] | None:
         pool = await self._pool_()
         async with pool.acquire() as conn:
             row = await conn.fetchrow(
@@ -154,7 +166,7 @@ class PostgresStateStore:
             )
         return dict(row) if row else None
 
-    async def upsert_project_config(self, project_id, **fields):
+    async def upsert_project_config(self, project_id: str, **fields: Any) -> dict[str, Any]:
         cols = [c for c in fields if c in _CONFIG_COLUMNS]
         pool = await self._pool_()
         async with pool.acquire() as conn:
@@ -176,8 +188,13 @@ class PostgresStateStore:
         return dict(row)
 
     async def register_document(
-        self, project_id, filename, chunk_count, embedding_signature, status="ready"
-    ):
+        self,
+        project_id: str,
+        filename: str,
+        chunk_count: int,
+        embedding_signature: str,
+        status: str = "ready",
+    ) -> dict[str, Any]:
         pool = await self._pool_()
         async with pool.acquire() as conn:
             row = await conn.fetchrow(
@@ -194,7 +211,7 @@ class PostgresStateStore:
             )
         return {**dict(row), "project_id": project_id}
 
-    async def set_document_status(self, project_id, filename, status):
+    async def set_document_status(self, project_id: str, filename: str, status: str) -> None:
         pool = await self._pool_()
         async with pool.acquire() as conn:
             await conn.execute(
@@ -205,21 +222,24 @@ class PostgresStateStore:
                 filename,
             )
 
-    async def list_documents(self, project_id):
+    async def list_documents(self, project_id: str) -> list[dict[str, Any]]:
         pool = await self._pool_()
         async with pool.acquire() as conn:
             rows = await conn.fetch("SELECT * FROM documents WHERE project_id=$1", project_id)
         return [dict(r) for r in rows]
 
-    async def delete_document(self, project_id, filename):
+    async def delete_document(self, project_id: str, filename: str) -> bool:
         pool = await self._pool_()
         async with pool.acquire() as conn:
-            res = await conn.execute(
+            # asyncpg types execute() as Any; it returns the command status tag.
+            res: str = await conn.execute(
                 "DELETE FROM documents WHERE project_id=$1 AND filename=$2", project_id, filename
             )
         return res.endswith(" 1")
 
-    async def upsert_credential(self, user_id, provider, encrypted_key, key_hint):
+    async def upsert_credential(
+        self, user_id: str, provider: str, encrypted_key: str, key_hint: str
+    ) -> dict[str, Any]:
         pool = await self._pool_()
         async with pool.acquire() as conn:
             row = await conn.fetchrow(
@@ -234,7 +254,7 @@ class PostgresStateStore:
             )
         return dict(row)
 
-    async def get_credential(self, user_id, provider):
+    async def get_credential(self, user_id: str, provider: str) -> dict[str, Any] | None:
         pool = await self._pool_()
         async with pool.acquire() as conn:
             row = await conn.fetchrow(
@@ -245,7 +265,7 @@ class PostgresStateStore:
             )
         return dict(row) if row else None
 
-    async def list_credentials(self, user_id):
+    async def list_credentials(self, user_id: str) -> list[dict[str, Any]]:
         pool = await self._pool_()
         async with pool.acquire() as conn:
             rows = await conn.fetch(
@@ -255,17 +275,25 @@ class PostgresStateStore:
             )
         return [dict(row) for row in rows]
 
-    async def delete_credential(self, user_id, provider):
+    async def delete_credential(self, user_id: str, provider: str) -> bool:
         pool = await self._pool_()
         async with pool.acquire() as conn:
-            result = await conn.execute(
+            # asyncpg types execute() as Any; it returns the command status tag.
+            result: str = await conn.execute(
                 "DELETE FROM provider_credentials WHERE user_id=$1 AND provider=$2",
                 user_id,
                 provider,
             )
         return result.endswith("1")
 
-    async def upsert_thread(self, project_id, session_id, *, npc_name=None, title=None):
+    async def upsert_thread(
+        self,
+        project_id: str,
+        session_id: str,
+        *,
+        npc_name: str | None = None,
+        title: str | None = None,
+    ) -> dict[str, Any]:
         pool = await self._pool_()
         async with pool.acquire() as conn:
             row = await conn.fetchrow(
@@ -281,7 +309,7 @@ class PostgresStateStore:
             )
         return dict(row)
 
-    async def get_thread(self, user_id, thread_id):
+    async def get_thread(self, user_id: str, thread_id: str) -> dict[str, Any] | None:
         pool = await self._pool_()
         async with pool.acquire() as conn:
             row = await conn.fetchrow(
@@ -293,12 +321,13 @@ class PostgresStateStore:
             )
         return dict(row) if row else None
 
-    async def delete_thread(self, user_id, thread_id):
+    async def delete_thread(self, user_id: str, thread_id: str) -> bool:
         # Ownership rides through the thread's project; a thread has no user_id.
         # Messages go with it via ON DELETE CASCADE.
         pool = await self._pool_()
         async with pool.acquire() as conn:
-            res = await conn.execute(
+            # asyncpg types execute() as Any; it returns the command status tag.
+            res: str = await conn.execute(
                 "DELETE FROM chat_threads WHERE id=$1 AND project_id IN "
                 "(SELECT id FROM projects WHERE user_id=$2)",
                 thread_id,
@@ -306,7 +335,7 @@ class PostgresStateStore:
             )
         return res.endswith(" 1")
 
-    async def add_message(self, thread_id, role, content):
+    async def add_message(self, thread_id: str, role: str, content: str) -> dict[str, Any]:
         pool = await self._pool_()
         async with pool.acquire() as conn, conn.transaction():
             row = await conn.fetchrow(
@@ -319,7 +348,7 @@ class PostgresStateStore:
             await conn.execute("UPDATE chat_threads SET updated_at=now() WHERE id=$1", thread_id)
         return dict(row)
 
-    async def list_threads(self, project_id):
+    async def list_threads(self, project_id: str) -> list[dict[str, Any]]:
         pool = await self._pool_()
         async with pool.acquire() as conn:
             rows = await conn.fetch(
@@ -329,7 +358,7 @@ class PostgresStateStore:
             )
         return [dict(row) for row in rows]
 
-    async def list_messages(self, thread_id, limit=50):
+    async def list_messages(self, thread_id: str, limit: int = 50) -> list[dict[str, Any]]:
         pool = await self._pool_()
         async with pool.acquire() as conn:
             rows = await conn.fetch(

@@ -38,6 +38,7 @@ sentient = "sentient.cli:main"
 
 [dependency-groups]
 dev = [
+    "mypy>=2.3.1",
     "pytest>=9.1.1",
     "ruff>=0.16.3",
 ]
@@ -60,3 +61,19 @@ ignore = [
     # about FastAPI, so it is off for the whole project rather than noqa'd per route.
     "B008",
 ]
+
+# Strict typing is scoped to core/ and adapters/ on purpose (spec §9). Strict
+# everywhere across a LangChain codebase produces hundreds of findings from
+# untyped third-party surfaces, and a check that noisy gets disabled within a
+# day. These two layers hold the Protocol seams, where type drift costs
+# something.
+[tool.mypy]
+python_version = "3.12"
+ignore_missing_imports = true
+warn_unused_ignores = true
+
+[[tool.mypy.overrides]]
+module = ["sentient.core.*", "sentient.adapters.*"]
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+warn_return_any = true

@@ -5,6 +5,7 @@ import sqlite3
 from contextlib import closing
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 from uuid import uuid4
 
 from sentient.adapters.state.schema import _CONFIG_COLUMNS, _DEFAULT_USER_SENTINEL
@@ -84,7 +85,7 @@ class SQLiteStateStore:
             )
 
     # ---- users / api keys ----
-    def _ensure_user(self, external_auth_id, email):
+    def _ensure_user(self, external_auth_id: str | None, email: str | None) -> dict[str, Any]:
         key = external_auth_id if external_auth_id is not None else _DEFAULT_USER_SENTINEL
         with closing(self._connect()) as conn, conn:
             row = conn.execute("SELECT * FROM users WHERE external_auth_id=?", (key,)).fetchone()
@@ -97,20 +98,22 @@ class SQLiteStateStore:
             )
             return {"id": uid, "external_auth_id": key, "email": email}
 
-    async def ensure_user(self, external_auth_id, email=None):
+    async def ensure_user(
+        self, external_auth_id: str | None, email: str | None = None
+    ) -> dict[str, Any]:
         return await asyncio.to_thread(self._ensure_user, external_auth_id, email)
 
-    def _get_user_by_api_key_hash(self, key_hash):
+    def _get_user_by_api_key_hash(self, key_hash: str) -> dict[str, Any] | None:
         with closing(self._connect()) as conn:
             row = conn.execute(
                 "SELECT user_id, revoked FROM api_keys WHERE key_hash=?", (key_hash,)
             ).fetchone()
         return {"user_id": row["user_id"], "revoked": bool(row["revoked"])} if row else None
 
-    async def get_user_by_api_key_hash(self, key_hash):
+    async def get_user_by_api_key_hash(self, key_hash: str) -> dict[str, Any] | None:
         return await asyncio.to_thread(self._get_user_by_api_key_hash, key_hash)
 
-    def _create_api_key(self, user_id, key_hash, label):
+    def _create_api_key(self, user_id: str, key_hash: str, label: str | None) -> dict[str, Any]:
         kid = uuid4().hex
         with closing(self._connect()) as conn, conn:
             conn.execute(
@@ -120,31 +123,33 @@ class SQLiteStateStore:
             )
         return {"id": kid, "user_id": user_id, "label": label, "revoked": False}
 
-    async def create_api_key(self, user_id, key_hash, label=None):
+    async def create_api_key(
+        self, user_id: str, key_hash: str, label: str | None = None
+    ) -> dict[str, Any]:
         return await asyncio.to_thread(self._create_api_key, user_id, key_hash, label)
 
-    def _revoke_api_key(self, user_id, key_id):
+    def _revoke_api_key(self, user_id: str, key_id: str) -> bool:
         with closing(self._connect()) as conn, conn:
             cur = conn.execute(
                 "UPDATE api_keys SET revoked=1 WHERE id=? AND user_id=?", (key_id, user_id)
             )
         return cur.rowcount > 0
 
-    async def revoke_api_key(self, user_id, key_id):
+    async def revoke_api_key(self, user_id: str, key_id: str) -> bool:
         return await asyncio.to_thread(self._revoke_api_key, user_id, key_id)
 
-    def _list_api_keys(self, user_id):
+    def _list_api_keys(self, user_id: str) -> list[dict[str, Any]]:
         with closing(self._connect()) as conn:
             rows = conn.execute(
                 "SELECT id, label, revoked, created_at FROM api_keys WHERE user_id=?", (user_id,)
             ).fetchall()
         return [dict(r) for r in rows]
 
-    async def list_api_keys(self, user_id):
+    async def list_api_keys(self, user_id: str) -> list[dict[str, Any]]:
         return await asyncio.to_thread(self._list_api_keys, user_id)
 
     # ---- projects ----
-    def _create_project(self, user_id, name, base_preset):
+    def _create_project(self, user_id: str, name: str, base_preset: str) -> dict[str, Any]:
         pid = uuid4().hex
         with closing(self._connect()) as conn, conn:
             conn.execute(
@@ -163,37 +168,39 @@ class SQLiteStateStore:
             "status": "active",
         }
 
-    async def create_project(self, user_id, name, base_preset="custom"):
+    async def create_project(
+        self, user_id: str, name: str, base_preset: str = "custom"
+    ) -> dict[str, Any]:
         return await asyncio.to_thread(self._create_project, user_id, name, base_preset)
 
-    def _get_project(self, user_id, project_id):
+    def _get_project(self, user_id: str, project_id: str) -> dict[str, Any] | None:
         with closing(self._connect()) as conn:
             row = conn.execute(
                 "SELECT * FROM projects WHERE id=? AND user_id=?", (project_id, user_id)
             ).fetchone()
         return dict(row) if row else None
 
-    async def get_project(self, user_id, project_id):
+    async def get_project(self, user_id: str, project_id: str) -> dict[str, Any] | None:
         return await asyncio.to_thread(self._get_project, user_id, project_id)
 
-    def _list_projects(self, user_id):
+    def _list_projects(self, user_id: str) -> list[dict[str, Any]]:
         with closing(self._connect()) as conn:
             rows = conn.execute(
                 "SELECT * FROM projects WHERE user_id=? ORDER BY created_at DESC", (user_id,)
             ).fetchall()
         return [dict(r) for r in rows]
 
-    async def list_projects(self, user_id):
+    async def list_projects(self, user_id: str) -> list[dict[str, Any]]:
         return await asyncio.to_thread(self._list_projects, user_id)
 
-    def _set_project_status(self, project_id, status):
+    def _set_project_status(self, project_id: str, status: str) -> None:
         with closing(self._connect()) as conn, conn:
             conn.execute("UPDATE projects SET status=? WHERE id=?", (status, project_id))
 
-    async def set_project_status(self, project_id, status):
+    async def set_project_status(self, project_id: str, status: str) -> None:
         await asyncio.to_thread(self._set_project_status, project_id, status)
 
-    def _delete_project(self, user_id, project_id):
+    def _delete_project(self, user_id: str, project_id: str) -> bool:
         # user_id is in the WHERE clause, not checked by the caller: a wrong owner
         # deletes nothing instead of someone else's project. Child rows go with it
         # through the ON DELETE CASCADE keys (PRAGMA foreign_keys is ON in _connect).
@@ -203,10 +210,10 @@ class SQLiteStateStore:
             )
         return cursor.rowcount > 0
 
-    async def delete_project(self, user_id, project_id):
+    async def delete_project(self, user_id: str, project_id: str) -> bool:
         return await asyncio.to_thread(self._delete_project, user_id, project_id)
 
-    def _rename_project(self, user_id, project_id, name):
+    def _rename_project(self, user_id: str, project_id: str, name: str) -> dict[str, Any] | None:
         with closing(self._connect()) as conn, conn:
             conn.execute(
                 "UPDATE projects SET name=? WHERE id=? AND user_id=?",
@@ -217,21 +224,23 @@ class SQLiteStateStore:
             ).fetchone()
         return dict(row) if row else None
 
-    async def rename_project(self, user_id, project_id, name):
+    async def rename_project(
+        self, user_id: str, project_id: str, name: str
+    ) -> dict[str, Any] | None:
         return await asyncio.to_thread(self._rename_project, user_id, project_id, name)
 
     # ---- project_configs ----
-    def _get_project_config(self, project_id):
+    def _get_project_config(self, project_id: str) -> dict[str, Any] | None:
         with closing(self._connect()) as conn:
             row = conn.execute(
                 "SELECT * FROM project_configs WHERE project_id=?", (project_id,)
             ).fetchone()
         return dict(row) if row else None
 
-    async def get_project_config(self, project_id):
+    async def get_project_config(self, project_id: str) -> dict[str, Any] | None:
         return await asyncio.to_thread(self._get_project_config, project_id)
 
-    def _upsert_project_config(self, project_id, fields):
+    def _upsert_project_config(self, project_id: str, fields: dict[str, Any]) -> dict[str, Any]:
         cols = [c for c in fields if c in _CONFIG_COLUMNS]
         with closing(self._connect()) as conn, conn:
             conn.execute(
@@ -247,11 +256,18 @@ class SQLiteStateStore:
             ).fetchone()
         return dict(row)
 
-    async def upsert_project_config(self, project_id, **fields):
+    async def upsert_project_config(self, project_id: str, **fields: Any) -> dict[str, Any]:
         return await asyncio.to_thread(self._upsert_project_config, project_id, fields)
 
     # ---- documents ----
-    def _register_document(self, project_id, filename, chunk_count, embedding_signature, status):
+    def _register_document(
+        self,
+        project_id: str,
+        filename: str,
+        chunk_count: int,
+        embedding_signature: str,
+        status: str,
+    ) -> dict[str, Any]:
         did = uuid4().hex
         with closing(self._connect()) as conn, conn:
             conn.execute(
@@ -277,30 +293,35 @@ class SQLiteStateStore:
         return dict(row)
 
     async def register_document(
-        self, project_id, filename, chunk_count, embedding_signature, status="ready"
-    ):
+        self,
+        project_id: str,
+        filename: str,
+        chunk_count: int,
+        embedding_signature: str,
+        status: str = "ready",
+    ) -> dict[str, Any]:
         return await asyncio.to_thread(
             self._register_document, project_id, filename, chunk_count, embedding_signature, status
         )
 
-    def _set_document_status(self, project_id, filename, status):
+    def _set_document_status(self, project_id: str, filename: str, status: str) -> None:
         with closing(self._connect()) as conn, conn:
             conn.execute(
                 "UPDATE documents SET status=?, updated_at=? WHERE project_id=? AND filename=?",
                 (status, _now(), project_id, filename),
             )
 
-    async def set_document_status(self, project_id, filename, status):
+    async def set_document_status(self, project_id: str, filename: str, status: str) -> None:
         await asyncio.to_thread(self._set_document_status, project_id, filename, status)
 
-    def _list_documents(self, project_id):
+    def _list_documents(self, project_id: str) -> list[dict[str, Any]]:
         with closing(self._connect()) as conn:
             rows = conn.execute(
                 "SELECT * FROM documents WHERE project_id=?", (project_id,)
             ).fetchall()
         return [dict(r) for r in rows]
 
-    def _delete_document(self, project_id, filename):
+    def _delete_document(self, project_id: str, filename: str) -> bool:
         with closing(self._connect()) as conn, conn:
             cursor = conn.execute(
                 "DELETE FROM documents WHERE project_id=? AND filename=?",
@@ -308,14 +329,16 @@ class SQLiteStateStore:
             )
         return cursor.rowcount > 0
 
-    async def delete_document(self, project_id, filename):
+    async def delete_document(self, project_id: str, filename: str) -> bool:
         return await asyncio.to_thread(self._delete_document, project_id, filename)
 
-    async def list_documents(self, project_id):
+    async def list_documents(self, project_id: str) -> list[dict[str, Any]]:
         return await asyncio.to_thread(self._list_documents, project_id)
 
     # ---- provider credentials ----
-    def _upsert_credential(self, user_id, provider, encrypted_key, hint):
+    def _upsert_credential(
+        self, user_id: str, provider: str, encrypted_key: str, hint: str
+    ) -> dict[str, Any]:
         credential_id = uuid4().hex
         created_at = _now()
         with closing(self._connect()) as conn, conn:
@@ -332,12 +355,14 @@ class SQLiteStateStore:
             ).fetchone()
         return dict(row)
 
-    async def upsert_credential(self, user_id, provider, encrypted_key, key_hint):
+    async def upsert_credential(
+        self, user_id: str, provider: str, encrypted_key: str, key_hint: str
+    ) -> dict[str, Any]:
         return await asyncio.to_thread(
             self._upsert_credential, user_id, provider, encrypted_key, key_hint
         )
 
-    def _get_credential(self, user_id, provider):
+    def _get_credential(self, user_id: str, provider: str) -> dict[str, Any] | None:
         with closing(self._connect()) as conn:
             row = conn.execute(
                 "SELECT id, user_id, provider, encrypted_key, key_hint, created_at "
@@ -346,10 +371,10 @@ class SQLiteStateStore:
             ).fetchone()
         return dict(row) if row else None
 
-    async def get_credential(self, user_id, provider):
+    async def get_credential(self, user_id: str, provider: str) -> dict[str, Any] | None:
         return await asyncio.to_thread(self._get_credential, user_id, provider)
 
-    def _list_credentials(self, user_id):
+    def _list_credentials(self, user_id: str) -> list[dict[str, Any]]:
         with closing(self._connect()) as conn:
             rows = conn.execute(
                 "SELECT provider, key_hint, created_at FROM provider_credentials "
@@ -358,10 +383,10 @@ class SQLiteStateStore:
             ).fetchall()
         return [dict(row) for row in rows]
 
-    async def list_credentials(self, user_id):
+    async def list_credentials(self, user_id: str) -> list[dict[str, Any]]:
         return await asyncio.to_thread(self._list_credentials, user_id)
 
-    def _delete_credential(self, user_id, provider):
+    def _delete_credential(self, user_id: str, provider: str) -> bool:
         with closing(self._connect()) as conn, conn:
             result = conn.execute(
                 "DELETE FROM provider_credentials WHERE user_id=? AND provider=?",
@@ -369,11 +394,13 @@ class SQLiteStateStore:
             )
         return result.rowcount > 0
 
-    async def delete_credential(self, user_id, provider):
+    async def delete_credential(self, user_id: str, provider: str) -> bool:
         return await asyncio.to_thread(self._delete_credential, user_id, provider)
 
     # ---- threads / messages ----
-    def _upsert_thread(self, project_id, session_id, npc_name, title):
+    def _upsert_thread(
+        self, project_id: str, session_id: str, npc_name: str | None, title: str | None
+    ) -> dict[str, Any]:
         thread_id = uuid4().hex
         now = _now()
         with closing(self._connect()) as conn, conn:
@@ -390,10 +417,17 @@ class SQLiteStateStore:
             ).fetchone()
         return dict(row)
 
-    async def upsert_thread(self, project_id, session_id, *, npc_name=None, title=None):
+    async def upsert_thread(
+        self,
+        project_id: str,
+        session_id: str,
+        *,
+        npc_name: str | None = None,
+        title: str | None = None,
+    ) -> dict[str, Any]:
         return await asyncio.to_thread(self._upsert_thread, project_id, session_id, npc_name, title)
 
-    def _get_thread(self, user_id, thread_id):
+    def _get_thread(self, user_id: str, thread_id: str) -> dict[str, Any] | None:
         with closing(self._connect()) as conn:
             row = conn.execute(
                 "SELECT t.* FROM chat_threads t JOIN projects p ON p.id=t.project_id "
@@ -402,10 +436,10 @@ class SQLiteStateStore:
             ).fetchone()
         return dict(row) if row else None
 
-    async def get_thread(self, user_id, thread_id):
+    async def get_thread(self, user_id: str, thread_id: str) -> dict[str, Any] | None:
         return await asyncio.to_thread(self._get_thread, user_id, thread_id)
 
-    def _delete_thread(self, user_id, thread_id):
+    def _delete_thread(self, user_id: str, thread_id: str) -> bool:
         with closing(self._connect()) as conn, conn:
             # Ownership rides through the thread's project; a thread has no user_id.
             cursor = conn.execute(
@@ -415,10 +449,10 @@ class SQLiteStateStore:
             )
         return cursor.rowcount > 0
 
-    async def delete_thread(self, user_id, thread_id):
+    async def delete_thread(self, user_id: str, thread_id: str) -> bool:
         return await asyncio.to_thread(self._delete_thread, user_id, thread_id)
 
-    def _add_message(self, thread_id, role, content):
+    def _add_message(self, thread_id: str, role: str, content: str) -> dict[str, Any]:
         message_id = uuid4().hex
         now = _now()
         with closing(self._connect()) as conn, conn:
@@ -435,10 +469,10 @@ class SQLiteStateStore:
             "created_at": now,
         }
 
-    async def add_message(self, thread_id, role, content):
+    async def add_message(self, thread_id: str, role: str, content: str) -> dict[str, Any]:
         return await asyncio.to_thread(self._add_message, thread_id, role, content)
 
-    def _list_threads(self, project_id):
+    def _list_threads(self, project_id: str) -> list[dict[str, Any]]:
         with closing(self._connect()) as conn:
             rows = conn.execute(
                 "SELECT * FROM chat_threads WHERE project_id=? ORDER BY updated_at DESC, id DESC",
@@ -446,10 +480,10 @@ class SQLiteStateStore:
             ).fetchall()
         return [dict(row) for row in rows]
 
-    async def list_threads(self, project_id):
+    async def list_threads(self, project_id: str) -> list[dict[str, Any]]:
         return await asyncio.to_thread(self._list_threads, project_id)
 
-    def _list_messages(self, thread_id, limit):
+    def _list_messages(self, thread_id: str, limit: int) -> list[dict[str, Any]]:
         with closing(self._connect()) as conn:
             # rowid is insertion order and the only stable tiebreak when two messages
             # land on the same timestamp; it has to key BOTH sorts, or the newest-first
@@ -463,5 +497,5 @@ class SQLiteStateStore:
             ).fetchall()
         return [dict(row) for row in rows]
 
-    async def list_messages(self, thread_id, limit=50):
+    async def list_messages(self, thread_id: str, limit: int = 50) -> list[dict[str, Any]]:
         return await asyncio.to_thread(self._list_messages, thread_id, limit)

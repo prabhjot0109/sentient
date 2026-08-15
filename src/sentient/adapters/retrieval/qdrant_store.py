@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Any
+from typing import Any, cast
 
 from langchain_core.documents import Document
+from langchain_core.embeddings import Embeddings
 from langchain_qdrant import FastEmbedSparse, QdrantVectorStore, RetrievalMode
 from qdrant_client import QdrantClient, models
 
@@ -51,7 +52,9 @@ class QdrantBackend:
     asyncio.to_thread -- the event loop never blocks.
     """
 
-    def __init__(self, settings: RAGSettings, embeddings, *, location: str | None = None):
+    def __init__(
+        self, settings: RAGSettings, embeddings: Embeddings, *, location: str | None = None
+    ) -> None:
         self.settings = settings
         self.embeddings = embeddings
         self.collection = settings.qdrant_collection
@@ -123,7 +126,12 @@ class QdrantBackend:
 
     # ---- payload tagging + filters ----
     @staticmethod
-    def _tag(chunks: list[Document], user_key, project_id, embedding_signature) -> list[Document]:
+    def _tag(
+        chunks: list[Document],
+        user_key: str | None,
+        project_id: str | None,
+        embedding_signature: str | None,
+    ) -> list[Document]:
         for chunk in chunks:
             chunk.metadata["user_key"] = user_key or chunk.metadata.get("user_key") or "default"
             if project_id is not None:
@@ -133,8 +141,12 @@ class QdrantBackend:
         return chunks
 
     @staticmethod
-    def _filter(user_key=None, project_id=None, embedding_signature=None) -> models.Filter | None:
-        conditions = [
+    def _filter(
+        user_key: str | None = None,
+        project_id: str | None = None,
+        embedding_signature: str | None = None,
+    ) -> models.Filter | None:
+        conditions: list[models.Condition] = [
             models.FieldCondition(key=field, match=models.MatchValue(value=value))
             for field, value in (
                 (_USER_KEY, user_key),
@@ -154,13 +166,13 @@ class QdrantBackend:
     # ---- VectorBackend interface ----
     async def index(
         self,
-        chunks,
+        chunks: list[Document],
         *,
-        source_names=None,
-        persona="",
-        user_key=None,
-        project_id=None,
-        embedding_signature=None,
+        source_names: list[str] | None = None,
+        persona: str = "",
+        user_key: str | None = None,
+        project_id: str | None = None,
+        embedding_signature: str | None = None,
     ) -> dict[str, Any] | None:
         # Replace-semantics parity with FaissBackend.index(), but scoped: drop only
         # this (user_key, project_id) partition so a rebuild never duplicates its own
@@ -179,13 +191,13 @@ class QdrantBackend:
 
     async def add(
         self,
-        chunks,
+        chunks: list[Document],
         *,
-        source_names=None,
-        persona="",
-        user_key=None,
-        project_id=None,
-        embedding_signature=None,
+        source_names: list[str] | None = None,
+        persona: str = "",
+        user_key: str | None = None,
+        project_id: str | None = None,
+        embedding_signature: str | None = None,
     ) -> dict[str, Any] | None:
         if not chunks:
             return await asyncio.to_thread(self.metadata)
@@ -204,23 +216,31 @@ class QdrantBackend:
         await asyncio.to_thread(self._delete_by_filter_sync, qfilter)
         return await asyncio.to_thread(self.metadata)
 
-    def _retrieve_sync(self, store, query, resolved_k, qfilter, threshold):
+    def _retrieve_sync(
+        self,
+        store: QdrantVectorStore,
+        query: str,
+        resolved_k: int,
+        qfilter: models.Filter | None,
+        threshold: float | None,
+    ) -> list[tuple[Document, float | None]]:
         scored = store.similarity_search_with_score(query, k=resolved_k, filter=qfilter)
         if threshold and threshold > 0:
             scored = [(d, s) for d, s in scored if s >= threshold]
-        return scored
+        # Same list-invariance widening as FaissBackend._retrieve_sync.
+        return cast(list[tuple[Document, float | None]], scored)
 
     async def retrieve(
         self,
-        query,
+        query: str,
         *,
-        k=None,
-        search_type=None,
-        min_score=None,
-        user_key=None,
-        project_id=None,
-        embedding_signature=None,
-    ):
+        k: int | None = None,
+        search_type: str | None = None,
+        min_score: float | None = None,
+        user_key: str | None = None,
+        project_id: str | None = None,
+        embedding_signature: str | None = None,
+    ) -> list[tuple[Document, float | None]]:
         # search_type is ignored: HYBRID always runs dense + sparse and fuses (RRF).
         store = await self._ensure_ready()
         resolved_k = max(k or self.settings.top_k, 1)
@@ -230,7 +250,7 @@ class QdrantBackend:
             self._retrieve_sync, store, query, resolved_k, qfilter, threshold
         )
 
-    def clear_project(self, user_key, project_id) -> None:
+    def clear_project(self, user_key: str | None, project_id: str) -> None:
         qfilter = self._filter(user_key=user_key, project_id=project_id)
         if qfilter is None:
             return

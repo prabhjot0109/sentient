@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from langchain_core.language_models import BaseLanguageModel
 from langchain_core.prompts import SystemMessagePromptTemplate
 
 # Used when no documents are loaded or persona inference fails.
@@ -14,7 +15,7 @@ _PERSONA_INFERENCE_PROMPT = (
 )
 
 
-def infer_persona_descriptor(llm, sample_text: str) -> str:
+def infer_persona_descriptor(llm: BaseLanguageModel, sample_text: str) -> str:
     """Ask the LLM for a one-line persona that fits the uploaded material."""
     sample = sample_text.strip()[:3000]
     if not sample:

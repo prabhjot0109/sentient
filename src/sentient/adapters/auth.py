@@ -5,10 +5,15 @@ import hashlib
 import secrets
 from collections.abc import Awaitable, Callable
 from functools import lru_cache
-from typing import Any
+from typing import Any, TypeVar
 
 import jwt
 from cachetools import TTLCache
+
+from sentient.adapters.state.base import StateStore
+from sentient.core.config import RAGSettings
+
+_T = TypeVar("_T")
 
 
 def hash_key(raw: str) -> str:
@@ -31,28 +36,28 @@ class AuthError(Exception):
     """Raised when a token/key is missing, malformed, or fails verification."""
 
 
-def auth_enabled(settings) -> bool:
+def auth_enabled(settings: RAGSettings) -> bool:
     return bool(settings.neon_auth_jwks_url)
 
 
 @lru_cache(maxsize=8)
-def _jwks_client(jwks_url: str):
+def _jwks_client(jwks_url: str) -> jwt.PyJWKClient:
     # PyJWKClient fetches + caches signing keys; one instance per JWKS URL.
     return jwt.PyJWKClient(jwks_url)
 
 
-def verify_jwt(token: str, settings) -> dict:
+def verify_jwt(token: str, settings: RAGSettings) -> dict[str, Any]:
     if not auth_enabled(settings):
         raise AuthError("auth is not configured")
     try:
         signing_key = _jwks_client(settings.neon_auth_jwks_url).get_signing_key_from_jwt(token)
-        options = {"verify_aud": False}  # Neon Auth tokens may omit aud; issuer is the trust anchor
         return jwt.decode(
             token,
             signing_key.key,
             algorithms=settings.neon_auth_algorithms,
             issuer=settings.neon_auth_issuer,
-            options=options,
+            # Neon Auth tokens may omit aud; the issuer is the trust anchor.
+            options={"verify_aud": False},
         )
     except AuthError:
         raise
@@ -80,10 +85,12 @@ class IdentityCache:
     Keeps auth off the hot path: DB is hit at most once per identity per TTL window."""
 
     def __init__(self, ttl: float = 300, maxsize: int = 1024) -> None:
-        self._cache: TTLCache = TTLCache(maxsize=maxsize, ttl=ttl)
+        self._cache: TTLCache[str, Any] = TTLCache(maxsize=maxsize, ttl=ttl)
 
-    async def resolve(self, cache_key: str, loader: Callable[[], Awaitable[Any]]) -> Any:
-        hit = self._cache.get(cache_key)
+    async def resolve(self, cache_key: str, loader: Callable[[], Awaitable[_T]]) -> _T:
+        # Generic in the loader's return type so callers keep their static type
+        # across the cache instead of getting Any back.
+        hit: _T | None = self._cache.get(cache_key)
         if hit is not None:
             return hit
         lock_key = (id(asyncio.get_running_loop()), cache_key)
@@ -103,8 +110,8 @@ class IdentityCache:
 
 
 async def resolve_user(
-    state,
-    settings,
+    state: StateStore,
+    settings: RAGSettings,
     *,
     jwt_token: str | None = None,
     api_key: str | None = None,
@@ -115,7 +122,7 @@ async def resolve_user(
 
     if jwt_token and auth_enabled(settings):
 
-        async def _load_jwt():
+        async def _load_jwt() -> tuple[str, str]:
             claims = verify_jwt(jwt_token, settings)
             sub = claims.get("sub")
             if not sub:
@@ -128,7 +135,7 @@ async def resolve_user(
 
     if key:
 
-        async def _load_key():
+        async def _load_key() -> tuple[str, str]:
             row = await state.get_user_by_api_key_hash(hash_key(key))
             if not row or row.get("revoked"):
                 raise AuthError("unknown or revoked api key")

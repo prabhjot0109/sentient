@@ -15,5 +15,5 @@ def key_hint(raw: str) -> str:
     return "…" + raw[-4:]
 
 
-def crypto_available(settings) -> bool:
+def crypto_available(settings: object) -> bool:
     return bool(getattr(settings, "sentient_secret_key", None))

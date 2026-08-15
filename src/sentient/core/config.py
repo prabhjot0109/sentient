@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
-from typing import Literal
+from typing import Literal, cast
 
 Provider = Literal["google", "openai", "huggingface", "groq", "cerebras", "openrouter"]
 
@@ -163,7 +163,14 @@ def provider_api_key(provider: str, override: str | None) -> str | None:
     own env var. This is what lets, e.g., a Google key drive embeddings while a
     Groq key drives the LLM in the same process.
     """
-    if override and resolve_provider("auto", api_key=override, fallback=provider) == provider:
+    # `provider` is a plain str because one caller passes a project-config column,
+    # which is not statically known to be a valid Provider. resolve_provider tolerates
+    # an unknown fallback (it hands it straight back), so the cast is safe.
+    if (
+        override
+        and resolve_provider("auto", api_key=override, fallback=cast(Provider, provider))
+        == provider
+    ):
         return override
     return _provider_env_key(provider)
 

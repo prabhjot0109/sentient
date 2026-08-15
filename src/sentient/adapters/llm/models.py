@@ -17,6 +17,7 @@ from functools import lru_cache
 from typing import Any
 
 from dotenv import load_dotenv
+from langchain_core.language_models import BaseChatModel
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_groq import ChatGroq
 from langchain_huggingface import ChatHuggingFace, HuggingFaceEndpoint
@@ -32,7 +33,7 @@ def build_chat_model(
     base_url: str | None,
     api_key: str | None,
     timeout: float,
-):
+) -> BaseChatModel:
     if provider == "google":
         # Gemini Flash "thinks" before replying by default, which adds latency we
         # don't want for short, spoken in-character answers. thinking_budget=0
@@ -67,7 +68,8 @@ def build_chat_model(
             groq_kwargs["reasoning_format"] = reasoning_format
         return ChatGroq(
             model=model_name,
-            api_key=api_key,
+            # LangChain declares SecretStr but its validator coerces a plain str.
+            api_key=api_key,  # type: ignore[arg-type]
             timeout=timeout,
             max_retries=2,
             **groq_kwargs,
@@ -75,10 +77,13 @@ def build_chat_model(
 
     if provider == "huggingface":
         return ChatHuggingFace(
-            llm=HuggingFaceEndpoint(
+            # HuggingFaceEndpoint's stub requires `model` and an int timeout; at
+            # runtime a validator fills `model` from `repo_id` and the timeout is
+            # passed straight to httpx, which takes a float.
+            llm=HuggingFaceEndpoint(  # type: ignore[call-arg]
                 repo_id=model_name,
                 huggingfacehub_api_token=api_key,
-                timeout=timeout,
+                timeout=timeout,  # type: ignore[arg-type]
             )
         )
 
@@ -87,7 +92,8 @@ def build_chat_model(
     # max_retries=2 matches the other providers — don't hang on rate limits.
     return ChatOpenAI(
         model=model_name,
-        api_key=api_key,
+        # Same SecretStr-vs-str stub gap as ChatGroq above.
+        api_key=api_key,  # type: ignore[arg-type]
         base_url=base_url,
         timeout=timeout,
         max_retries=2,

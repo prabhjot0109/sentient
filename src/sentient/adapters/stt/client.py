@@ -14,6 +14,9 @@ import os
 from functools import lru_cache
 from typing import Any
 
+from sentient.adapters.state.base import StateStore
+from sentient.core.config import RAGSettings
+
 GROQ_DEFAULT_MODEL = "whisper-large-v3-turbo"
 OPENAI_DEFAULT_MODEL = "whisper-1"
 
@@ -47,10 +50,15 @@ def provider_of_key(key: str) -> str | None:
     return None
 
 
-async def _stored_key(state, settings, user_id: str | None, provider: str) -> str | None:
+async def _stored_key(
+    state: StateStore | None, settings: RAGSettings, user_id: str | None, provider: str
+) -> str | None:
     """The user's R7 vault key for `provider`, or None. Never raises: a bad secret
     must degrade to the env floor rather than take transcription down."""
-    if state is None or not user_id or not getattr(settings, "sentient_secret_key", None):
+    # Bound to a local so the None check narrows it for the decrypt call below;
+    # getattr keeps working for the test doubles that stand in for RAGSettings.
+    secret = getattr(settings, "sentient_secret_key", None)
+    if state is None or not user_id or not secret:
         return None
     try:
         from sentient.core.crypto import decrypt_key
@@ -58,15 +66,15 @@ async def _stored_key(state, settings, user_id: str | None, provider: str) -> st
         row = await state.get_credential(user_id, provider)
         if not row:
             return None
-        return decrypt_key(row["encrypted_key"], settings.sentient_secret_key)
+        return decrypt_key(row["encrypted_key"], secret)
     except Exception as exc:  # no key material in the message
         print(f"[stt] stored credential for {provider} unusable ({type(exc).__name__}); using env")
         return None
 
 
 async def resolve_stt_credential(
-    state,
-    settings,
+    state: StateStore | None,
+    settings: RAGSettings,
     *,
     authorization: str | None,
     user_id: str | None,

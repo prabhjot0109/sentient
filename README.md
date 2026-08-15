@@ -21,10 +21,6 @@ Sentient is a sophisticated RAG (Retrieval-Augmented Generation) based AI NPC sy
 - **Achievements:** Advanced RAG-based NPC Interaction.
 - **Impact:** Revolutionizing In-game NPC Conversations with Dynamic Knowledge Integration.
 
-## System Design
-
-![System Design](sentient.png)
-
 ## Architecture
 
 Layers run one way only — `api → services → adapters → core` — and that rule is
@@ -131,41 +127,41 @@ NEON_AUTH_ALGORITHMS=EdDSA,RS256
 
 Sentient supports three providers and picks between them automatically — you don't have to hardcode one:
 
-| `LLM_PROVIDER` / `EMBEDDING_PROVIDER` | When it's used | Default chat model | Default embedding model |
-| --- | --- | --- | --- |
-| `auto` (default) | Resolved per-request: an explicit request API key is checked by prefix first (`AIza...` → Google, `hf_...` → HuggingFace, anything else → OpenAI); otherwise whichever of `GOOGLE_API_KEY` / `OPENAI_API_KEY` / `HUGGINGFACEHUB_API_TOKEN` (or `HF_TOKEN`) is set in `.env`, checked in that order | — | — |
-| `google` | Set explicitly, or auto-resolved when only `GOOGLE_API_KEY` is set | `gemini-2.5-flash` | `models/gemini-embedding-2` |
-| `openai` | Set explicitly, or auto-resolved when only `OPENAI_API_KEY` is set | `gpt-4o-mini` | `text-embedding-3-small` |
-| `huggingface` | Set explicitly, or the fallback when **no** provider key is set at all | `Qwen/Qwen2.5-7B-Instruct` (hosted, keyless and rate-limited, or with `HUGGINGFACEHUB_API_TOKEN`) | `BAAI/bge-base-en-v1.5` (runs locally, no key needed) |
+| `LLM_PROVIDER` / `EMBEDDING_PROVIDER` | When it's used                                                                                                                                                                                                                                                                                     | Default chat model                                                                                | Default embedding model                               |
+| ------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- | ----------------------------------------------------- |
+| `auto` (default)                      | Resolved per-request: an explicit request API key is checked by prefix first (`AIza...` → Google, `hf_...` → HuggingFace, anything else → OpenAI); otherwise whichever of `GOOGLE_API_KEY` / `OPENAI_API_KEY` / `HUGGINGFACEHUB_API_TOKEN` (or `HF_TOKEN`) is set in `.env`, checked in that order | —                                                                                                 | —                                                     |
+| `google`                              | Set explicitly, or auto-resolved when only `GOOGLE_API_KEY` is set                                                                                                                                                                                                                                 | `gemini-2.5-flash`                                                                                | `models/gemini-embedding-2`                           |
+| `openai`                              | Set explicitly, or auto-resolved when only `OPENAI_API_KEY` is set                                                                                                                                                                                                                                 | `gpt-4o-mini`                                                                                     | `text-embedding-3-small`                              |
+| `huggingface`                         | Set explicitly, or the fallback when **no** provider key is set at all                                                                                                                                                                                                                             | `Qwen/Qwen2.5-7B-Instruct` (hosted, keyless and rate-limited, or with `HUGGINGFACEHUB_API_TOKEN`) | `BAAI/bge-base-en-v1.5` (runs locally, no key needed) |
 
-`MODEL_NAME` / `EMBEDDING_MODEL_NAME` override the default for whichever provider is resolved. A model name belongs to the provider it was set for: Groq, Cerebras and OpenRouter serve chat models only, so when one of them is resolved for **embeddings** the provider falls back to local HuggingFace *and `EMBEDDING_MODEL_NAME` is ignored* (`BAAI/bge-base-en-v1.5` is used instead) — a Google or OpenAI model name cannot be loaded from the HuggingFace Hub. Set `EMBEDDING_PROVIDER` explicitly to pin both halves; that is the usual setup when the chat model is Groq/Cerebras but embeddings should stay on Google. `OPENAI_BASE_URL` points the OpenAI provider at a compatible endpoint instead of api.openai.com; `OPENAI_TIMEOUT_SECONDS` (default 60) applies to all providers' requests. Vectors are stored in a local FAISS index under `FAISS_INDEX_PATH` (default `<DATA_DIR>/faiss_index`, `DATA_DIR` defaults to `data`).
+`MODEL_NAME` / `EMBEDDING_MODEL_NAME` override the default for whichever provider is resolved. A model name belongs to the provider it was set for: Groq, Cerebras and OpenRouter serve chat models only, so when one of them is resolved for **embeddings** the provider falls back to local HuggingFace _and `EMBEDDING_MODEL_NAME` is ignored_ (`BAAI/bge-base-en-v1.5` is used instead) — a Google or OpenAI model name cannot be loaded from the HuggingFace Hub. Set `EMBEDDING_PROVIDER` explicitly to pin both halves; that is the usual setup when the chat model is Groq/Cerebras but embeddings should stay on Google. `OPENAI_BASE_URL` points the OpenAI provider at a compatible endpoint instead of api.openai.com; `OPENAI_TIMEOUT_SECONDS` (default 60) applies to all providers' requests. Vectors are stored in a local FAISS index under `FAISS_INDEX_PATH` (default `<DATA_DIR>/faiss_index`, `DATA_DIR` defaults to `data`).
 
 Uploads and deletions rebuild the FAISS index from the current files under `DATA_DIR`, write an index manifest, and keep retrieval aligned with the actual source documents and embedding configuration.
 
 #### Retrieval & ingestion tuning
 
-| Var | Default | Meaning |
-| --- | --- | --- |
-| `RAG_SEARCH_TYPE` | `similarity` | `similarity` (ranked by closeness, supports `RAG_SCORE_THRESHOLD`) or `mmr` (maximal marginal relevance, favors diverse chunks) |
-| `RAG_TOP_K` | `4` | Chunks returned per query |
-| `RAG_FETCH_K` | `max(top_k * 3, top_k)` | Candidate pool size before MMR re-ranking |
-| `RAG_MMR_LAMBDA` | `0.65` | MMR relevance/diversity balance (0–1), only used when `RAG_SEARCH_TYPE=mmr` |
-| `RAG_SCORE_THRESHOLD` | `0.0` | Drops retrieved chunks below this relevance score (0–1) on the grounding path used by `/v1/chat/completions`; `0` keeps everything |
-| `RAG_CHUNK_SIZE` / `RAG_CHUNK_OVERLAP` | `900` / `150` | Document chunking during ingestion |
+| Var                                    | Default                 | Meaning                                                                                                                            |
+| -------------------------------------- | ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `RAG_SEARCH_TYPE`                      | `similarity`            | `similarity` (ranked by closeness, supports `RAG_SCORE_THRESHOLD`) or `mmr` (maximal marginal relevance, favors diverse chunks)    |
+| `RAG_TOP_K`                            | `4`                     | Chunks returned per query                                                                                                          |
+| `RAG_FETCH_K`                          | `max(top_k * 3, top_k)` | Candidate pool size before MMR re-ranking                                                                                          |
+| `RAG_MMR_LAMBDA`                       | `0.65`                  | MMR relevance/diversity balance (0–1), only used when `RAG_SEARCH_TYPE=mmr`                                                        |
+| `RAG_SCORE_THRESHOLD`                  | `0.0`                   | Drops retrieved chunks below this relevance score (0–1) on the grounding path used by `/v1/chat/completions`; `0` keeps everything |
+| `RAG_CHUNK_SIZE` / `RAG_CHUNK_OVERLAP` | `900` / `150`           | Document chunking during ingestion                                                                                                 |
 
 #### Retrieval backends & async
 
 Vector storage sits behind an async `VectorBackend` seam, so the store is swappable and the whole retrieval call-chain (ingestion → `NPCBrain` → the `/v1/retrieve`, `/v1/chat`, `/v1/chat/completions` endpoints) is non-blocking — CPU-bound work is offloaded off the event loop.
 
-| Var | Default | Meaning |
-| --- | --- | --- |
-| `VECTOR_BACKEND` | `faiss` | `faiss` (local, default) or `qdrant` (async server-side hybrid dense+sparse retrieval) |
-| `QDRANT_URL` / `QDRANT_API_KEY` | _empty_ | Qdrant Cloud cluster URL + API key |
-| `QDRANT_PREFER_GRPC` | `false` | Use gRPC instead of HTTP for Qdrant (recommended for Cloud) |
-| `QDRANT_COLLECTION` | `sentient_lore` | Qdrant collection name |
-| `RAG_SPARSE_MODEL` | `Qdrant/bm25` | Local FastEmbed sparse model for hybrid retrieval |
-| `RAG_HYBRID` | `false` | Enable hybrid dense+sparse retrieval |
-| `RAG_CONDENSE_QUERIES` | `false` | Rewrite pronoun-laden follow-ups into standalone queries before retrieval (one extra LLM call, gated by a pronoun heuristic — Plan 03) |
+| Var                             | Default         | Meaning                                                                                                                                |
+| ------------------------------- | --------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| `VECTOR_BACKEND`                | `faiss`         | `faiss` (local, default) or `qdrant` (async server-side hybrid dense+sparse retrieval)                                                 |
+| `QDRANT_URL` / `QDRANT_API_KEY` | _empty_         | Qdrant Cloud cluster URL + API key                                                                                                     |
+| `QDRANT_PREFER_GRPC`            | `false`         | Use gRPC instead of HTTP for Qdrant (recommended for Cloud)                                                                            |
+| `QDRANT_COLLECTION`             | `sentient_lore` | Qdrant collection name                                                                                                                 |
+| `RAG_SPARSE_MODEL`              | `Qdrant/bm25`   | Local FastEmbed sparse model for hybrid retrieval                                                                                      |
+| `RAG_HYBRID`                    | `false`         | Enable hybrid dense+sparse retrieval                                                                                                   |
+| `RAG_CONDENSE_QUERIES`          | `false`         | Rewrite pronoun-laden follow-ups into standalone queries before retrieval (one extra LLM call, gated by a pronoun heuristic — Plan 03) |
 
 FAISS remains the default and behaves exactly as before.
 
@@ -176,7 +172,7 @@ FAISS remains the default and behaves exactly as before.
 `POST /v1/upload` now accepts a PDF or TXT, stages it, and returns immediately with HTTP `202`:
 
 ```json
-{"status":"processing","filename":"lore.txt"}
+{ "status": "processing", "filename": "lore.txt" }
 ```
 
 The ingestion worker writes document status as `processing`, then `ready` or `failed` for project-scoped uploads; callers that integrate with the runtime state can poll `StateStore.list_documents(project_id)` for that status. The worker is deliberately in-process and is not crash-durable: a process restart can lose accepted-but-unfinished jobs. The HTTP layer uses the `enqueue_ingest(job)` seam, so it can be replaced later with a durable queue without changing callers.
@@ -200,12 +196,12 @@ For Qdrant Cloud, set `QDRANT_URL`, `QDRANT_API_KEY`, and `QDRANT_PREFER_GRPC=tr
 
 The multi-project runtime keeps its relational state — users, API keys, projects, per-project configs (including the project's single editable `persona_prompt`), chat threads, and a document registry — behind an async `StateStore` seam (`logic/state/`), selected by `DB_BACKEND`:
 
-| `DB_BACKEND` | Store | Connection source |
-| --- | --- | --- |
-| _unset_ (default) | Postgres if `DATABASE_URL` is set, else SQLite | `DATABASE_URL` (a Neon URL) |
-| `neon` | `PostgresStateStore` (asyncpg) | `DATABASE_URL` |
-| `supabase` | `PostgresStateStore` (asyncpg) | `SUPABASE_DB_URL` or `DATABASE_URL` |
-| `sqlite` | `SQLiteStateStore` | `${DATA_DIR}/state.db` |
+| `DB_BACKEND`      | Store                                          | Connection source                   |
+| ----------------- | ---------------------------------------------- | ----------------------------------- |
+| _unset_ (default) | Postgres if `DATABASE_URL` is set, else SQLite | `DATABASE_URL` (a Neon URL)         |
+| `neon`            | `PostgresStateStore` (asyncpg)                 | `DATABASE_URL`                      |
+| `supabase`        | `PostgresStateStore` (asyncpg)                 | `SUPABASE_DB_URL` or `DATABASE_URL` |
+| `sqlite`          | `SQLiteStateStore`                             | `${DATA_DIR}/state.db`              |
 
 Neon and Supabase are both Postgres, so they share **one** asyncpg implementation — only the DSN differs. The schema ships as `migrations/0001_runtime_schema.sql` (applied idempotently on first pool use) and is mirrored by the SQLite store's `_init()`. With no `DATABASE_URL` the backend falls back to SQLite and behaves exactly as before. Chat history lives in this same store as `chat_threads` / `chat_messages` (see below).
 
@@ -227,7 +223,7 @@ Keys are resolved **per provider, after the project config is applied** — the 
 
 Because the resolved keys are hashed into `config_signature`, swapping a credential automatically yields fresh LLM/embedding clients; credential writes additionally invalidate the runtime cache for every project the user owns, so the change takes effect on the next turn rather than after the 60s TTL. A credential that fails to decrypt (rotated or malformed `SENTIENT_SECRET_KEY`) logs a warning and falls back to the environment key — a bad secret degrades to the previous behavior instead of taking chats down.
 
-**Threat model, stated plainly:** Fernet protects keys *at rest* — a database dump is not a key leak. It does not protect against a compromised running process, which must hold the plaintext to call the provider. That is the appropriate trade-off for a self-hosted service, not a claim of end-to-end secrecy.
+**Threat model, stated plainly:** Fernet protects keys _at rest_ — a database dump is not a key leak. It does not protect against a compromised running process, which must hold the plaintext to call the provider. That is the appropriate trade-off for a self-hosted service, not a claim of end-to-end secrecy.
 
 Web `POST /v1/chat` optionally accepts `project_id` and `thread_id`. Supplying a project starts (or continues) a durable thread, returns its `thread_id`, and folds the last `history_window` messages (the project config field, 20 by default) into the next generation. The two writes for the turn are deferred past the response, so reply latency never includes them. `GET /v1/projects/{project_id}/threads` supports a project sidebar; `GET /v1/threads/{thread_id}/messages?limit=50` returns the chronological history. Every thread, message, and credential read is filtered through the owning user — another user's ids return `404`, not someone else's data.
 
@@ -264,7 +260,7 @@ docker run -p 8000:8000 --env-file .env -v sentient-data:/app/data sentient
 Two things the image deliberately does:
 
 - **`migrations/` ships in the image.** With `DATABASE_URL` set, `PostgresStateStore` applies every `.sql` file in that directory the first time it opens a pool, so migrations run automatically on first DB connection — but only if the directory is present. Without it the pool opens, zero migrations apply, and the first real query fails on a missing relation.
-- **`data/` is *not* baked in.** It is per-tenant runtime state (uploads, FAISS partitions, the SQLite fallback DB), so it must be a **mounted volume**. Baking one deployment's lore into the image is wrong for a multi-project runtime, and any write inside the container would be lost on the next deploy.
+- **`data/` is _not_ baked in.** It is per-tenant runtime state (uploads, FAISS partitions, the SQLite fallback DB), so it must be a **mounted volume**. Baking one deployment's lore into the image is wrong for a multi-project runtime, and any write inside the container would be lost on the next deploy.
 
 Set `CORS_ALLOW_ORIGINS` to your deployed frontend origin(s), comma-separated. Local Vite dev ports (`http://localhost:*` / `http://127.0.0.1:*`) stay allowed regardless, so the same value works in dev and production.
 
@@ -280,36 +276,36 @@ A warm `IdentityCache` (TTL, keyed by the token/key hash) memoizes the resolved 
 
 ## API Endpoints
 
-| Method | Endpoint | Description |
-| --- | --- | --- |
-| GET | `/health` | Health check |
-| POST | `/v1/chat` | Send a web chat message (Bearer JWT or `X-API-Key`; local default when auth is off) |
-| POST | `/v1/retrieve` | Inspect retrieved chunks |
-| POST | `/v1/chat/completions` | Back-compatible env-default OpenAI endpoint; optionally accepts `X-API-Key` |
-| POST | `/v1/{api_key}/chat/completions` | Project-less game route using a Sentient key (legacy provider keys remain supported) |
-| POST | `/v1/{api_key}/{project_id}/chat/completions` | Project-aware game route with ownership, persona, config, and retrieval isolation |
-| GET | `/v1/models` | Minimal model list for OpenAI-compatible clients |
-| POST | `/v1/audio/transcriptions` | Optional speech-to-text proxy with mic diagnostics (see below) |
-| GET | `/v1/audio/transcriptions/recent` | Recent transcriptions with their measured mic levels |
-| POST / GET | `/v1/credentials` | Store a Fernet-encrypted provider key or list hint-only credential metadata |
-| DELETE | `/v1/credentials/{provider}` | Delete an owned provider credential |
-| POST / GET | `/v1/keys` | Mint a key (raw value returned once) or list the current user's key metadata |
-| DELETE | `/v1/keys/{key_id}` | Revoke an owned key |
-| POST / GET | `/v1/projects` | Create or list owned projects |
-| PATCH | `/v1/projects/{project_id}` | Rename an owned project |
-| DELETE | `/v1/projects/{project_id}` | Delete a project and its config, threads, messages, and documents |
-| GET | `/v1/projects/{project_id}/documents` | Per-document ingestion status (`processing` / `ready` / `failed`) |
-| GET | `/v1/projects/{project_id}/threads` | List owned project threads for the sidebar |
-| GET | `/v1/threads/{thread_id}/messages` | Return an owned thread's chronological message history |
-| DELETE | `/v1/threads/{thread_id}` | Delete an owned thread and its messages |
-| PUT | `/v1/projects/{project_id}/config` | Partially update validated project configuration |
-| PUT | `/v1/projects/{project_id}/persona` | Set or clear the project's single persona prompt |
-| GET | `/v1/presets` | List built-in project presets |
-| POST | `/v1/upload` | Upload document (PDF/TXT) |
-| GET | `/v1/sources` | List uploaded sources; `?project_id=` scopes to that project's partition |
-| DELETE | `/v1/sources/{filename}` | Delete a source; `?project_id=` also clears its documents row |
-| GET / POST | `/v1/chats` | List or create saved chats |
-| GET / PUT / DELETE | `/v1/chats/{chat_id}` | Load, update, or delete a saved chat |
+| Method             | Endpoint                                      | Description                                                                          |
+| ------------------ | --------------------------------------------- | ------------------------------------------------------------------------------------ |
+| GET                | `/health`                                     | Health check                                                                         |
+| POST               | `/v1/chat`                                    | Send a web chat message (Bearer JWT or `X-API-Key`; local default when auth is off)  |
+| POST               | `/v1/retrieve`                                | Inspect retrieved chunks                                                             |
+| POST               | `/v1/chat/completions`                        | Back-compatible env-default OpenAI endpoint; optionally accepts `X-API-Key`          |
+| POST               | `/v1/{api_key}/chat/completions`              | Project-less game route using a Sentient key (legacy provider keys remain supported) |
+| POST               | `/v1/{api_key}/{project_id}/chat/completions` | Project-aware game route with ownership, persona, config, and retrieval isolation    |
+| GET                | `/v1/models`                                  | Minimal model list for OpenAI-compatible clients                                     |
+| POST               | `/v1/audio/transcriptions`                    | Optional speech-to-text proxy with mic diagnostics (see below)                       |
+| GET                | `/v1/audio/transcriptions/recent`             | Recent transcriptions with their measured mic levels                                 |
+| POST / GET         | `/v1/credentials`                             | Store a Fernet-encrypted provider key or list hint-only credential metadata          |
+| DELETE             | `/v1/credentials/{provider}`                  | Delete an owned provider credential                                                  |
+| POST / GET         | `/v1/keys`                                    | Mint a key (raw value returned once) or list the current user's key metadata         |
+| DELETE             | `/v1/keys/{key_id}`                           | Revoke an owned key                                                                  |
+| POST / GET         | `/v1/projects`                                | Create or list owned projects                                                        |
+| PATCH              | `/v1/projects/{project_id}`                   | Rename an owned project                                                              |
+| DELETE             | `/v1/projects/{project_id}`                   | Delete a project and its config, threads, messages, and documents                    |
+| GET                | `/v1/projects/{project_id}/documents`         | Per-document ingestion status (`processing` / `ready` / `failed`)                    |
+| GET                | `/v1/projects/{project_id}/threads`           | List owned project threads for the sidebar                                           |
+| GET                | `/v1/threads/{thread_id}/messages`            | Return an owned thread's chronological message history                               |
+| DELETE             | `/v1/threads/{thread_id}`                     | Delete an owned thread and its messages                                              |
+| PUT                | `/v1/projects/{project_id}/config`            | Partially update validated project configuration                                     |
+| PUT                | `/v1/projects/{project_id}/persona`           | Set or clear the project's single persona prompt                                     |
+| GET                | `/v1/presets`                                 | List built-in project presets                                                        |
+| POST               | `/v1/upload`                                  | Upload document (PDF/TXT)                                                            |
+| GET                | `/v1/sources`                                 | List uploaded sources; `?project_id=` scopes to that project's partition             |
+| DELETE             | `/v1/sources/{filename}`                      | Delete a source; `?project_id=` also clears its documents row                        |
+| GET / POST         | `/v1/chats`                                   | List or create saved chats                                                           |
+| GET / PUT / DELETE | `/v1/chats/{chat_id}`                         | Load, update, or delete a saved chat                                                 |
 
 For Mantella, set `baseUrl` to `http://<host>:8000/v1/<api_key>/<project_id>`; Mantella appends `/chat/completions`. The old `http://<host>:8000/v1` base URL remains supported. Project config and persona edits invalidate the `RuntimeCache` immediately; its TTL is only a backstop.
 
@@ -329,7 +325,7 @@ dwarfs every server-side optimisation in this list.
   time — which is exactly why it went unnoticed for so long.
 - **Reasoning models are a TTFT trap.** `openai/gpt-oss-20b` measured 583 ms TTFT versus
   146 ms for `llama-3.1-8b-instant`, because it emits an entire chain-of-thought before the
-  first spoken word. For dialogue, time-to-first-token *is* the perceived latency.
+  first spoken word. For dialogue, time-to-first-token _is_ the perceived latency.
 - **Query embedding is the retrieval cost, not the search.** Local
   `BAAI/bge-base-en-v1.5` ≈ 48 ms; the Google round trip it replaced was ≈ 511 ms; the FAISS
   search they feed is 0.2 ms. Optimising the vector search would have been optimising 0.4% of
@@ -358,7 +354,7 @@ straight at Groq keeps the pre-R8 behaviour.
 - **Credential precedence:** a forwarded `Authorization: Bearer` key first, then — per provider,
   Groq before OpenAI — the user's stored credential from `POST /v1/credentials`, then the
   `GROQ_API_KEY` / `OPENAI_API_KEY` env floor. With no credential anywhere the request is rejected
-  with `400` before any upstream call. Only the *source* of a key is ever logged, never the key.
+  with `400` before any upstream call. Only the _source_ of a key is ever logged, never the key.
 - **This is the one route where `Authorization: Bearer` is a provider key, not a Neon Auth JWT** —
   Mantella has a single field for its Whisper credential. Sentient identity comes from `X-API-Key`
   only, and is optional.
