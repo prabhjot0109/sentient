@@ -196,7 +196,8 @@ class SentientRAGTests(unittest.TestCase):
     def test_refresh_knowledge_reflects_uploads_and_deletes_from_another_instance(self):
         """Regression test: NPCBrain.refresh_knowledge() must actually pick up
         index changes written by a *different* ArchivesIngestion instance, the
-        way api.py's upload/delete handlers write via get_default_archives()
+        way the documents router's upload/delete handlers write via
+        deps.get_default_archives()
         while a long-lived NPCBrain holds its own ArchivesIngestion. Previously
         refresh_knowledge() was a no-op after the first load because
         load_index() returned its cached FAISS handle unconditionally."""

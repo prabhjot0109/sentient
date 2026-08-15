@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import pytest
 
-# Every environment variable that logic/config.py, logic/rag_engine.py or api.py
-# read as configuration. Importing `api` runs sentient.services.rag's load_dotenv() at
+# Every environment variable that core/config.py, services/rag.py or the api
+# package read as configuration. Importing `api` runs load_dotenv() at
 # import time, so a populated .env leaks the developer's real provider/RAG config
 # into os.environ before any test runs — which silently flips provider resolution
 # (LLM_PROVIDER=cerebras) and filters out FAISS hits (RAG_SCORE_THRESHOLD=0.2).

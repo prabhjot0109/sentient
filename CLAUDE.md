@@ -75,6 +75,14 @@ it; a violation is an architectural regression, so move the code rather than wea
   module-level singleton. `routers/` holds the nine routers (none over 250 lines) and `schemas/`
   the Pydantic bodies.
 
+`apps/` holds the two Node apps, both outside every backend gate (ruff/mypy/import-linter/
+pytest are path-scoped to `src/` and `tests/`, so nothing there can turn CI red): `apps/web/`
+is the frozen pre-refactor test UI (D4 — its chat-history sidebar is *expected* to be broken
+since B0; F5 rebuilds it on threads), and `apps/landing/` is the marketing site, deliberately
+unwired — its Launch CTA is a plain link and auth happens in `apps/web`, which is what lets
+the two stay separate builds with no cross-origin token handoff. Each has its own
+`AGENTS.md`, `package.json` and npm lockfile; there is no workspace tool (D5).
+
 `cli.py` is the `sentient` console script. `migrations/` holds the `.sql` files
 `PostgresStateStore` applies on first connect. `config/config.ini` is **Mantella's** config, checked
 in as reference wiring only — Sentient never reads it; Mantella reads

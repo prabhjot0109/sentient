@@ -75,7 +75,7 @@ class SQLiteStateStoreTests(unittest.IsolatedAsyncioTestCase):
 
 class FreshCloneStartupTests(unittest.IsolatedAsyncioTestCase):
     """data_dir is gitignored, so a fresh clone has no data/ at all. The store is
-    built at api.py import time, before any lifespan handler could create it."""
+    built at deps.py import time, before any lifespan handler could create it."""
 
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()

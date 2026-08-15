@@ -42,7 +42,7 @@ class DocumentsEndpointTests(unittest.IsolatedAsyncioTestCase):
         from sentient.core.config import load_rag_settings
         from sentient.services.runtime import RuntimeCache
 
-        # api.py builds these at import time, so a module cached by an earlier test
+        # deps.py builds these at import time, so a module cached by an earlier test
         # still points at that test's tmpdir. Rebind them the way
         # tests/test_management_endpoints.py does.
         self.api = api

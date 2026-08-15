@@ -194,7 +194,7 @@ For Qdrant Cloud, set `QDRANT_URL`, `QDRANT_API_KEY`, and `QDRANT_PREFER_GRPC=tr
 
 ### Relational state (Neon / Supabase / SQLite)
 
-The multi-project runtime keeps its relational state — users, API keys, projects, per-project configs (including the project's single editable `persona_prompt`), chat threads, and a document registry — behind an async `StateStore` seam (`logic/state/`), selected by `DB_BACKEND`:
+The multi-project runtime keeps its relational state — users, API keys, projects, per-project configs (including the project's single editable `persona_prompt`), chat threads, and a document registry — behind an async `StateStore` seam (`src/sentient/adapters/state/`), selected by `DB_BACKEND`:
 
 | `DB_BACKEND`      | Store                                          | Connection source                   |
 | ----------------- | ---------------------------------------------- | ----------------------------------- |
@@ -304,8 +304,6 @@ A warm `IdentityCache` (TTL, keyed by the token/key hash) memoizes the resolved 
 | POST               | `/v1/upload`                                  | Upload document (PDF/TXT)                                                            |
 | GET                | `/v1/sources`                                 | List uploaded sources; `?project_id=` scopes to that project's partition             |
 | DELETE             | `/v1/sources/{filename}`                      | Delete a source; `?project_id=` also clears its documents row                        |
-| GET / POST         | `/v1/chats`                                   | List or create saved chats                                                           |
-| GET / PUT / DELETE | `/v1/chats/{chat_id}`                         | Load, update, or delete a saved chat                                                 |
 
 For Mantella, set `baseUrl` to `http://<host>:8000/v1/<api_key>/<project_id>`; Mantella appends `/chat/completions`. The old `http://<host>:8000/v1` base URL remains supported. Project config and persona edits invalidate the `RuntimeCache` immediately; its TTL is only a backstop.
 

@@ -1,6 +1,6 @@
 -- 0001_runtime_schema.sql — Sentient multi-project runtime relational core (R1, v3 schema).
 -- Idempotent: every statement is CREATE ... IF NOT EXISTS. Mirrored by
--- logic/state/sqlite_store.py::SQLiteStateStore._init() (TEXT ids, INTEGER bools).
+-- src/sentient/adapters/state/sqlite_store.py::SQLiteStateStore._init() (TEXT ids, INTEGER bools).
 -- provider_credentials and chat_messages belong to R7 (0002), not here.
 
 -- Identity. For Neon Auth, external_auth_id = JWT `sub`; users_sync is mirrored here on first login.

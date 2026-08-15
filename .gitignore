@@ -1,4 +1,6 @@
-# Local chat history (runtime data, regenerated per user)
+# Dead: the legacy `chat_sessions` store was deleted in R9/B0. These two files are
+# leftover local runtime data from it, kept ignored so they don't surface in git
+# status. Nothing reads them; `rm data/chat_sessions.*` whenever you like.
 data/chat_sessions.db
 data/chat_sessions.json
 
@@ -14,9 +16,7 @@ __pycache__/
 # Plans and specs under /docs are deliberately local-only: they are the working
 # contract for the refactor, not a published artifact. Never `git add docs/`.
 /docs
-# Anchored: a bare `order.md` matches at any depth and would swallow
-# docs/superpowers/plans/order.md.
-/order.md
+
 ui.png
 
 #Vs Code
@@ -27,7 +27,9 @@ ui.png
 # See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
 
 # dependencies
-/node_modules
+# Unanchored on purpose: there are now two Node apps (apps/web, apps/landing) and
+# an anchored /node_modules would only cover the repo root.
+node_modules/
 /.pnp
 .pnp.*
 .yarn/*
