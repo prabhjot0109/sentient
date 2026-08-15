@@ -38,6 +38,7 @@ from sentient.adapters.llm.openai_wire import (
 from sentient.adapters.stt import client as stt
 from sentient.adapters.stt.diagnostics import analyse_wav, explain_empty_transcription
 from sentient.api import deps
+from sentient.api.routers import health
 from sentient.core.concurrency import IngestJob, IngestQueue, ReindexJob, defer
 from sentient.core.config import Provider, SearchType, load_rag_settings
 from sentient.core.crypto import crypto_available, encrypt_key, key_hint
@@ -121,6 +122,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+app.include_router(health.router)
 
 
 class RetrievedChunk(BaseModel):
@@ -295,28 +298,6 @@ reindex_queue = IngestQueue(_reindex_handler)
 async def enqueue_reindex(job: ReindexJob) -> None:
     """Stable enqueue seam for project reindex jobs."""
     await reindex_queue.enqueue(job)
-
-
-@app.get("/health")
-def health_check():
-    archives = deps.get_default_archives()
-    settings = load_rag_settings()
-    index_metadata = archives.get_index_metadata()
-
-    return {
-        "status": "online",
-        "brain_loaded": deps.object_registry.size() > 0,
-        "index_loaded": archives.index_exists(),
-        "source_count": len(archives.list_sources()),
-        "llm_provider": settings.llm_provider,
-        "llm_model": settings.llm_model,
-        "embedding_provider": settings.embedding_provider,
-        "embedding_model": settings.embedding_model,
-        "search_type": settings.search_type,
-        "top_k": settings.top_k,
-        "persona": index_metadata.get("persona") if index_metadata else None,
-        "index_metadata": index_metadata,
-    }
 
 
 @app.post("/v1/chat", response_model=ChatResponse)
