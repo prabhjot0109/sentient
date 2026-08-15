@@ -2,13 +2,10 @@ from __future__ import annotations
 
 import asyncio
 import os
-import shutil
-import tempfile
 import time
 from contextlib import asynccontextmanager
 from dataclasses import replace
 from datetime import datetime
-from pathlib import Path
 from time import perf_counter
 from typing import Any, Optional
 from uuid import uuid4
@@ -34,8 +31,15 @@ from sentient.adapters.llm.openai_wire import (
 from sentient.adapters.stt import client as stt
 from sentient.adapters.stt.diagnostics import analyse_wav, explain_empty_transcription
 from sentient.api import deps
-from sentient.api.routers import credentials, health, keys, projects, threads
-from sentient.core.concurrency import IngestJob, ReindexJob, defer
+from sentient.api.routers import (
+    credentials,
+    documents,
+    health,
+    keys,
+    projects,
+    threads,
+)
+from sentient.core.concurrency import defer
 from sentient.core.config import load_rag_settings
 from sentient.services.condense import condense_query
 from sentient.services.runtime import (
@@ -122,6 +126,7 @@ app.include_router(keys.router)
 app.include_router(threads.router)
 app.include_router(credentials.router)
 app.include_router(projects.router)
+app.include_router(documents.router)
 
 
 class RetrievedChunk(BaseModel):
@@ -438,38 +443,6 @@ def _schedule_deferred_turn_work(ctx: RuntimeContext) -> None:
         defer(_deferred_turn_work(ctx), label="session-turn")
 
 
-async def _completions_ctx(
-    api_key: str | None,
-    project_id: str | None,
-) -> RuntimeContext:
-    provider_key = deps._as_provider_key(api_key)
-    identity_key = None if provider_key and project_id is None else api_key
-    try:
-        user_id, user_key = await resolve_user(
-            deps.state_store,
-            deps._settings,
-            api_key=identity_key,
-            cache=deps.identity_cache,
-        )
-    except AuthError as e:
-        raise HTTPException(status_code=401, detail=str(e)) from e
-
-    if project_id is not None:
-        project = await deps.state_store.get_project(user_id, project_id)
-        if project is None:
-            raise HTTPException(status_code=403, detail="project not found for this key")
-
-    return await deps.runtime_cache.resolve(
-        deps.state_store,
-        deps._settings,
-        user_id=user_id,
-        user_key=user_key,
-        project_id=project_id,
-        session_id=None,
-        provider_key=provider_key,
-    )
-
-
 @app.post("/v1/chat/completions")
 async def openai_chat_completions(
     request: ChatCompletionRequest,
@@ -478,7 +451,7 @@ async def openai_chat_completions(
     """OpenAI-compatible env-default route retained for existing clients."""
     try:
         context_started = perf_counter()
-        ctx = await _completions_ctx(x_api_key, None)
+        ctx = await deps.completions_ctx(x_api_key, None)
         context_ms = (perf_counter() - context_started) * 1000
         return await _run_completions(request, ctx, context_ms=context_ms)
     except HTTPException:
@@ -494,7 +467,7 @@ async def openai_chat_completions_key(
     request: ChatCompletionRequest,
 ):
     context_started = perf_counter()
-    ctx = await _completions_ctx(api_key, None)
+    ctx = await deps.completions_ctx(api_key, None)
     context_ms = (perf_counter() - context_started) * 1000
     return await _run_completions(request, ctx, context_ms=context_ms)
 
@@ -506,7 +479,7 @@ async def openai_chat_completions_project(
     request: ChatCompletionRequest,
 ):
     context_started = perf_counter()
-    ctx = await _completions_ctx(api_key, project_id)
+    ctx = await deps.completions_ctx(api_key, project_id)
     if request.session_id:
         ctx = replace(ctx, session_id=request.session_id, npc_name=request.npc_name)
     context_ms = (perf_counter() - context_started) * 1000
@@ -710,150 +683,3 @@ def recent_transcriptions(limit: int = 20):
         "empty_transcriptions": sum(1 for item in window if not item["text"]),
         "transcriptions": list(reversed(window)),
     }
-
-
-@app.get("/v1/projects/{project_id}/documents")
-async def list_project_documents(
-    project_id: str,
-    user: tuple[str, str] = Depends(deps.current_user),
-):
-    """Ingestion status per document — the completion signal for /v1/upload's 202."""
-    user_id, _ = user
-    if await deps.state_store.get_project(user_id, project_id) is None:
-        raise HTTPException(status_code=404, detail="project not found")
-    return {"documents": await deps.state_store.list_documents(project_id)}
-
-
-@app.post("/v1/upload", status_code=202)
-async def upload_file(
-    file: UploadFile = File(...),
-    api_key: Optional[str] = Form(default=None),
-    project_id: Optional[str] = Form(default=None),
-    x_api_key: Optional[str] = Header(default=None, alias="X-API-Key"),
-):
-    """Stage an upload and enqueue non-blocking, tenant-scoped ingestion."""
-    staged_path: str | None = None
-    try:
-        if not file.filename:
-            raise HTTPException(status_code=400, detail="Filename is required")
-
-        safe_name = os.path.basename(file.filename)
-        if not safe_name.lower().endswith((".pdf", ".txt")):
-            raise HTTPException(
-                status_code=400,
-                detail="Only PDF and TXT files are supported",
-            )
-
-        credential = x_api_key or api_key
-        ctx = await _completions_ctx(credential, project_id)
-        archives = await deps.get_archives_for_context(ctx)
-        staging_dir = archives.data_dir / ".ingest"
-
-        def _stage_upload() -> str:
-            staging_dir.mkdir(parents=True, exist_ok=True)
-            fd, path = tempfile.mkstemp(
-                prefix="upload-", suffix=Path(safe_name).suffix, dir=staging_dir
-            )
-            with os.fdopen(fd, "wb") as buffer:
-                shutil.copyfileobj(file.file, buffer)
-            return path
-
-        staged_path = await asyncio.to_thread(_stage_upload)
-        signature = ""
-        if project_id is not None:
-            signature = embedding_signature(ctx.rag_settings)
-            await deps.state_store.register_document(
-                project_id,
-                safe_name,
-                0,
-                signature,
-                status="processing",
-            )
-
-        job = IngestJob(
-            project_id=project_id,
-            user_key=ctx.user_key,
-            api_key=ctx.llm_settings["api_key"],
-            file_path=staged_path,
-            filename=safe_name,
-            embedding_signature=signature,
-            archives=archives,
-        )
-        try:
-            await deps.enqueue_ingest(job)
-        except (asyncio.QueueFull, RuntimeError) as exc:
-            if project_id is not None:
-                await deps.state_store.set_document_status(project_id, safe_name, "failed")
-            raise HTTPException(
-                status_code=503, detail="ingestion queue is unavailable"
-            ) from exc
-
-        return {"status": "processing", "filename": safe_name}
-    except HTTPException:
-        if staged_path and os.path.exists(staged_path):
-            await asyncio.to_thread(os.remove, staged_path)
-        raise
-    except Exception as e:
-        if staged_path and os.path.exists(staged_path):
-            await asyncio.to_thread(os.remove, staged_path)
-        raise HTTPException(status_code=500, detail=str(e)) from e
-
-
-@app.get("/v1/sources")
-async def list_sources(
-    project_id: Optional[str] = None,
-    x_api_key: Optional[str] = Header(default=None, alias="X-API-Key"),
-):
-    """List source documents for the caller's archive partition.
-
-    Uploads land in `deps.get_archives_for_context(ctx)` — a per-user/per-project FAISS
-    partition — so listing must resolve the same context, or it reports a different
-    archive than the one just written to. No key and no project_id resolves to the
-    default partition, identical to the pre-R8 behaviour.
-    """
-    ctx = await _completions_ctx(x_api_key, project_id)
-    archives = await deps.get_archives_for_context(ctx)
-    # stat()s every file in the partition: filesystem I/O, off the event loop.
-    sources = await asyncio.to_thread(archives.list_sources)
-    return {"sources": sources, "count": len(sources)}
-
-
-@app.delete("/v1/sources/{filename}")
-async def delete_source(
-    filename: str,
-    project_id: Optional[str] = None,
-    x_api_key: Optional[str] = Header(default=None, alias="X-API-Key"),
-):
-    """Delete a source document from the caller's partition and its registry row.
-
-    Resolving through _completions_ctx (rather than the api-key-only helper it used
-    before) is what makes a project's documents deletable at all; clearing the
-    documents row is what stops /v1/projects/{id}/documents reporting a file that is
-    no longer on disk.
-    """
-    ctx = await _completions_ctx(x_api_key, project_id)
-    archives = await deps.get_archives_for_context(ctx)
-    safe_name = os.path.basename(filename)
-    file_path = archives.data_dir / safe_name
-
-    if not await asyncio.to_thread(file_path.exists):
-        raise HTTPException(status_code=404, detail="File not found")
-
-    try:
-        await asyncio.to_thread(os.remove, file_path)
-        index_metadata = await archives.remove_file(safe_name)
-        if project_id is not None:
-            await deps.state_store.delete_document(project_id, safe_name)
-
-        return {
-            "success": True,
-            "message": f"File '{safe_name}' deleted.",
-            "index_metadata": index_metadata,
-        }
-    except HTTPException:
-        # R7's delta records that chat_endpoint's blanket `except Exception -> 500`
-        # swallowed its ownership HTTPExceptions and turned every 404 into a 500.
-        # This handler has the same shape; do not repeat that bug.
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e)) from e

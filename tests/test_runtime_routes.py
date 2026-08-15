@@ -254,7 +254,7 @@ class RuntimeCompletionsTests(unittest.IsolatedAsyncioTestCase):
                 return_value=_StubArchives(),
             ),
         ):
-            ctx = await self.api._completions_ctx(None, None)
+            ctx = await self.deps.completions_ctx(None, None)
             request = self.api.ChatCompletionRequest(
                 messages=[{"role": "user", "content": "hi"}]
             )

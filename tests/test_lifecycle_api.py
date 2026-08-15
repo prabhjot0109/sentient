@@ -127,7 +127,7 @@ class LifecycleEndpointTests(unittest.IsolatedAsyncioTestCase):
         await self.deps.state_store.register_document(
             project_id, "lore.txt", 1, "sig", status="ready"
         )
-        ctx = await self.api._completions_ctx(None, project_id)
+        ctx = await self.deps.completions_ctx(None, project_id)
         archives = await self.deps.get_archives_for_context(ctx)
         archives.data_dir.mkdir(parents=True, exist_ok=True)
         (archives.data_dir / "lore.txt").write_text("some lore", encoding="utf-8")

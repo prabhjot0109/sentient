@@ -278,3 +278,42 @@ reindex_queue = IngestQueue(_reindex_handler)
 async def enqueue_reindex(job: ReindexJob) -> None:
     """Stable enqueue seam for project reindex jobs."""
     await reindex_queue.enqueue(job)
+
+
+# Request-scoped tenant resolution for the key-in-path (Mantella) and
+# upload/sources routes. It lives here rather than in a service for the same
+# reason current_user does: it resolves *identity for this request* out of the
+# process singletons, and it is wired straight into route signatures. It keeps
+# raising HTTPException directly -- deps.py is the api layer, so HTTP vocabulary
+# is legal here, and routing it through core.errors would only add a hop.
+
+async def completions_ctx(
+    api_key: str | None,
+    project_id: str | None,
+) -> RuntimeContext:
+    provider_key = _as_provider_key(api_key)
+    identity_key = None if provider_key and project_id is None else api_key
+    try:
+        user_id, user_key = await resolve_user(
+            state_store,
+            _settings,
+            api_key=identity_key,
+            cache=identity_cache,
+        )
+    except AuthError as e:
+        raise HTTPException(status_code=401, detail=str(e)) from e
+
+    if project_id is not None:
+        project = await state_store.get_project(user_id, project_id)
+        if project is None:
+            raise HTTPException(status_code=403, detail="project not found for this key")
+
+    return await runtime_cache.resolve(
+        state_store,
+        _settings,
+        user_id=user_id,
+        user_key=user_key,
+        project_id=project_id,
+        session_id=None,
+        provider_key=provider_key,
+    )

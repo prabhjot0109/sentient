@@ -15,9 +15,13 @@ from __future__ import annotations
 
 import asyncio
 import os
+import shutil
+import tempfile
 from pathlib import Path
 
 from sentient.core.concurrency import IngestJob, ReindexJob
+from sentient.core.errors import InvalidRequest, NotFound, QueueFull
+from sentient.services.runtime import embedding_signature
 
 
 async def run_ingest_job(job: IngestJob, *, state_store, archives) -> None:
@@ -92,3 +96,90 @@ async def run_reindex_job(job: ReindexJob, *, state_store, archives) -> None:
     except Exception:
         await state_store.set_project_status(job.project_id, "reindexing_required")
         raise
+
+
+async def stage_and_enqueue(
+    state_store,
+    enqueue,
+    *,
+    file_obj,
+    filename: str | None,
+    archives,
+    ctx,
+    project_id: str | None,
+) -> str:
+    """Validate, stage to a temp file, register the row, and enqueue the job.
+
+    Returns the safe filename. This is the operation `upload_file` used to
+    perform inline, which is why only its own route could invoke it (spec
+    section 2, defect 2).
+
+    **Cleanup is owned here, not by the caller.** Pre-R9 the route cleaned the
+    staged file on two separate `except` branches; folding that into this
+    function means every failure after staging removes the temp file, including
+    failures a future caller has not thought of. On success the file is left
+    alone deliberately -- `run_ingest_job` moves it into the archive.
+    """
+    if not filename:
+        raise InvalidRequest("Filename is required")
+
+    safe_name = os.path.basename(filename)
+    if not safe_name.lower().endswith((".pdf", ".txt")):
+        raise InvalidRequest("Only PDF and TXT files are supported")
+
+    staging_dir = archives.data_dir / ".ingest"
+
+    def _stage_upload() -> str:
+        staging_dir.mkdir(parents=True, exist_ok=True)
+        fd, path = tempfile.mkstemp(
+            prefix="upload-", suffix=Path(safe_name).suffix, dir=staging_dir
+        )
+        with os.fdopen(fd, "wb") as buffer:
+            shutil.copyfileobj(file_obj, buffer)
+        return path
+
+    staged_path = await asyncio.to_thread(_stage_upload)
+    try:
+        signature = ""
+        if project_id is not None:
+            signature = embedding_signature(ctx.rag_settings)
+            await state_store.register_document(
+                project_id, safe_name, 0, signature, status="processing"
+            )
+
+        job = IngestJob(
+            project_id=project_id,
+            user_key=ctx.user_key,
+            api_key=ctx.llm_settings["api_key"],
+            file_path=staged_path,
+            filename=safe_name,
+            embedding_signature=signature,
+            archives=archives,
+        )
+        try:
+            await enqueue(job)
+        except (asyncio.QueueFull, RuntimeError) as exc:
+            if project_id is not None:
+                await state_store.set_document_status(project_id, safe_name, "failed")
+            raise QueueFull("ingestion queue is unavailable") from exc
+    except Exception:
+        if os.path.exists(staged_path):
+            await asyncio.to_thread(os.remove, staged_path)
+        raise
+
+    return safe_name
+
+
+async def delete_source(state_store, archives, *, filename: str, project_id: str | None):
+    """Remove a source file from the partition, the index, and the registry."""
+    safe_name = os.path.basename(filename)
+    file_path = archives.data_dir / safe_name
+
+    if not await asyncio.to_thread(file_path.exists):
+        raise NotFound("File not found")
+
+    await asyncio.to_thread(os.remove, file_path)
+    index_metadata = await archives.remove_file(safe_name)
+    if project_id is not None:
+        await state_store.delete_document(project_id, safe_name)
+    return safe_name, index_metadata
