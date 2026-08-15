@@ -81,6 +81,7 @@ class IngestQueueTests(unittest.IsolatedAsyncioTestCase):
 class IngestHandlerTests(unittest.IsolatedAsyncioTestCase):
     async def test_ingest_handler_awaits_add_and_marks_project_ready(self):
         from sentient.api import app as api
+        from sentient.api import deps
         from sentient.core.concurrency import IngestJob
 
         with tempfile.TemporaryDirectory() as tmp:
@@ -98,7 +99,7 @@ class IngestHandlerTests(unittest.IsolatedAsyncioTestCase):
                 "project-a", "tenant-a", None, str(path), "lore.txt", "sig-a", archives
             )
 
-            with patch.object(api, "state_store", store):
+            with patch.object(deps, "state_store", store):
                 await api._ingest_handler(job)
 
         archives.add_file.assert_awaited_once_with(
@@ -114,6 +115,7 @@ class IngestHandlerTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_ingest_handler_marks_project_failed(self):
         from sentient.api import app as api
+        from sentient.api import deps
         from sentient.core.concurrency import IngestJob
 
         archives = SimpleNamespace(
@@ -128,7 +130,7 @@ class IngestHandlerTests(unittest.IsolatedAsyncioTestCase):
             "project-a", "tenant-a", None, "/tmp/lore.txt", "lore.txt", "sig-a", archives
         )
 
-        with patch.object(api, "state_store", store):
+        with patch.object(deps, "state_store", store):
             with self.assertRaisesRegex(RuntimeError, "embed failed"):
                 await api._ingest_handler(job)
 
@@ -158,6 +160,7 @@ class SessionLockTests(unittest.IsolatedAsyncioTestCase):
 class DeferredTurnTests(unittest.IsolatedAsyncioTestCase):
     async def test_stream_schedules_session_work_after_completion(self):
         from sentient.api import app as api
+        from sentient.api import deps
 
         class _LLM:
             async def astream(self, messages):

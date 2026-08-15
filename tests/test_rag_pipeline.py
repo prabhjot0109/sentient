@@ -12,6 +12,7 @@ from fastapi.testclient import TestClient
 from langchain_core.embeddings import Embeddings
 
 from sentient.api import app as api
+from sentient.api import deps
 from sentient.core.config import load_rag_settings
 
 
@@ -113,12 +114,12 @@ class SentientRAGTests(unittest.TestCase):
         from sentient.services.runtime import RuntimeCache
         from sentient.adapters.state import get_state_store
 
-        api._settings = load_rag_settings()
-        api.state_store = get_state_store(api._settings)
-        api.identity_cache = IdentityCache()
-        api.runtime_cache = RuntimeCache()
-        api.object_registry = ObjectRegistry()
-        api.get_default_archives.cache_clear()
+        deps._settings = load_rag_settings()
+        deps.state_store = get_state_store(deps._settings)
+        deps.identity_cache = IdentityCache()
+        deps.runtime_cache = RuntimeCache()
+        deps.object_registry = ObjectRegistry()
+        deps.get_default_archives.cache_clear()
 
     def tearDown(self):
         self.env_patcher.stop()

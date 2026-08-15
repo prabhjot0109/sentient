@@ -37,6 +37,7 @@ class DocumentsEndpointTests(unittest.IsolatedAsyncioTestCase):
         self.addCleanup(embeddings.stop)
 
         from sentient.api import app as api
+        from sentient.api import deps
         from sentient.adapters.auth import IdentityCache
         from sentient.core.config import load_rag_settings
         from sentient.core.cache import ObjectRegistry
@@ -47,13 +48,14 @@ class DocumentsEndpointTests(unittest.IsolatedAsyncioTestCase):
         # still points at that test's tmpdir. Rebind them the way
         # tests/test_management_endpoints.py does.
         self.api = api
-        api._settings = load_rag_settings()
-        api.state_store = get_state_store(api._settings)
-        api.identity_cache = IdentityCache()
-        api.runtime_cache = RuntimeCache()
-        api.object_registry = ObjectRegistry()
-        api.get_default_archives.cache_clear()
-        self.addCleanup(api.get_default_archives.cache_clear)
+        self.deps = deps
+        deps._settings = load_rag_settings()
+        deps.state_store = get_state_store(deps._settings)
+        deps.identity_cache = IdentityCache()
+        deps.runtime_cache = RuntimeCache()
+        deps.object_registry = ObjectRegistry()
+        deps.get_default_archives.cache_clear()
+        self.addCleanup(deps.get_default_archives.cache_clear)
 
         self.client = httpx.AsyncClient(
             transport=httpx.ASGITransport(app=api.app), base_url="http://test"
@@ -67,7 +69,7 @@ class DocumentsEndpointTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_documents_endpoint_reports_ingestion_status(self):
         project_id = await self._project()
-        await self.api.state_store.register_document(
+        await self.deps.state_store.register_document(
             project_id, "lore.pdf", 12, "sig-1", status="processing"
         )
 
@@ -76,7 +78,7 @@ class DocumentsEndpointTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(body["documents"][0]["filename"], "lore.pdf")
         self.assertEqual(body["documents"][0]["status"], "processing")
 
-        await self.api.state_store.set_document_status(project_id, "lore.pdf", "ready")
+        await self.deps.state_store.set_document_status(project_id, "lore.pdf", "ready")
         body = (await self.client.get(f"/v1/projects/{project_id}/documents")).json()
         self.assertEqual(body["documents"][0]["status"], "ready")
 

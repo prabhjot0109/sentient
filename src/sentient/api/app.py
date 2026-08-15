@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import hashlib
 import os
 import shutil
 import tempfile
@@ -9,7 +8,6 @@ import time
 from contextlib import asynccontextmanager
 from dataclasses import replace
 from datetime import datetime
-from functools import lru_cache
 from pathlib import Path
 from time import perf_counter
 from typing import Any, Optional
@@ -20,212 +18,36 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 
-from sentient.adapters.stt import client as stt
-from sentient.adapters.stt.diagnostics import analyse_wav, explain_empty_transcription
 from sentient.adapters.auth import (
     AuthError,
-    IdentityCache,
-    auth_enabled,
     generate_api_key,
     resolve_user,
 )
-from sentient.services.condense import condense_query
-from sentient.core.config import (
-    Provider,
-    SearchType,
-    load_rag_settings,
-    provider_base_url,
-)
-from sentient.adapters.documents import ArchivesIngestion
 from sentient.adapters.llm.openai_wire import (
     ChatCompletionRequest,
     OpenAIMessage,
+    astream_completion,
     build_completion_response,
     format_lore,
     inject_lore,
     inject_persona,
     last_user_text,
-    astream_completion,
     to_history,
     to_langchain,
 )
-from sentient.core.presets import list_presets
+from sentient.adapters.stt import client as stt
+from sentient.adapters.stt.diagnostics import analyse_wav, explain_empty_transcription
+from sentient.api import deps
+from sentient.core.concurrency import IngestJob, IngestQueue, ReindexJob, defer
+from sentient.core.config import Provider, SearchType, load_rag_settings
 from sentient.core.crypto import crypto_available, encrypt_key, key_hint
-from sentient.adapters.llm.models import build_chat_model
-from sentient.core.cache import ObjectRegistry
-from sentient.services.runtime import RuntimeCache, RuntimeContext, embedding_signature, resolve_runtime_context
-from sentient.adapters.state import get_state_store
-from sentient.core.concurrency import IngestJob, IngestQueue, ReindexJob, SessionLocks, defer
-from sentient.services.rag import NPCBrain
-
-# Runtime caches (not a global brain). Clients are built once per config_signature
-# and reused; config/persona writes invalidate RuntimeCache for that project.
-_settings = load_rag_settings()
-state_store = get_state_store(_settings)
-identity_cache = IdentityCache()
-runtime_cache = RuntimeCache()
-object_registry = ObjectRegistry()
-session_locks = SessionLocks()
-
-# Any of these being set means we have enough to operate; load_rag_settings then
-# picks the right per-provider key, so multiple keys can coexist (e.g. Google for
-# embeddings + Groq for the LLM).
-_PROVIDER_KEY_ENV = (
-    "GOOGLE_API_KEY",
-    "GROQ_API_KEY",
-    "CEREBRAS_API_KEY",
-    "OPENROUTER_API_KEY",
-    "OPENAI_API_KEY",
-    "HUGGINGFACEHUB_API_TOKEN",
-    "HF_TOKEN",
+from sentient.core.presets import list_presets
+from sentient.services.condense import condense_query
+from sentient.services.runtime import (
+    RuntimeContext,
+    embedding_signature,
+    resolve_runtime_context,
 )
-
-# Provider keys that may appear in the URL path (Mantella-style). Product keys
-# (`sk-sent-…`) are identity, never LLM credentials.
-_PROVIDER_KEY_PREFIXES = ("AIza", "gsk_", "sk-", "csk-", "hf_")
-
-
-def any_provider_key_present() -> bool:
-    return any(os.getenv(name) for name in _PROVIDER_KEY_ENV)
-
-
-def _as_provider_key(raw: str | None) -> str | None:
-    """Return raw only when it looks like a provider credential, not a product key."""
-    if not raw or raw.startswith("sk-sent-"):
-        return None
-    if raw.startswith(_PROVIDER_KEY_PREFIXES):
-        return raw
-    return None
-
-
-async def build_llm(ctx: RuntimeContext):
-    s = ctx.llm_settings
-    return await asyncio.to_thread(
-        build_chat_model,
-        s["provider"],
-        s["model"],
-        s["base_url"],
-        s["api_key"],
-        s["timeout"],
-    )
-
-
-async def get_llm(ctx: RuntimeContext):
-    return await object_registry.get(ctx.config_signature, lambda: build_llm(ctx))
-
-
-def _archive_scope(ctx: RuntimeContext) -> str:
-    """Return an opaque FAISS partition name for this runtime context.
-
-    Qdrant applies the same identity at query time through payload filters. FAISS
-    has no payload filtering, so it must use a physically separate index per
-    user/project (while preserving the legacy env-default index for default
-    requests).
-    """
-    if ctx.user_key == "default" and ctx.project_id is None:
-        return "default"
-
-    user = hashlib.sha256(ctx.user_key.encode("utf-8")).hexdigest()[:24]
-    project = hashlib.sha256((ctx.project_id or "legacy").encode("utf-8")).hexdigest()[:24]
-    return f"{user}-{project}"
-
-
-def _archive_settings(ctx: RuntimeContext):
-    """Overlay the context's LLM/RAG configuration onto process defaults."""
-    llm = ctx.llm_settings
-    rag = ctx.rag_settings
-    embedding_provider = rag["embedding_provider"]
-    return replace(
-        _settings,
-        llm_provider=llm["provider"],
-        llm_model=llm["model"],
-        llm_api_key=llm["api_key"],
-        llm_base_url=llm["base_url"],
-        embedding_provider=embedding_provider,
-        embedding_model=rag["embedding_model"],
-        embedding_api_key=rag["embedding_api_key"],
-        embedding_base_url=provider_base_url(embedding_provider),
-        chunk_size=rag["chunk_size"],
-        chunk_overlap=rag["chunk_overlap"],
-        top_k=rag["top_k"],
-        fetch_k=rag["fetch_k"],
-        lambda_mult=rag["mmr_lambda"],
-        search_type=rag["search_type"],
-        score_threshold=rag["score_threshold"],
-    )
-
-
-async def build_archives(ctx: RuntimeContext) -> ArchivesIngestion:
-    """Build a scoped archive client without blocking the event loop."""
-    settings = _archive_settings(ctx)
-    scope = _archive_scope(ctx)
-    if settings.vector_backend == "faiss" and scope != "default":
-        data_dir = Path(settings.data_dir) / "projects" / scope
-        index_path = data_dir / "faiss_index"
-    else:
-        data_dir = Path(settings.data_dir)
-        index_path = Path(settings.index_path)
-
-    return await asyncio.to_thread(
-        ArchivesIngestion,
-        data_dir=str(data_dir),
-        index_path=str(index_path),
-        settings=settings,
-    )
-
-
-async def get_archives_for_context(ctx: RuntimeContext) -> ArchivesIngestion:
-    """Reuse archive clients per effective config and storage partition."""
-    scope = _archive_scope(ctx) if _settings.vector_backend == "faiss" else "qdrant"
-    key = f"archives:{ctx.config_signature}:{scope}"
-    return await object_registry.get(key, lambda: build_archives(ctx))
-
-
-async def _build_brain_bundle(ctx: RuntimeContext) -> NPCBrain:
-    # NPCBrain construction is sync/CPU (embeddings + settings); offload.
-    # Hand it the context's already-resolved settings. Passing only the LLM key made
-    # NPCBrain re-resolve embeddings from that key too, so a chat-only key (Groq,
-    # Cerebras, OpenRouter) silently moved the brain to a different embedding
-    # provider than ingest, /health and the warmup use — a different vector space
-    # than the index it then queries.
-    return await asyncio.to_thread(
-        NPCBrain, ctx.llm_settings["api_key"], settings=_archive_settings(ctx)
-    )
-
-
-async def get_brain(ctx: RuntimeContext) -> NPCBrain:
-    return await object_registry.get(
-        "brain:" + ctx.config_signature, lambda: _build_brain_bundle(ctx)
-    )
-
-
-async def current_user(
-    authorization: Optional[str] = Header(default=None),
-    x_api_key: Optional[str] = Header(default=None, alias="X-API-Key"),
-) -> tuple[str, str]:
-    """Resolve web identity: Bearer JWT or X-API-Key → (user_id, user_key).
-
-    Falls back to the default user when auth is unconfigured / no credential.
-    """
-    if authorization and not authorization.lower().startswith("bearer "):
-        raise HTTPException(
-            status_code=401,
-            detail="authorization must use Bearer authentication",
-        )
-    jwt_token = authorization[7:].strip() if authorization else None
-    if auth_enabled(_settings) and not (jwt_token or x_api_key):
-        raise HTTPException(status_code=401, detail="authentication required")
-    try:
-        return await resolve_user(
-            state_store,
-            _settings,
-            jwt_token=jwt_token,
-            header_key=x_api_key,
-            cache=identity_cache,
-        )
-    except AuthError as e:
-        raise HTTPException(status_code=401, detail=str(e)) from e
-
 
 async def _warm_grounding_path() -> None:
     """Pay every one-off cost on the lore path before the first player line does.
@@ -241,7 +63,7 @@ async def _warm_grounding_path() -> None:
     instance warms every archive that resolves to the same embedding config.
     """
     started = perf_counter()
-    await get_default_archives().retrieve(
+    await deps.get_default_archives().retrieve(
         "warmup", k=1, search_type="similarity", min_score=0.0
     )
     print(f"[WARMUP] Lore path ready in {perf_counter() - started:.1f}s")
@@ -253,13 +75,13 @@ async def lifespan(app: FastAPI):
     await ingest_queue.start()
     await reindex_queue.start()
     try:
-        have_provider_key = any_provider_key_present()
+        have_provider_key = deps.any_provider_key_present()
         try:
             if have_provider_key:
                 # Build the on-disk index from data/ at boot if missing, so the Mantella
                 # completions path has lore to ground on. Async so startup embedding
                 # never blocks the event loop. No global brain — clients resolve per turn.
-                await get_default_archives().ensure_index()
+                await deps.get_default_archives().ensure_index()
             else:
                 print("No default API key found. Clients will initialize per-request.")
         except Exception as e:
@@ -294,7 +116,7 @@ app.add_middleware(
     allow_origin_regex=r"http://(localhost|127\.0\.0\.1):\d+",
     # Deployed frontends, from CORS_ALLOW_ORIGINS. FastAPI honours the list and the
     # regex together, so a production origin does not cost the dev-port coverage.
-    allow_origins=list(_settings.cors_allow_origins),
+    allow_origins=list(deps._settings.cors_allow_origins),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -382,19 +204,8 @@ class CredentialInput(BaseModel):
     api_key: str = Field(min_length=1)
 
 
-@lru_cache(maxsize=1)
-def get_default_archives() -> ArchivesIngestion:
-    return ArchivesIngestion()
-
-
-def get_archives(api_key: Optional[str] = None) -> ArchivesIngestion:
-    if api_key:
-        return ArchivesIngestion(api_key=api_key)
-    return get_default_archives()
-
-
 async def _ingest_handler(job: IngestJob) -> None:
-    archives = job.archives or get_archives(job.api_key)
+    archives = job.archives or deps.get_archives(job.api_key)
     staged_path = Path(job.file_path)
     final_path = archives.data_dir / job.filename
     try:
@@ -409,7 +220,7 @@ async def _ingest_handler(job: IngestJob) -> None:
             embedding_signature=job.embedding_signature,
         )
         if job.project_id is not None:
-            await state_store.register_document(
+            await deps.state_store.register_document(
                 job.project_id,
                 job.filename,
                 (metadata or {}).get("added_chunk_count", 0),
@@ -418,7 +229,7 @@ async def _ingest_handler(job: IngestJob) -> None:
             )
     except Exception:
         if job.project_id is not None:
-            await state_store.set_document_status(
+            await deps.state_store.set_document_status(
                 job.project_id, job.filename, "failed"
             )
         raise
@@ -437,26 +248,26 @@ async def enqueue_ingest(job: IngestJob) -> None:
 
 async def _reindex_handler(job: ReindexJob) -> None:
     if job.user_id is None:
-        archives = get_archives(job.api_key)
+        archives = deps.get_archives(job.api_key)
     else:
         ctx = await resolve_runtime_context(
-            state_store,
-            _settings,
+            deps.state_store,
+            deps._settings,
             user_id=job.user_id,
             user_key=job.user_key or "default",
             project_id=job.project_id,
             provider_key=job.api_key,
         )
-        archives = await get_archives_for_context(ctx)
+        archives = await deps.get_archives_for_context(ctx)
 
-    documents = await state_store.list_documents(job.project_id)
+    documents = await deps.state_store.list_documents(job.project_id)
     try:
         await asyncio.to_thread(archives.clear_project, job.user_key, job.project_id)
         if archives.settings.vector_backend == "faiss":
             await asyncio.to_thread(archives.reset_index)
 
         for document in documents:
-            await state_store.set_document_status(
+            await deps.state_store.set_document_status(
                 job.project_id, document["filename"], "reindexing"
             )
             metadata = await archives.add_file(
@@ -465,16 +276,16 @@ async def _reindex_handler(job: ReindexJob) -> None:
                 project_id=job.project_id,
                 embedding_signature=job.embedding_signature,
             )
-            await state_store.register_document(
+            await deps.state_store.register_document(
                 job.project_id,
                 document["filename"],
                 (metadata or {}).get("added_chunk_count", 0),
                 job.embedding_signature,
                 status="ready",
             )
-        await state_store.set_project_status(job.project_id, "active")
+        await deps.state_store.set_project_status(job.project_id, "active")
     except Exception:
-        await state_store.set_project_status(job.project_id, "reindexing_required")
+        await deps.state_store.set_project_status(job.project_id, "reindexing_required")
         raise
 
 
@@ -488,13 +299,13 @@ async def enqueue_reindex(job: ReindexJob) -> None:
 
 @app.get("/health")
 def health_check():
-    archives = get_default_archives()
+    archives = deps.get_default_archives()
     settings = load_rag_settings()
     index_metadata = archives.get_index_metadata()
 
     return {
         "status": "online",
-        "brain_loaded": object_registry.size() > 0,
+        "brain_loaded": deps.object_registry.size() > 0,
         "index_loaded": archives.index_exists(),
         "source_count": len(archives.list_sources()),
         "llm_provider": settings.llm_provider,
@@ -511,12 +322,12 @@ def health_check():
 @app.post("/v1/chat", response_model=ChatResponse)
 async def chat_endpoint(
     payload: ChatInput,
-    user: tuple[str, str] = Depends(current_user),
+    user: tuple[str, str] = Depends(deps.current_user),
 ):
     try:
         started_at = perf_counter()
-        provider_key = _as_provider_key(payload.api_key)
-        if not (provider_key or any_provider_key_present() or _settings.sentient_secret_key):
+        provider_key = deps._as_provider_key(payload.api_key)
+        if not (provider_key or deps.any_provider_key_present() or deps._settings.sentient_secret_key):
             raise ValueError("API Key not found. Please provide one or set it in .env")
 
         user_id, user_key = user
@@ -524,34 +335,34 @@ async def chat_endpoint(
             raise HTTPException(status_code=400, detail="thread_id requires project_id")
 
         if payload.project_id:
-            project = await state_store.get_project(user_id, payload.project_id)
+            project = await deps.state_store.get_project(user_id, payload.project_id)
             if project is None:
                 raise HTTPException(status_code=404, detail="project not found")
 
             if payload.thread_id:
-                thread = await state_store.get_thread(user_id, payload.thread_id)
+                thread = await deps.state_store.get_thread(user_id, payload.thread_id)
                 if thread is None or thread["project_id"] != payload.project_id:
                     raise HTTPException(status_code=404, detail="thread not found")
             else:
-                thread = await state_store.upsert_thread(
+                thread = await deps.state_store.upsert_thread(
                     payload.project_id,
                     uuid4().hex,
                     title=payload.message.strip()[:60] or "New chat",
                 )
 
-            ctx = await runtime_cache.resolve(
-                state_store,
-                _settings,
+            ctx = await deps.runtime_cache.resolve(
+                deps.state_store,
+                deps._settings,
                 user_id=user_id,
                 user_key=user_key,
                 project_id=payload.project_id,
                 session_id=thread["id"],
                 provider_key=provider_key,
             )
-            history_window = (await state_store.get_project_config(payload.project_id) or {}).get(
+            history_window = (await deps.state_store.get_project_config(payload.project_id) or {}).get(
                 "history_window"
             ) or 20
-            history = await state_store.list_messages(thread["id"], limit=history_window)
+            history = await deps.state_store.list_messages(thread["id"], limit=history_window)
             result = await _run_web_project_chat(ctx, history, payload.message, payload.top_k)
             defer(
                 _store_web_thread_turn(thread["id"], payload.message, result["answer"]),
@@ -567,16 +378,16 @@ async def chat_endpoint(
                 thread_id=thread["id"],
             )
 
-        ctx = await runtime_cache.resolve(
-            state_store,
-            _settings,
+        ctx = await deps.runtime_cache.resolve(
+            deps.state_store,
+            deps._settings,
             user_id=user_id,
             user_key=user_key,
             project_id=None,
             session_id=None,
             provider_key=provider_key,
         )
-        active_brain = await get_brain(ctx)
+        active_brain = await deps.get_brain(ctx)
         result = await active_brain.ask_with_context(payload.message, top_k=payload.top_k)
         elapsed_ms = round((perf_counter() - started_at) * 1000, 2)
         return ChatResponse(
@@ -605,7 +416,7 @@ async def _run_web_project_chat(ctx, history, message, top_k):
 
     async def _retrieve():
         try:
-            archives = await get_archives_for_context(ctx)
+            archives = await deps.get_archives_for_context(ctx)
             return await archives.retrieve(
                 message,
                 k=top_k or ctx.rag_settings["top_k"],
@@ -619,7 +430,7 @@ async def _run_web_project_chat(ctx, history, message, top_k):
             print(f"Lore retrieval failed (answering without grounding): {exc}")
             return []
 
-    llm, chunks = await asyncio.gather(get_llm(ctx), _retrieve())
+    llm, chunks = await asyncio.gather(deps.get_llm(ctx), _retrieve())
     turn_messages = [OpenAIMessage(role=row["role"], content=row["content"]) for row in history]
     turn_messages.append(OpenAIMessage(role="user", content=message))
     messages = inject_persona(to_langchain(turn_messages), ctx.system_prompt)
@@ -640,16 +451,16 @@ async def _run_web_project_chat(ctx, history, message, top_k):
 
 
 async def _store_web_thread_turn(thread_id: str, message: str, reply: str) -> None:
-    async with session_locks.lock(thread_id):
-        await state_store.add_message(thread_id, "user", message)
-        await state_store.add_message(thread_id, "assistant", reply)
+    async with deps.session_locks.lock(thread_id):
+        await deps.state_store.add_message(thread_id, "user", message)
+        await deps.state_store.add_message(thread_id, "assistant", reply)
 
 
 @app.post("/v1/retrieve", response_model=RetrievalResponse)
 async def retrieve_endpoint(payload: RetrievalInput):
     try:
         started_at = perf_counter()
-        archives = get_archives(payload.api_key)
+        archives = deps.get_archives(payload.api_key)
         chunks = await archives.retrieve(payload.query, k=payload.top_k)
         elapsed_ms = round((perf_counter() - started_at) * 1000, 2)
         serialized_chunks = [
@@ -696,7 +507,7 @@ async def _run_completions(
         if not retrieval_query.strip():
             return []
         try:
-            resolved_archives = archives or await get_archives_for_context(ctx)
+            resolved_archives = archives or await deps.get_archives_for_context(ctx)
             search_type = (
                 ctx.rag_settings["search_type"] if ctx.project_id else "similarity"
             )
@@ -714,9 +525,9 @@ async def _run_completions(
             return []
 
     ground_started = perf_counter()
-    if _settings.condense_queries and query.strip():
+    if deps._settings.condense_queries and query.strip():
         llm, archives = await asyncio.gather(
-            get_llm(ctx), get_archives_for_context(ctx)
+            deps.get_llm(ctx), deps.get_archives_for_context(ctx)
         )
         retrieval_query = await condense_query(
             llm, to_history(request.messages), query
@@ -728,7 +539,7 @@ async def _run_completions(
             )
         chunks = await _retrieve(retrieval_query, archives)
     else:
-        llm, chunks = await asyncio.gather(get_llm(ctx), _retrieve(query))
+        llm, chunks = await asyncio.gather(deps.get_llm(ctx), _retrieve(query))
     ground_ms = (perf_counter() - ground_started) * 1000
 
     print(f"[Mantella:{ctx.user_key}]   retrieved {len(chunks)} lore chunk(s)")
@@ -773,8 +584,8 @@ async def _deferred_turn_work(ctx: RuntimeContext) -> None:
     """Surface game sessions in the sidebar. Write-only: the game path never reads
     server-side memory — Mantella carries the conversation in its own payload."""
     assert ctx.session_id is not None
-    async with session_locks.lock(ctx.session_id):
-        await state_store.upsert_thread(ctx.project_id, ctx.session_id, npc_name=ctx.npc_name)
+    async with deps.session_locks.lock(ctx.session_id):
+        await deps.state_store.upsert_thread(ctx.project_id, ctx.session_id, npc_name=ctx.npc_name)
 
 
 def _schedule_deferred_turn_work(ctx: RuntimeContext) -> None:
@@ -786,26 +597,26 @@ async def _completions_ctx(
     api_key: str | None,
     project_id: str | None,
 ) -> RuntimeContext:
-    provider_key = _as_provider_key(api_key)
+    provider_key = deps._as_provider_key(api_key)
     identity_key = None if provider_key and project_id is None else api_key
     try:
         user_id, user_key = await resolve_user(
-            state_store,
-            _settings,
+            deps.state_store,
+            deps._settings,
             api_key=identity_key,
-            cache=identity_cache,
+            cache=deps.identity_cache,
         )
     except AuthError as e:
         raise HTTPException(status_code=401, detail=str(e)) from e
 
     if project_id is not None:
-        project = await state_store.get_project(user_id, project_id)
+        project = await deps.state_store.get_project(user_id, project_id)
         if project is None:
             raise HTTPException(status_code=403, detail="project not found for this key")
 
-    return await runtime_cache.resolve(
-        state_store,
-        _settings,
+    return await deps.runtime_cache.resolve(
+        deps.state_store,
+        deps._settings,
         user_id=user_id,
         user_key=user_key,
         project_id=project_id,
@@ -906,7 +717,7 @@ async def audio_transcriptions(
 
     NOTE: this is the ONE route where `Authorization: Bearer` is a *provider* key
     rather than a Neon Auth JWT — Mantella's UI has a single field for its Whisper
-    credential and forwards it here. It therefore does not use `Depends(current_user)`;
+    credential and forwards it here. It therefore does not use `Depends(deps.current_user)`;
     Sentient identity comes from `X-API-Key` only. Do not "fix" this to match the
     other routes without changing what Mantella sends.
 
@@ -926,13 +737,13 @@ async def audio_transcriptions(
     if x_api_key:
         try:
             user_id, _ = await resolve_user(
-                state_store, _settings, api_key=x_api_key, cache=identity_cache
+                deps.state_store, deps._settings, api_key=x_api_key, cache=deps.identity_cache
             )
         except AuthError as e:
             raise HTTPException(status_code=401, detail=str(e)) from e
 
     provider, api_key, key_source = await stt.resolve_stt_credential(
-        state_store, _settings, authorization=authorization, user_id=user_id
+        deps.state_store, deps._settings, authorization=authorization, user_id=user_id
     )
 
     print("\n" + "=" * 65)
@@ -1059,11 +870,11 @@ def recent_transcriptions(limit: int = 20):
 @app.post("/v1/keys")
 async def create_key(
     payload: KeyInput,
-    user: tuple[str, str] = Depends(current_user),
+    user: tuple[str, str] = Depends(deps.current_user),
 ):
     user_id, _ = user
     raw_key, key_hash = generate_api_key()
-    row = await state_store.create_api_key(user_id, key_hash, label=payload.label)
+    row = await deps.state_store.create_api_key(user_id, key_hash, label=payload.label)
     return {"id": row["id"], "api_key": raw_key, "label": payload.label}
 
 
@@ -1078,20 +889,20 @@ def _credential_provider(provider: str) -> str:
 
 
 def _credential_secret() -> str:
-    if not crypto_available(_settings):
+    if not crypto_available(deps._settings):
         raise HTTPException(status_code=503, detail="credential vault is not configured")
-    return _settings.sentient_secret_key
+    return deps._settings.sentient_secret_key
 
 
 async def _invalidate_user_projects(user_id: str) -> None:
-    for project in await state_store.list_projects(user_id):
-        runtime_cache.invalidate(project["id"])
+    for project in await deps.state_store.list_projects(user_id):
+        deps.runtime_cache.invalidate(project["id"])
 
 
 @app.post("/v1/credentials")
 async def create_credential(
     payload: CredentialInput,
-    user: tuple[str, str] = Depends(current_user),
+    user: tuple[str, str] = Depends(deps.current_user),
 ):
     secret = _credential_secret()  # gate on the vault before validating anything else
     provider = _credential_provider(payload.provider)
@@ -1100,87 +911,87 @@ async def create_credential(
     except Exception as exc:
         raise HTTPException(status_code=503, detail="credential vault is unavailable") from exc
     user_id, _ = user
-    row = await state_store.upsert_credential(user_id, provider, encrypted, key_hint(payload.api_key))
+    row = await deps.state_store.upsert_credential(user_id, provider, encrypted, key_hint(payload.api_key))
     await _invalidate_user_projects(user_id)
     return {"provider": row["provider"], "key_hint": row["key_hint"]}
 
 
 @app.get("/v1/credentials")
-async def list_credentials(user: tuple[str, str] = Depends(current_user)):
+async def list_credentials(user: tuple[str, str] = Depends(deps.current_user)):
     _credential_secret()
     user_id, _ = user
-    return {"credentials": await state_store.list_credentials(user_id)}
+    return {"credentials": await deps.state_store.list_credentials(user_id)}
 
 
 @app.delete("/v1/credentials/{provider}")
 async def delete_credential(
     provider: str,
-    user: tuple[str, str] = Depends(current_user),
+    user: tuple[str, str] = Depends(deps.current_user),
 ):
     _credential_secret()
     user_id, _ = user
-    deleted = await state_store.delete_credential(user_id, _credential_provider(provider))
+    deleted = await deps.state_store.delete_credential(user_id, _credential_provider(provider))
     await _invalidate_user_projects(user_id)
     return {"deleted": deleted}
 
 
 @app.get("/v1/keys")
-async def list_keys(user: tuple[str, str] = Depends(current_user)):
+async def list_keys(user: tuple[str, str] = Depends(deps.current_user)):
     user_id, _ = user
-    return {"keys": await state_store.list_api_keys(user_id)}
+    return {"keys": await deps.state_store.list_api_keys(user_id)}
 
 
 @app.delete("/v1/keys/{key_id}")
 async def delete_key(
     key_id: str,
-    user: tuple[str, str] = Depends(current_user),
+    user: tuple[str, str] = Depends(deps.current_user),
 ):
     user_id, _ = user
-    revoked = await state_store.revoke_api_key(user_id, key_id)
+    revoked = await deps.state_store.revoke_api_key(user_id, key_id)
     if revoked:
-        identity_cache.clear()
+        deps.identity_cache.clear()
     return {"revoked": revoked}
 
 
 @app.post("/v1/projects")
 async def create_project(
     payload: ProjectInput,
-    user: tuple[str, str] = Depends(current_user),
+    user: tuple[str, str] = Depends(deps.current_user),
 ):
     user_id, _ = user
-    project = await state_store.create_project(
+    project = await deps.state_store.create_project(
         user_id,
         payload.name,
         payload.base_preset,
     )
     ctx = await resolve_runtime_context(
-        state_store,
-        _settings,
+        deps.state_store,
+        deps._settings,
         user_id=user_id,
         user_key="_",
         project_id=project["id"],
     )
-    await state_store.upsert_project_config(
+    await deps.state_store.upsert_project_config(
         project["id"], embedding_signature=embedding_signature(ctx.rag_settings)
     )
     return project
 
 
 @app.get("/v1/projects")
-async def list_projects(user: tuple[str, str] = Depends(current_user)):
+async def list_projects(user: tuple[str, str] = Depends(deps.current_user)):
     user_id, _ = user
-    return {"projects": await state_store.list_projects(user_id)}
+    return {"projects": await deps.state_store.list_projects(user_id)}
 
 
 @app.get("/v1/projects/{project_id}/threads")
 async def list_project_threads(
     project_id: str,
-    user: tuple[str, str] = Depends(current_user),
+    user: tuple[str, str] = Depends(deps.current_user),
 ):
     user_id, _ = user
-    if await state_store.get_project(user_id, project_id) is None:
+    if await deps.state_store.get_project(user_id, project_id) is None:
         raise HTTPException(status_code=404, detail="project not found")
-    return {"threads": await state_store.list_threads(project_id)}
+    return {"threads": await deps.state_store.list_threads(project_id)}
 
 
 class ProjectRenameInput(BaseModel):
@@ -1191,10 +1002,10 @@ class ProjectRenameInput(BaseModel):
 async def rename_project_endpoint(
     project_id: str,
     payload: ProjectRenameInput,
-    user: tuple[str, str] = Depends(current_user),
+    user: tuple[str, str] = Depends(deps.current_user),
 ):
     user_id, _ = user
-    project = await state_store.rename_project(user_id, project_id, payload.name)
+    project = await deps.state_store.rename_project(user_id, project_id, payload.name)
     if project is None:
         raise HTTPException(status_code=404, detail="project not found")
     return project
@@ -1203,7 +1014,7 @@ async def rename_project_endpoint(
 @app.delete("/v1/projects/{project_id}")
 async def delete_project_endpoint(
     project_id: str,
-    user: tuple[str, str] = Depends(current_user),
+    user: tuple[str, str] = Depends(deps.current_user),
 ):
     """Delete a project and everything under it (config, threads, messages, documents).
 
@@ -1212,21 +1023,21 @@ async def delete_project_endpoint(
     it is tracked in the post-R8 TODO under "Storage reclamation".
     """
     user_id, _ = user
-    if not await state_store.delete_project(user_id, project_id):
+    if not await deps.state_store.delete_project(user_id, project_id):
         raise HTTPException(status_code=404, detail="project not found")
     # Without this, cached contexts keep serving turns for a deleted project until
     # the RuntimeCache TTL expires.
-    runtime_cache.invalidate(project_id)
+    deps.runtime_cache.invalidate(project_id)
     return {"deleted": True}
 
 
 @app.delete("/v1/threads/{thread_id}")
 async def delete_thread_endpoint(
     thread_id: str,
-    user: tuple[str, str] = Depends(current_user),
+    user: tuple[str, str] = Depends(deps.current_user),
 ):
     user_id, _ = user
-    if not await state_store.delete_thread(user_id, thread_id):
+    if not await deps.state_store.delete_thread(user_id, thread_id):
         raise HTTPException(status_code=404, detail="thread not found")
     return {"deleted": True}
 
@@ -1234,64 +1045,64 @@ async def delete_thread_endpoint(
 @app.get("/v1/projects/{project_id}/documents")
 async def list_project_documents(
     project_id: str,
-    user: tuple[str, str] = Depends(current_user),
+    user: tuple[str, str] = Depends(deps.current_user),
 ):
     """Ingestion status per document — the completion signal for /v1/upload's 202."""
     user_id, _ = user
-    if await state_store.get_project(user_id, project_id) is None:
+    if await deps.state_store.get_project(user_id, project_id) is None:
         raise HTTPException(status_code=404, detail="project not found")
-    return {"documents": await state_store.list_documents(project_id)}
+    return {"documents": await deps.state_store.list_documents(project_id)}
 
 
 @app.get("/v1/threads/{thread_id}/messages")
 async def list_thread_messages(
     thread_id: str,
     limit: int = 50,
-    user: tuple[str, str] = Depends(current_user),
+    user: tuple[str, str] = Depends(deps.current_user),
 ):
     if not 1 <= limit <= 200:
         raise HTTPException(status_code=422, detail="limit must be between 1 and 200")
     user_id, _ = user
-    if await state_store.get_thread(user_id, thread_id) is None:
+    if await deps.state_store.get_thread(user_id, thread_id) is None:
         raise HTTPException(status_code=404, detail="thread not found")
-    return {"messages": await state_store.list_messages(thread_id, limit=limit)}
+    return {"messages": await deps.state_store.list_messages(thread_id, limit=limit)}
 
 
 @app.put("/v1/projects/{project_id}/config")
 async def update_config(
     project_id: str,
     payload: ConfigInput,
-    user: tuple[str, str] = Depends(current_user),
+    user: tuple[str, str] = Depends(deps.current_user),
 ):
     user_id, _ = user
-    project = await state_store.get_project(user_id, project_id)
+    project = await deps.state_store.get_project(user_id, project_id)
     if project is None:
         raise HTTPException(status_code=404, detail="project not found")
-    prior = (await state_store.get_project_config(project_id) or {}).get(
+    prior = (await deps.state_store.get_project_config(project_id) or {}).get(
         "embedding_signature"
     )
-    await state_store.upsert_project_config(
+    await deps.state_store.upsert_project_config(
         project_id,
         **payload.model_dump(exclude_unset=True),
     )
     ctx = await resolve_runtime_context(
-        state_store,
-        _settings,
+        deps.state_store,
+        deps._settings,
         user_id=user_id,
         user_key="_",
         project_id=project_id,
     )
-    config = await state_store.upsert_project_config(
+    config = await deps.state_store.upsert_project_config(
         project_id, embedding_signature=embedding_signature(ctx.rag_settings)
     )
     new_signature = config["embedding_signature"]
-    runtime_cache.invalidate(project_id)
+    deps.runtime_cache.invalidate(project_id)
     if (
         prior is not None
         and prior != new_signature
         and project["status"] != "reindexing_required"
     ):
-        await state_store.set_project_status(project_id, "reindexing_required")
+        await deps.state_store.set_project_status(project_id, "reindexing_required")
         await enqueue_reindex(
             ReindexJob(
                 project_id=project_id,
@@ -1308,16 +1119,16 @@ async def update_config(
 async def set_persona(
     project_id: str,
     payload: PersonaInput,
-    user: tuple[str, str] = Depends(current_user),
+    user: tuple[str, str] = Depends(deps.current_user),
 ):
     user_id, _ = user
-    if await state_store.get_project(user_id, project_id) is None:
+    if await deps.state_store.get_project(user_id, project_id) is None:
         raise HTTPException(status_code=404, detail="project not found")
-    config = await state_store.upsert_project_config(
+    config = await deps.state_store.upsert_project_config(
         project_id,
         persona_prompt=payload.system_prompt,
     )
-    runtime_cache.invalidate(project_id)
+    deps.runtime_cache.invalidate(project_id)
     return config
 
 
@@ -1348,7 +1159,7 @@ async def upload_file(
 
         credential = x_api_key or api_key
         ctx = await _completions_ctx(credential, project_id)
-        archives = await get_archives_for_context(ctx)
+        archives = await deps.get_archives_for_context(ctx)
         staging_dir = archives.data_dir / ".ingest"
 
         def _stage_upload() -> str:
@@ -1364,7 +1175,7 @@ async def upload_file(
         signature = ""
         if project_id is not None:
             signature = embedding_signature(ctx.rag_settings)
-            await state_store.register_document(
+            await deps.state_store.register_document(
                 project_id,
                 safe_name,
                 0,
@@ -1385,7 +1196,7 @@ async def upload_file(
             await enqueue_ingest(job)
         except (asyncio.QueueFull, RuntimeError) as exc:
             if project_id is not None:
-                await state_store.set_document_status(project_id, safe_name, "failed")
+                await deps.state_store.set_document_status(project_id, safe_name, "failed")
             raise HTTPException(
                 status_code=503, detail="ingestion queue is unavailable"
             ) from exc
@@ -1408,13 +1219,13 @@ async def list_sources(
 ):
     """List source documents for the caller's archive partition.
 
-    Uploads land in `get_archives_for_context(ctx)` — a per-user/per-project FAISS
+    Uploads land in `deps.get_archives_for_context(ctx)` — a per-user/per-project FAISS
     partition — so listing must resolve the same context, or it reports a different
     archive than the one just written to. No key and no project_id resolves to the
     default partition, identical to the pre-R8 behaviour.
     """
     ctx = await _completions_ctx(x_api_key, project_id)
-    archives = await get_archives_for_context(ctx)
+    archives = await deps.get_archives_for_context(ctx)
     # stat()s every file in the partition: filesystem I/O, off the event loop.
     sources = await asyncio.to_thread(archives.list_sources)
     return {"sources": sources, "count": len(sources)}
@@ -1434,7 +1245,7 @@ async def delete_source(
     no longer on disk.
     """
     ctx = await _completions_ctx(x_api_key, project_id)
-    archives = await get_archives_for_context(ctx)
+    archives = await deps.get_archives_for_context(ctx)
     safe_name = os.path.basename(filename)
     file_path = archives.data_dir / safe_name
 
@@ -1445,7 +1256,7 @@ async def delete_source(
         await asyncio.to_thread(os.remove, file_path)
         index_metadata = await archives.remove_file(safe_name)
         if project_id is not None:
-            await state_store.delete_document(project_id, safe_name)
+            await deps.state_store.delete_document(project_id, safe_name)
 
         return {
             "success": True,

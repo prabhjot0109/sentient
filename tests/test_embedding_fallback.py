@@ -63,6 +63,7 @@ class BrainEmbeddingSpaceTests(unittest.TestCase):
 
     def test_brain_uses_the_context_embedding_settings_not_the_llm_key(self):
         from sentient.api import app as api
+        from sentient.api import deps
 
         ctx = api.RuntimeContext(
             user_key="default",
@@ -100,8 +101,8 @@ class BrainEmbeddingSpaceTests(unittest.TestCase):
             captured["settings"] = settings
             return object()
 
-        with patch.object(api, "NPCBrain", fake_brain):
-            asyncio.run(api._build_brain_bundle(ctx))
+        with patch.object(deps, "NPCBrain", fake_brain):
+            asyncio.run(deps._build_brain_bundle(ctx))
 
         self.assertIsNotNone(captured["settings"], "the brain must be given resolved settings")
         self.assertEqual(captured["settings"].embedding_provider, "google")

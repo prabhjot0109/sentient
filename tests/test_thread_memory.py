@@ -53,21 +53,23 @@ class ThreadStoreTests(unittest.IsolatedAsyncioTestCase):
 class ThreadMemoryEndpointTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         from sentient.api import app as api
+        from sentient.api import deps
 
         self.api = api
+        self.deps = deps
         self.tmp = tempfile.TemporaryDirectory()
         self.store = SQLiteStateStore(str(Path(self.tmp.name) / "state.db"))
         self.original = (
-            api.state_store, api._settings, api.runtime_cache,
-            api.object_registry, api.identity_cache,
+            deps.state_store, deps._settings, deps.runtime_cache,
+            deps.object_registry, deps.identity_cache,
         )
-        api.state_store = self.store
+        deps.state_store = self.store
         # /v1/chat refuses to run with no credential anywhere; the vault secret keeps
         # the test independent of whichever provider keys the dev machine has set.
-        api._settings = replace(api._settings, sentient_secret_key=Fernet.generate_key().decode())
-        api.runtime_cache = RuntimeCache()
-        api.object_registry = ObjectRegistry()
-        api.identity_cache = IdentityCache()
+        deps._settings = replace(deps._settings, sentient_secret_key=Fernet.generate_key().decode())
+        deps.runtime_cache = RuntimeCache()
+        deps.object_registry = ObjectRegistry()
+        deps.identity_cache = IdentityCache()
         self.owner = await self.store.ensure_user(None)
         self.project = await self.store.create_project(self.owner["id"], "P")
         await self.store.upsert_project_config(self.project["id"], llm_provider="openai")
@@ -79,8 +81,8 @@ class ThreadMemoryEndpointTests(unittest.IsolatedAsyncioTestCase):
         await self.client.aclose()
         await self._drain_deferred()
         (
-            self.api.state_store, self.api._settings, self.api.runtime_cache,
-            self.api.object_registry, self.api.identity_cache,
+            self.deps.state_store, self.deps._settings, self.deps.runtime_cache,
+            self.deps.object_registry, self.deps.identity_cache,
         ) = self.original
         self.api.app.dependency_overrides.clear()
         self.tmp.cleanup()
@@ -114,10 +116,9 @@ class ThreadMemoryEndpointTests(unittest.IsolatedAsyncioTestCase):
                 return []
 
         return (
-            patch.object(self.api, "get_llm", AsyncMock(return_value=FakeLLM())),
-            patch.object(self.api, "build_llm", AsyncMock(return_value=FakeLLM())),
-            patch.object(
-                self.api, "get_archives_for_context", AsyncMock(return_value=EmptyArchives())
+            patch.object(self.deps, "get_llm", AsyncMock(return_value=FakeLLM())),
+            patch.object(self.deps, "build_llm", AsyncMock(return_value=FakeLLM())),
+            patch.object(self.deps, "get_archives_for_context", AsyncMock(return_value=EmptyArchives())
             ),
         )
 
@@ -199,7 +200,7 @@ class ThreadMemoryEndpointTests(unittest.IsolatedAsyncioTestCase):
                 return_value={"answer": "legacy", "sources": [], "top_k": 3}
             )
         )
-        with patch.object(self.api, "get_brain", AsyncMock(return_value=brain)):
+        with patch.object(self.deps, "get_brain", AsyncMock(return_value=brain)):
             answered = await self._say("plain")
         self.assertEqual(answered.status_code, 200)
         self.assertEqual(answered.json()["response"], "legacy")
@@ -235,7 +236,7 @@ class ThreadMemoryEndpointTests(unittest.IsolatedAsyncioTestCase):
             other = await self.store.ensure_user("other")
             return other["id"], "other"
 
-        self.api.app.dependency_overrides[self.api.current_user] = other_user
+        self.api.app.dependency_overrides[self.deps.current_user] = other_user
 
 
 if __name__ == "__main__":

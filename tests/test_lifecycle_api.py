@@ -34,6 +34,7 @@ class LifecycleEndpointTests(unittest.IsolatedAsyncioTestCase):
         self.addCleanup(embeddings.stop)
 
         from sentient.api import app as api
+        from sentient.api import deps
         from sentient.adapters.auth import IdentityCache
         from sentient.core.config import load_rag_settings
         from sentient.core.cache import ObjectRegistry
@@ -43,13 +44,14 @@ class LifecycleEndpointTests(unittest.IsolatedAsyncioTestCase):
         # api.py builds these at import time; rebind them so this test does not
         # inherit an earlier test's tmpdir (see tests/test_management_endpoints.py).
         self.api = api
-        api._settings = load_rag_settings()
-        api.state_store = get_state_store(api._settings)
-        api.identity_cache = IdentityCache()
-        api.runtime_cache = RuntimeCache()
-        api.object_registry = ObjectRegistry()
-        api.get_default_archives.cache_clear()
-        self.addCleanup(api.get_default_archives.cache_clear)
+        self.deps = deps
+        deps._settings = load_rag_settings()
+        deps.state_store = get_state_store(deps._settings)
+        deps.identity_cache = IdentityCache()
+        deps.runtime_cache = RuntimeCache()
+        deps.object_registry = ObjectRegistry()
+        deps.get_default_archives.cache_clear()
+        self.addCleanup(deps.get_default_archives.cache_clear)
 
         self.client = httpx.AsyncClient(
             transport=httpx.ASGITransport(app=api.app), base_url="http://test"
@@ -92,12 +94,12 @@ class LifecycleEndpointTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_deleting_a_project_invalidates_its_runtime_cache(self):
         project_id = await self._project()
-        with patch.object(self.api.runtime_cache, "invalidate") as invalidate:
+        with patch.object(self.deps.runtime_cache, "invalidate") as invalidate:
             await self.client.delete(f"/v1/projects/{project_id}")
         invalidate.assert_called_once_with(project_id)
 
     async def test_a_failed_delete_does_not_invalidate_anything(self):
-        with patch.object(self.api.runtime_cache, "invalidate") as invalidate:
+        with patch.object(self.deps.runtime_cache, "invalidate") as invalidate:
             await self.client.delete("/v1/projects/nope")
         invalidate.assert_not_called()
 
@@ -108,7 +110,7 @@ class LifecycleEndpointTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_delete_thread(self):
         project_id = await self._project()
-        thread = await self.api.state_store.upsert_thread(
+        thread = await self.deps.state_store.upsert_thread(
             project_id, "sess-1", title="First chat"
         )
         response = await self.client.delete(f"/v1/threads/{thread['id']}")
@@ -122,11 +124,11 @@ class LifecycleEndpointTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_deleting_a_project_source_clears_its_document_row(self):
         project_id = await self._project()
-        await self.api.state_store.register_document(
+        await self.deps.state_store.register_document(
             project_id, "lore.txt", 1, "sig", status="ready"
         )
         ctx = await self.api._completions_ctx(None, project_id)
-        archives = await self.api.get_archives_for_context(ctx)
+        archives = await self.deps.get_archives_for_context(ctx)
         archives.data_dir.mkdir(parents=True, exist_ok=True)
         (archives.data_dir / "lore.txt").write_text("some lore", encoding="utf-8")
 

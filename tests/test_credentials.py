@@ -138,22 +138,24 @@ class CredentialResolutionTests(unittest.IsolatedAsyncioTestCase):
 class CredentialEndpointTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         from sentient.api import app as api
+        from sentient.api import deps
 
         self.api = api
+        self.deps = deps
         self.tmp = tempfile.TemporaryDirectory()
         self.store = SQLiteStateStore(str(Path(self.tmp.name) / "state.db"))
         self.secret = Fernet.generate_key().decode()
-        self.original = (api.state_store, api._settings, api.runtime_cache)
-        api.state_store = self.store
-        api._settings = replace(api._settings, sentient_secret_key=self.secret)
-        api.runtime_cache = RuntimeCache()
+        self.original = (deps.state_store, deps._settings, deps.runtime_cache)
+        deps.state_store = self.store
+        deps._settings = replace(deps._settings, sentient_secret_key=self.secret)
+        deps.runtime_cache = RuntimeCache()
         self.user = await self.store.ensure_user(None)
         transport = httpx.ASGITransport(app=api.app)
         self.client = httpx.AsyncClient(transport=transport, base_url="http://test")
 
     async def asyncTearDown(self):
         await self.client.aclose()
-        self.api.state_store, self.api._settings, self.api.runtime_cache = self.original
+        self.deps.state_store, self.deps._settings, self.deps.runtime_cache = self.original
         self.api.app.dependency_overrides.clear()
         self.tmp.cleanup()
 
@@ -193,7 +195,7 @@ class CredentialEndpointTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(rejected.status_code, 400)
 
     async def test_every_route_is_503_without_the_secret(self):
-        self.api._settings = replace(self.api._settings, sentient_secret_key=None)
+        self.deps._settings = replace(self.deps._settings, sentient_secret_key=None)
         post = await self.client.post(
             "/v1/credentials", json={"provider": "openai", "api_key": "sk-1234"}
         )
@@ -207,8 +209,8 @@ class CredentialEndpointTests(unittest.IsolatedAsyncioTestCase):
         resolve_args = dict(
             user_id=self.user["id"], user_key="default", project_id=project["id"]
         )
-        cold = await self.api.runtime_cache.resolve(
-            self.store, self.api._settings, **resolve_args
+        cold = await self.deps.runtime_cache.resolve(
+            self.store, self.deps._settings, **resolve_args
         )
 
         await self.client.post(
@@ -216,8 +218,8 @@ class CredentialEndpointTests(unittest.IsolatedAsyncioTestCase):
         )
 
         # Without invalidation the 60s TTL would keep serving `cold` with the env key.
-        warm = await self.api.runtime_cache.resolve(
-            self.store, self.api._settings, **resolve_args
+        warm = await self.deps.runtime_cache.resolve(
+            self.store, self.deps._settings, **resolve_args
         )
         self.assertEqual(warm.llm_settings["api_key"], "sk-fresh-9999")
         self.assertNotEqual(warm.config_signature, cold.config_signature)

@@ -19,6 +19,7 @@ class ManagementEndpointTests(unittest.IsolatedAsyncioTestCase):
             os.environ.pop(name, None)
 
         from sentient.api import app as api
+        from sentient.api import deps
         from sentient.adapters.auth import IdentityCache
         from sentient.core.config import load_rag_settings
         from sentient.core.cache import ObjectRegistry
@@ -26,11 +27,12 @@ class ManagementEndpointTests(unittest.IsolatedAsyncioTestCase):
         from sentient.adapters.state import get_state_store
 
         self.api = api
-        api._settings = load_rag_settings()
-        api.state_store = get_state_store(api._settings)
-        api.identity_cache = IdentityCache()
-        api.runtime_cache = RuntimeCache()
-        api.object_registry = ObjectRegistry()
+        self.deps = deps
+        deps._settings = load_rag_settings()
+        deps.state_store = get_state_store(deps._settings)
+        deps.identity_cache = IdentityCache()
+        deps.runtime_cache = RuntimeCache()
+        deps.object_registry = ObjectRegistry()
 
     async def asyncTearDown(self) -> None:
         self.env.stop()
@@ -38,9 +40,9 @@ class ManagementEndpointTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_key_project_config_and_persona_flow(self) -> None:
         invalidate_patcher = patch.object(
-            self.api.runtime_cache,
+            self.deps.runtime_cache,
             "invalidate",
-            wraps=self.api.runtime_cache.invalidate,
+            wraps=self.deps.runtime_cache.invalidate,
         )
         invalidate = invalidate_patcher.start()
         self.addCleanup(invalidate_patcher.stop)
@@ -90,16 +92,14 @@ class ManagementEndpointTests(unittest.IsolatedAsyncioTestCase):
     async def test_project_upload_is_scoped_and_reports_processing(self) -> None:
         from sentient.adapters.auth import hash_key, user_key_of
 
-        owner = await self.api.state_store.ensure_user("upload-owner")
+        owner = await self.deps.state_store.ensure_user("upload-owner")
         raw_key = "sk-sent-upload"
-        await self.api.state_store.create_api_key(owner["id"], hash_key(raw_key))
-        project = await self.api.state_store.create_project(owner["id"], "Skyrim")
+        await self.deps.state_store.create_api_key(owner["id"], hash_key(raw_key))
+        project = await self.deps.state_store.create_project(owner["id"], "Skyrim")
         archives = SimpleNamespace(data_dir=Path(self.tmp.name) / "project-data")
 
         with (
-            patch.object(
-                self.api,
-                "get_archives_for_context",
+            patch.object(self.deps, "get_archives_for_context",
                 new_callable=AsyncMock,
                 return_value=archives,
             ),
@@ -117,7 +117,7 @@ class ManagementEndpointTests(unittest.IsolatedAsyncioTestCase):
                     data={"project_id": project["id"]},
                     files={"file": ("lore.txt", b"project lore", "text/plain")},
                 )
-                documents = await self.api.state_store.list_documents(project["id"])
+                documents = await self.deps.state_store.list_documents(project["id"])
 
         self.assertEqual(response.status_code, 202)
         job = enqueue.await_args.args[0]
@@ -158,8 +158,8 @@ class ManagementEndpointTests(unittest.IsolatedAsyncioTestCase):
     async def test_management_requires_identity_when_auth_is_configured(self) -> None:
         from dataclasses import replace
 
-        self.api._settings = replace(
-            self.api._settings,
+        self.deps._settings = replace(
+            self.deps._settings,
             neon_auth_jwks_url="https://auth.example/.well-known/jwks.json",
         )
         transport = httpx.ASGITransport(app=self.api.app)
@@ -171,10 +171,10 @@ class ManagementEndpointTests(unittest.IsolatedAsyncioTestCase):
     async def test_cannot_edit_another_users_project(self) -> None:
         from sentient.adapters.auth import hash_key
 
-        owner = await self.api.state_store.ensure_user("owner")
-        other = await self.api.state_store.ensure_user("other")
-        project = await self.api.state_store.create_project(owner["id"], "Private")
-        await self.api.state_store.create_api_key(other["id"], hash_key("sk-sent-other"))
+        owner = await self.deps.state_store.ensure_user("owner")
+        other = await self.deps.state_store.ensure_user("other")
+        project = await self.deps.state_store.create_project(owner["id"], "Private")
+        await self.deps.state_store.create_api_key(other["id"], hash_key("sk-sent-other"))
 
         transport = httpx.ASGITransport(app=self.api.app)
         headers = {"X-API-Key": "sk-sent-other"}

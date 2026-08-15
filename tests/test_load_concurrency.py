@@ -19,6 +19,7 @@ class LoadConcurrencyTests(unittest.IsolatedAsyncioTestCase):
             os.environ.pop(name, None)
 
         from sentient.api import app as api
+        from sentient.api import deps
         from sentient.adapters.auth import IdentityCache
         from sentient.core.config import load_rag_settings
         from sentient.core.cache import ObjectRegistry
@@ -26,11 +27,12 @@ class LoadConcurrencyTests(unittest.IsolatedAsyncioTestCase):
         from sentient.adapters.state import get_state_store
 
         self.api = api
-        api._settings = load_rag_settings()
-        api.state_store = get_state_store(api._settings)
-        api.identity_cache = IdentityCache()
-        api.runtime_cache = RuntimeCache()
-        api.object_registry = ObjectRegistry()
+        self.deps = deps
+        deps._settings = load_rag_settings()
+        deps.state_store = get_state_store(deps._settings)
+        deps.identity_cache = IdentityCache()
+        deps.runtime_cache = RuntimeCache()
+        deps.object_registry = ObjectRegistry()
 
     async def asyncTearDown(self) -> None:
         self.env.stop()
@@ -39,10 +41,10 @@ class LoadConcurrencyTests(unittest.IsolatedAsyncioTestCase):
     async def test_concurrent_tenants_interleave(self) -> None:
         from sentient.adapters.auth import hash_key
 
-        owner = await self.api.state_store.ensure_user("load-test-owner")
+        owner = await self.deps.state_store.ensure_user("load-test-owner")
         keys = [f"sk-sent-load-{index}" for index in range(10)]
         for key in keys:
-            await self.api.state_store.create_api_key(owner["id"], hash_key(key))
+            await self.deps.state_store.create_api_key(owner["id"], hash_key(key))
 
         inflight = 0
         peak_inflight = 0
@@ -67,15 +69,11 @@ class LoadConcurrencyTests(unittest.IsolatedAsyncioTestCase):
                 return []
 
         with (
-            patch.object(
-                self.api,
-                "build_llm",
+            patch.object(self.deps, "build_llm",
                 new_callable=AsyncMock,
                 return_value=_SlowLLM(),
             ),
-            patch.object(
-                self.api,
-                "get_archives_for_context",
+            patch.object(self.deps, "get_archives_for_context",
                 new_callable=AsyncMock,
                 return_value=_StubArchives(),
             ),

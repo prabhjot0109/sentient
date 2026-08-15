@@ -22,6 +22,7 @@ class RuntimeCompletionsTests(unittest.IsolatedAsyncioTestCase):
             os.environ.pop(name, None)
 
         from sentient.api import app as api
+        from sentient.api import deps
         from sentient.adapters.auth import IdentityCache
         from sentient.core.config import load_rag_settings
         from sentient.core.cache import ObjectRegistry
@@ -29,12 +30,13 @@ class RuntimeCompletionsTests(unittest.IsolatedAsyncioTestCase):
         from sentient.adapters.state import get_state_store
 
         self.api = api
-        api._settings = load_rag_settings()
-        api.state_store = get_state_store(api._settings)
-        api.identity_cache = IdentityCache()
-        api.runtime_cache = RuntimeCache()
-        api.object_registry = ObjectRegistry()
-        api.get_default_archives.cache_clear()
+        self.deps = deps
+        deps._settings = load_rag_settings()
+        deps.state_store = get_state_store(deps._settings)
+        deps.identity_cache = IdentityCache()
+        deps.runtime_cache = RuntimeCache()
+        deps.object_registry = ObjectRegistry()
+        deps.get_default_archives.cache_clear()
 
     async def asyncTearDown(self) -> None:
         self.env.stop()
@@ -53,20 +55,16 @@ class RuntimeCompletionsTests(unittest.IsolatedAsyncioTestCase):
                 return []
 
         with (
-            patch.object(
-                self.api,
-                "build_llm",
+            patch.object(self.deps, "build_llm",
                 new_callable=AsyncMock,
                 return_value=_FakeLLM(),
             ) as build_llm,
-            patch.object(
-                self.api,
-                "get_archives_for_context",
+            patch.object(self.deps, "get_archives_for_context",
                 new_callable=AsyncMock,
                 return_value=_StubArchives(),
                 create=True,
             ) as get_archives_for_context,
-            patch.object(self.api, "get_archives", return_value=_StubArchives()),
+            patch.object(self.deps, "get_archives", return_value=_StubArchives()),
         ):
             transport = httpx.ASGITransport(app=self.api.app)
             async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
@@ -89,9 +87,9 @@ class RuntimeCompletionsTests(unittest.IsolatedAsyncioTestCase):
     async def test_project_route_resolves_persona_and_filters_retrieval(self) -> None:
         from sentient.adapters.auth import hash_key, user_key_of
 
-        user = await self.api.state_store.ensure_user("owner")
-        await self.api.state_store.create_api_key(user["id"], hash_key("sk-sent-project"))
-        project = await self.api.state_store.create_project(
+        user = await self.deps.state_store.ensure_user("owner")
+        await self.deps.state_store.create_api_key(user["id"], hash_key("sk-sent-project"))
+        project = await self.deps.state_store.create_project(
             user["id"], "Skyrim", base_preset="skyrim"
         )
         captured: dict[str, object] = {}
@@ -111,15 +109,11 @@ class RuntimeCompletionsTests(unittest.IsolatedAsyncioTestCase):
                 return []
 
         with (
-            patch.object(
-                self.api,
-                "build_llm",
+            patch.object(self.deps, "build_llm",
                 new_callable=AsyncMock,
                 return_value=_FakeLLM(),
             ),
-            patch.object(
-                self.api,
-                "get_archives_for_context",
+            patch.object(self.deps, "get_archives_for_context",
                 new_callable=AsyncMock,
                 return_value=_StubArchives(),
                 create=True,
@@ -154,8 +148,8 @@ class RuntimeCompletionsTests(unittest.IsolatedAsyncioTestCase):
     async def test_api_key_only_route_uses_resolved_identity(self) -> None:
         from sentient.adapters.auth import hash_key, user_key_of
 
-        user = await self.api.state_store.ensure_user("key-owner")
-        await self.api.state_store.create_api_key(user["id"], hash_key("sk-sent-key-only"))
+        user = await self.deps.state_store.ensure_user("key-owner")
+        await self.deps.state_store.create_api_key(user["id"], hash_key("sk-sent-key-only"))
         captured: dict[str, object] = {}
 
         class _FakeLLM:
@@ -171,15 +165,11 @@ class RuntimeCompletionsTests(unittest.IsolatedAsyncioTestCase):
                 return []
 
         with (
-            patch.object(
-                self.api,
-                "build_llm",
+            patch.object(self.deps, "build_llm",
                 new_callable=AsyncMock,
                 return_value=_FakeLLM(),
             ),
-            patch.object(
-                self.api,
-                "get_archives_for_context",
+            patch.object(self.deps, "get_archives_for_context",
                 new_callable=AsyncMock,
                 return_value=_StubArchives(),
             ),
@@ -211,15 +201,11 @@ class RuntimeCompletionsTests(unittest.IsolatedAsyncioTestCase):
                 return []
 
         with (
-            patch.object(
-                self.api,
-                "build_llm",
+            patch.object(self.deps, "build_llm",
                 new_callable=AsyncMock,
                 return_value=_FakeLLM(),
             ),
-            patch.object(
-                self.api,
-                "get_archives_for_context",
+            patch.object(self.deps, "get_archives_for_context",
                 new_callable=AsyncMock,
                 return_value=_StubArchives(),
             ),
@@ -262,10 +248,8 @@ class RuntimeCompletionsTests(unittest.IsolatedAsyncioTestCase):
             return _FakeLLM()
 
         with (
-            patch.object(self.api, "get_llm", side_effect=get_llm),
-            patch.object(
-                self.api,
-                "get_archives_for_context",
+            patch.object(self.deps, "get_llm", side_effect=get_llm),
+            patch.object(self.deps, "get_archives_for_context",
                 new_callable=AsyncMock,
                 return_value=_StubArchives(),
             ),
@@ -281,19 +265,19 @@ class RuntimeCompletionsTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response["choices"][0]["message"]["content"], "Ready.")
 
     async def test_faiss_archives_are_cached_per_user_and_project_scope(self) -> None:
-        owner = await self.api.state_store.ensure_user("archive-owner")
-        first_project = await self.api.state_store.create_project(owner["id"], "First")
-        second_project = await self.api.state_store.create_project(owner["id"], "Second")
-        first_ctx = await self.api.runtime_cache.resolve(
-            self.api.state_store,
-            self.api._settings,
+        owner = await self.deps.state_store.ensure_user("archive-owner")
+        first_project = await self.deps.state_store.create_project(owner["id"], "First")
+        second_project = await self.deps.state_store.create_project(owner["id"], "Second")
+        first_ctx = await self.deps.runtime_cache.resolve(
+            self.deps.state_store,
+            self.deps._settings,
             user_id=owner["id"],
             user_key="tenant-key",
             project_id=first_project["id"],
         )
-        second_ctx = await self.api.runtime_cache.resolve(
-            self.api.state_store,
-            self.api._settings,
+        second_ctx = await self.deps.runtime_cache.resolve(
+            self.deps.state_store,
+            self.deps._settings,
             user_id=owner["id"],
             user_key="tenant-key",
             project_id=second_project["id"],
@@ -302,15 +286,13 @@ class RuntimeCompletionsTests(unittest.IsolatedAsyncioTestCase):
 
         first_archives = object()
         second_archives = object()
-        with patch.object(
-            self.api,
-            "build_archives",
+        with patch.object(self.deps, "build_archives",
             new_callable=AsyncMock,
             side_effect=[first_archives, second_archives],
         ) as build_archives:
-            first = await self.api.get_archives_for_context(first_ctx)
-            first_again = await self.api.get_archives_for_context(first_ctx)
-            second = await self.api.get_archives_for_context(second_ctx)
+            first = await self.deps.get_archives_for_context(first_ctx)
+            first_again = await self.deps.get_archives_for_context(first_ctx)
+            second = await self.deps.get_archives_for_context(second_ctx)
 
         self.assertIs(first, first_again)
         self.assertIsNot(first, second)
@@ -329,10 +311,10 @@ class RuntimeCompletionsTests(unittest.IsolatedAsyncioTestCase):
     async def test_project_owned_by_another_user_is_403(self) -> None:
         from sentient.adapters.auth import hash_key
 
-        owner = await self.api.state_store.ensure_user("project-owner")
-        other = await self.api.state_store.ensure_user("other-user")
-        project = await self.api.state_store.create_project(owner["id"], "Private")
-        await self.api.state_store.create_api_key(other["id"], hash_key("sk-sent-other"))
+        owner = await self.deps.state_store.ensure_user("project-owner")
+        other = await self.deps.state_store.ensure_user("other-user")
+        project = await self.deps.state_store.create_project(owner["id"], "Private")
+        await self.deps.state_store.create_api_key(other["id"], hash_key("sk-sent-other"))
 
         transport = httpx.ASGITransport(app=self.api.app)
         async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
@@ -346,7 +328,7 @@ class RuntimeCompletionsTests(unittest.IsolatedAsyncioTestCase):
     async def test_runtime_route_preserves_query_condensation(self) -> None:
         from dataclasses import replace
 
-        self.api._settings = replace(self.api._settings, condense_queries=True)
+        self.deps._settings = replace(self.deps._settings, condense_queries=True)
         captured: dict[str, object] = {}
 
         class _FakeLLM:
@@ -362,15 +344,11 @@ class RuntimeCompletionsTests(unittest.IsolatedAsyncioTestCase):
                 return []
 
         with (
-            patch.object(
-                self.api,
-                "build_llm",
+            patch.object(self.deps, "build_llm",
                 new_callable=AsyncMock,
                 return_value=_FakeLLM(),
             ),
-            patch.object(
-                self.api,
-                "get_archives_for_context",
+            patch.object(self.deps, "get_archives_for_context",
                 new_callable=AsyncMock,
                 return_value=_StubArchives(),
             ),

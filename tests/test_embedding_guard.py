@@ -50,6 +50,7 @@ class ReindexGuardTests(unittest.IsolatedAsyncioTestCase):
             os.environ.pop(name, None)
 
         from sentient.api import app as api
+        from sentient.api import deps
         from sentient.adapters.auth import IdentityCache
         from sentient.core.config import load_rag_settings
         from sentient.core.cache import ObjectRegistry
@@ -57,11 +58,12 @@ class ReindexGuardTests(unittest.IsolatedAsyncioTestCase):
         from sentient.adapters.state import get_state_store
 
         self.api = api
-        api._settings = load_rag_settings()
-        api.state_store = get_state_store(api._settings)
-        api.identity_cache = IdentityCache()
-        api.runtime_cache = RuntimeCache()
-        api.object_registry = ObjectRegistry()
+        self.deps = deps
+        deps._settings = load_rag_settings()
+        deps.state_store = get_state_store(deps._settings)
+        deps.identity_cache = IdentityCache()
+        deps.runtime_cache = RuntimeCache()
+        deps.object_registry = ObjectRegistry()
 
     async def asyncTearDown(self) -> None:
         self.env.stop()
@@ -79,17 +81,17 @@ class ReindexGuardTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(response.status_code, 200)
         project_id = project.json()["id"]
-        stored = await self.api.state_store.get_project(project.json()["user_id"], project_id)
+        stored = await self.deps.state_store.get_project(project.json()["user_id"], project_id)
         self.assertEqual(stored["status"], "reindexing_required")
         enqueue.assert_awaited_once()
 
     async def test_reindexing_project_blocks_completions(self) -> None:
-        user = await self.api.state_store.ensure_user(None)
-        project = await self.api.state_store.create_project(user["id"], "P")
-        await self.api.state_store.set_project_status(project["id"], "reindexing_required")
-        ctx = await self.api.runtime_cache.resolve(
-            self.api.state_store,
-            self.api._settings,
+        user = await self.deps.state_store.ensure_user(None)
+        project = await self.deps.state_store.create_project(user["id"], "P")
+        await self.deps.state_store.set_project_status(project["id"], "reindexing_required")
+        ctx = await self.deps.runtime_cache.resolve(
+            self.deps.state_store,
+            self.deps._settings,
             user_id=user["id"],
             user_key="default",
             project_id=project["id"],
@@ -104,12 +106,12 @@ class ReindexGuardTests(unittest.IsolatedAsyncioTestCase):
     async def test_reindex_handler_purges_then_restores_project(self) -> None:
         from sentient.core.concurrency import ReindexJob
 
-        user = await self.api.state_store.ensure_user(None)
-        project = await self.api.state_store.create_project(user["id"], "P")
-        await self.api.state_store.register_document(
+        user = await self.deps.state_store.ensure_user(None)
+        project = await self.deps.state_store.create_project(user["id"], "P")
+        await self.deps.state_store.register_document(
             project["id"], "lore.txt", 3, "old-signature", status="ready"
         )
-        await self.api.state_store.set_project_status(project["id"], "reindexing_required")
+        await self.deps.state_store.set_project_status(project["id"], "reindexing_required")
         archives = SimpleNamespace(
             data_dir=Path(self.tmp.name),
             settings=SimpleNamespace(vector_backend="qdrant"),
@@ -118,7 +120,7 @@ class ReindexGuardTests(unittest.IsolatedAsyncioTestCase):
             add_file=AsyncMock(return_value={"added_chunk_count": 5}),
         )
 
-        with patch.object(self.api, "get_archives", return_value=archives):
+        with patch.object(self.deps, "get_archives", return_value=archives):
             await self.api._reindex_handler(
                 ReindexJob(project["id"], "user-key", None, "new-signature")
             )
@@ -130,8 +132,8 @@ class ReindexGuardTests(unittest.IsolatedAsyncioTestCase):
             project_id=project["id"],
             embedding_signature="new-signature",
         )
-        document = (await self.api.state_store.list_documents(project["id"]))[0]
+        document = (await self.deps.state_store.list_documents(project["id"]))[0]
         self.assertEqual(document["status"], "ready")
         self.assertEqual(document["embedding_signature"], "new-signature")
-        stored = await self.api.state_store.get_project(user["id"], project["id"])
+        stored = await self.deps.state_store.get_project(user["id"], project["id"])
         self.assertEqual(stored["status"], "active")
