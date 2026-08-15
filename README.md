@@ -27,19 +27,35 @@ Sentient is a sophisticated RAG (Retrieval-Augmented Generation) based AI NPC sy
 
 ## Architecture
 
+Layers run one way only — `api → services → adapters → core` — and that rule is
+enforced by `import-linter` in CI, not by convention.
+
 ```text
 sentient/
-├── api.py                  # FastAPI backend server
-├── npc_brain.py            # Core brain logic
-├── run_rag.py              # Manual CLI smoke-test for the RAG pipeline (not part of the API)
-├── logic/
-│   ├── config.py           # Env-driven settings & provider resolution
-│   ├── ingestion.py        # Document ingestion with FAISS
-│   ├── openai_adapter.py   # OpenAI-compatible /v1/chat/completions adapter
-│   ├── persona.py          # AI persona configuration
-│   └── rag_engine.py       # RAG engine implementation
+├── src/sentient/
+│   ├── core/               # depends on nothing internal
+│   │   ├── config.py       # Env-driven settings & provider resolution (the ONLY env reader)
+│   │   ├── errors.py       # Domain exception types; no HTTP vocabulary
+│   │   ├── concurrency.py  # Ingest queue, session locks, deferred work
+│   │   └── cache.py        # Object registry / single-flight client cache
+│   ├── adapters/           # external systems; may import core only
+│   │   ├── documents.py    # Document ingestion (load, split, OCR)
+│   │   ├── state/          # StateStore Protocol + SQLite and Postgres peers
+│   │   ├── retrieval/      # VectorBackend Protocol + FAISS and Qdrant backends
+│   │   ├── llm/            # Provider clients, OpenAI wire format, persona
+│   │   └── stt/            # Speech-to-text proxy client + WAV diagnostics
+│   ├── services/           # domain operations; may import adapters + core
+│   │   ├── rag.py          # NPCBrain: prompt + retrieval + answer
+│   │   └── runtime.py      # Per-request tenant resolution
+│   ├── api/                # HTTP only; may import services + core
+│   │   ├── app.py          # App factory: lifespan, CORS, router registration
+│   │   ├── deps.py         # Singletons and the auth dependency
+│   │   └── routers/        # One router per resource
+│   └── cli.py              # `sentient` console script: manual RAG smoke-test
+├── migrations/             # SQL applied on first Postgres pool open
+├── deploy/Dockerfile
 ├── data/                   # Source PDFs (tracked) + generated FAISS index & state DB (gitignored)
-└── frontend/               # Vite + React UI
+└── apps/web/               # Vite + React UI
     ├── src/
     │   ├── components/     # React components
     │   ├── hooks/          # Custom hooks
@@ -64,13 +80,13 @@ cp .env.example .env
 # Edit .env with your API keys (GOOGLE_API_KEY is preferred)
 
 # Start backend server
-uv run uvicorn api:app --reload
+uv run uvicorn sentient.api.app:app --reload
 ```
 
 ### 2. Frontend Setup
 
 ```bash
-cd frontend
+cd apps/web
 
 # Install dependencies
 npm install  # (or bun install / yarn)
@@ -191,7 +207,7 @@ The multi-project runtime keeps its relational state — users, API keys, projec
 | `supabase` | `PostgresStateStore` (asyncpg) | `SUPABASE_DB_URL` or `DATABASE_URL` |
 | `sqlite` | `SQLiteStateStore` | `${DATA_DIR}/state.db` |
 
-Neon and Supabase are both Postgres, so they share **one** asyncpg implementation — only the DSN differs. The schema ships as `db/migrations/0001_runtime_schema.sql` (applied idempotently on first pool use) and is mirrored by the SQLite store's `_init()`. With no `DATABASE_URL` the backend falls back to SQLite and behaves exactly as before. Chat history lives in this same store as `chat_threads` / `chat_messages` (see below).
+Neon and Supabase are both Postgres, so they share **one** asyncpg implementation — only the DSN differs. The schema ships as `migrations/0001_runtime_schema.sql` (applied idempotently on first pool use) and is mirrored by the SQLite store's `_init()`. With no `DATABASE_URL` the backend falls back to SQLite and behaves exactly as before. Chat history lives in this same store as `chat_threads` / `chat_messages` (see below).
 
 ### Credential vault and thread memory
 
@@ -236,7 +252,7 @@ If Tesseract is missing, scanned PDFs simply ingest as empty with a warning in t
 
 ### Dev tooling
 
-`python run_rag.py` sanity-checks the RAG pipeline (index rebuild, retrieval, and — if an API key is set — generation) from the terminal, without starting the API server.
+`uv run sentient` sanity-checks the RAG pipeline (index rebuild, retrieval, and — if an API key is set — generation) from the terminal, without starting the API server.
 
 ### Deployment (Docker)
 
@@ -247,7 +263,7 @@ docker run -p 8000:8000 --env-file .env -v sentient-data:/app/data sentient
 
 Two things the image deliberately does:
 
-- **`db/migrations/` ships in the image.** With `DATABASE_URL` set, `PostgresStateStore` applies every `.sql` file in that directory the first time it opens a pool, so migrations run automatically on first DB connection — but only if the directory is present. Without it the pool opens, zero migrations apply, and the first real query fails on a missing relation.
+- **`migrations/` ships in the image.** With `DATABASE_URL` set, `PostgresStateStore` applies every `.sql` file in that directory the first time it opens a pool, so migrations run automatically on first DB connection — but only if the directory is present. Without it the pool opens, zero migrations apply, and the first real query fails on a missing relation.
 - **`data/` is *not* baked in.** It is per-tenant runtime state (uploads, FAISS partitions, the SQLite fallback DB), so it must be a **mounted volume**. Baking one deployment's lore into the image is wrong for a multi-project runtime, and any write inside the container would be lost on the next deploy.
 
 Set `CORS_ALLOW_ORIGINS` to your deployed frontend origin(s), comma-separated. Local Vite dev ports (`http://localhost:*` / `http://127.0.0.1:*`) stay allowed regardless, so the same value works in dev and production.

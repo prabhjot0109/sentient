@@ -33,6 +33,9 @@ dependencies = [
     "uvicorn>=0.40.0",
 ]
 
+[project.scripts]
+sentient = "sentient.cli:main"
+
 [dependency-groups]
 dev = [
     "pytest>=9.1.1",

@@ -80,7 +80,7 @@ class IngestQueueTests(unittest.IsolatedAsyncioTestCase):
 
 class IngestHandlerTests(unittest.IsolatedAsyncioTestCase):
     async def test_ingest_handler_awaits_add_and_marks_project_ready(self):
-        import api
+        from sentient.api import app as api
         from sentient.core.concurrency import IngestJob
 
         with tempfile.TemporaryDirectory() as tmp:
@@ -113,7 +113,7 @@ class IngestHandlerTests(unittest.IsolatedAsyncioTestCase):
         store.set_document_status.assert_not_awaited()
 
     async def test_ingest_handler_marks_project_failed(self):
-        import api
+        from sentient.api import app as api
         from sentient.core.concurrency import IngestJob
 
         archives = SimpleNamespace(
@@ -157,7 +157,7 @@ class SessionLockTests(unittest.IsolatedAsyncioTestCase):
 
 class DeferredTurnTests(unittest.IsolatedAsyncioTestCase):
     async def test_stream_schedules_session_work_after_completion(self):
-        import api
+        from sentient.api import app as api
 
         class _LLM:
             async def astream(self, messages):

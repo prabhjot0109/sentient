@@ -11,7 +11,7 @@ from unittest.mock import patch
 from fastapi.testclient import TestClient
 from langchain_core.embeddings import Embeddings
 
-import api
+from sentient.api import app as api
 from sentient.core.config import load_rag_settings
 
 

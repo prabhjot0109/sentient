@@ -1,17 +1,19 @@
+"""Retrieval/answer smoke check, exposed as the `sentient` console script.
+
+The sys.path.append this file used to carry is gone: R9 made the repo a real
+installed package, so `import sentient` resolves from any working directory.
+"""
+
 import asyncio
 import os
-import sys
 from time import perf_counter
 
-# Add current directory to path so we can import logic modules
-sys.path.append(os.path.abspath(os.path.dirname(__file__)))
-
-from sentient.core.config import load_rag_settings
 from sentient.adapters.documents import ArchivesIngestion
+from sentient.core.config import load_rag_settings
 from sentient.services.rag import NPCBrain
 
 
-async def main():
+async def _main():
     print("--- NeuralNPC Sentinel Verification ---")
     settings = load_rag_settings()
     archives = ArchivesIngestion()
@@ -75,5 +77,10 @@ async def main():
         print(f"[!] Error during verification: {e}")
 
 
+def main() -> None:
+    """Synchronous entry point for the console script."""
+    asyncio.run(_main())
+
+
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()

@@ -145,7 +145,7 @@ class UpstreamModelTests(unittest.TestCase):
 
 class TranscriptionEndpointTests(unittest.IsolatedAsyncioTestCase):
     async def _post(self, audio: bytes, **kwargs):
-        import api
+        from sentient.api import app as api
 
         transport = httpx.ASGITransport(app=api.app)
         async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
@@ -223,7 +223,7 @@ class TranscriptionEndpointTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response.status_code, 502)
 
     async def test_optional_fields_are_only_sent_when_set(self):
-        import api
+        from sentient.api import app as api
         import sentient.adapters.stt.client as stt
 
         fake = MagicMock()
@@ -247,7 +247,7 @@ class TranscriptionEndpointTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("prompt", sent)
 
     async def test_recent_endpoint_reports_transcriptions_and_silence_count(self):
-        import api
+        from sentient.api import app as api
         import sentient.adapters.stt.client as stt
 
         api._STT_HISTORY.clear()
@@ -270,7 +270,7 @@ class TranscriptionEndpointTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("gsk_f", str(body))
 
     async def test_history_is_bounded(self):
-        import api
+        from sentient.api import app as api
 
         api._STT_HISTORY.clear()
         for i in range(api._STT_HISTORY_LIMIT + 10):

@@ -52,7 +52,7 @@ class ThreadStoreTests(unittest.IsolatedAsyncioTestCase):
 
 class ThreadMemoryEndpointTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
-        import api
+        from sentient.api import app as api
 
         self.api = api
         self.tmp = tempfile.TemporaryDirectory()

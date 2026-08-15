@@ -49,7 +49,7 @@ plan — regenerate it, and confirm a referenced file exists before relying on i
 ```bash
 uv run python -m pytest tests/ -v          # full test suite (the DoD gate for every plan task)
 uv run python -m pytest tests/test_qdrant_backend.py -v   # one file
-uv run uvicorn api:app --port 8000         # run the API
+uv run uvicorn sentient.api.app:app --port 8000         # run the API
 uv add <package>                           # deps via uv only; never hand-edit uv.lock
 ```
 

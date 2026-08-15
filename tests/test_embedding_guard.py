@@ -49,7 +49,7 @@ class ReindexGuardTests(unittest.IsolatedAsyncioTestCase):
         for name in ("DATABASE_URL", "NEON_AUTH_JWKS_URL"):
             os.environ.pop(name, None)
 
-        import api
+        from sentient.api import app as api
         from sentient.adapters.auth import IdentityCache
         from sentient.core.config import load_rag_settings
         from sentient.core.cache import ObjectRegistry

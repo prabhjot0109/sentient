@@ -21,8 +21,13 @@ class PostgresStateStore:
 
     async def _ensure_schema(self) -> None:
         # Migrations are idempotent DDL and must run in order for new deployments.
+        # parents[4] is the repo root: this file sits at
+        # <root>/src/sentient/adapters/state/postgres_store.py. Re-derive this
+        # count if the module ever moves -- a wrong depth makes the glob return
+        # an empty list, so migrations silently do not run and the first query
+        # fails with "relation does not exist" instead of a path error.
         import pathlib
-        migrations = sorted((pathlib.Path(__file__).resolve().parents[2] / "db" / "migrations").glob("*.sql"))
+        migrations = sorted((pathlib.Path(__file__).resolve().parents[4] / "migrations").glob("*.sql"))
         async with self._pool.acquire() as conn:  # type: ignore[union-attr]
             for migration in migrations:
                 await conn.execute(migration.read_text(encoding="utf-8"))

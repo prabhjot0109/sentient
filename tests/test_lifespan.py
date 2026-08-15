@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, patch
 
 class LifespanTests(unittest.IsolatedAsyncioTestCase):
     async def test_ingest_queue_stops_when_lifespan_body_fails(self):
-        import api
+        from sentient.api import app as api
 
         queue = SimpleNamespace(start=AsyncMock(), stop=AsyncMock())
         with (
@@ -22,7 +22,7 @@ class LifespanTests(unittest.IsolatedAsyncioTestCase):
         queue.stop.assert_awaited_once()
 
     async def test_lifespan_warms_the_grounding_path_with_a_real_query(self):
-        import api
+        from sentient.api import app as api
 
         archives = SimpleNamespace(
             ensure_index=AsyncMock(),
@@ -43,7 +43,7 @@ class LifespanTests(unittest.IsolatedAsyncioTestCase):
         archives.retrieve.assert_awaited_once()
 
     async def test_warmup_failure_never_stops_startup(self):
-        import api
+        from sentient.api import app as api
 
         archives = SimpleNamespace(
             ensure_index=AsyncMock(),
@@ -62,7 +62,7 @@ class LifespanTests(unittest.IsolatedAsyncioTestCase):
         queue.stop.assert_awaited_once()
 
     async def test_warmup_is_skipped_without_a_provider_key(self):
-        import api
+        from sentient.api import app as api
 
         archives = SimpleNamespace(ensure_index=AsyncMock(), retrieve=AsyncMock())
         queue = SimpleNamespace(start=AsyncMock(), stop=AsyncMock())

@@ -38,7 +38,7 @@ of 2026-08-15. Never copy a test count or file list out of an older plan — reg
 ```bash
 uv run python -m pytest tests/ -v          # full test suite (the DoD gate for every plan task)
 uv run python -m pytest tests/test_qdrant_backend.py -v   # one file
-uv run uvicorn api:app --port 8000         # run the API
+uv run uvicorn sentient.api.app:app --port 8000         # run the API
 uv add <package>                           # deps via uv only; never hand-edit uv.lock
 ```
 
