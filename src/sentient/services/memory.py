@@ -9,7 +9,8 @@ class SessionMemory:
     """In-process rolling conversation window keyed by (session_id, npc_name).
 
     Web-path only: the Mantella game path resends full history each turn, so it
-    does NOT use this. Not persisted — long-term state is Supabase (Plan 05).
+    does NOT use this. Not persisted — long-term state is the StateStore's
+    `chat_threads`/`chat_messages` (R7).
     Bounded by max_turns so parallel sessions can't leak RAM unboundedly.
     """
 
