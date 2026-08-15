@@ -38,7 +38,7 @@ from sentient.adapters.llm.openai_wire import (
 from sentient.adapters.stt import client as stt
 from sentient.adapters.stt.diagnostics import analyse_wav, explain_empty_transcription
 from sentient.api import deps
-from sentient.api.routers import health
+from sentient.api.routers import health, keys
 from sentient.core.concurrency import IngestJob, IngestQueue, ReindexJob, defer
 from sentient.core.config import Provider, SearchType, load_rag_settings
 from sentient.core.crypto import crypto_available, encrypt_key, key_hint
@@ -124,6 +124,7 @@ app.add_middleware(
 )
 
 app.include_router(health.router)
+app.include_router(keys.router)
 
 
 class RetrievedChunk(BaseModel):
@@ -164,10 +165,6 @@ class RetrievalResponse(BaseModel):
     top_k: int
     retrieval_ms: float
     chunks: list[RetrievedChunk] = Field(default_factory=list)
-
-
-class KeyInput(BaseModel):
-    label: Optional[str] = Field(default=None, max_length=200)
 
 
 class ProjectInput(BaseModel):
@@ -848,17 +845,6 @@ def recent_transcriptions(limit: int = 20):
     }
 
 
-@app.post("/v1/keys")
-async def create_key(
-    payload: KeyInput,
-    user: tuple[str, str] = Depends(deps.current_user),
-):
-    user_id, _ = user
-    raw_key, key_hash = generate_api_key()
-    row = await deps.state_store.create_api_key(user_id, key_hash, label=payload.label)
-    return {"id": row["id"], "api_key": raw_key, "label": payload.label}
-
-
 _CREDENTIAL_PROVIDERS = {"google", "openai", "huggingface", "groq", "cerebras", "openrouter"}
 
 
@@ -914,24 +900,6 @@ async def delete_credential(
     deleted = await deps.state_store.delete_credential(user_id, _credential_provider(provider))
     await _invalidate_user_projects(user_id)
     return {"deleted": deleted}
-
-
-@app.get("/v1/keys")
-async def list_keys(user: tuple[str, str] = Depends(deps.current_user)):
-    user_id, _ = user
-    return {"keys": await deps.state_store.list_api_keys(user_id)}
-
-
-@app.delete("/v1/keys/{key_id}")
-async def delete_key(
-    key_id: str,
-    user: tuple[str, str] = Depends(deps.current_user),
-):
-    user_id, _ = user
-    revoked = await deps.state_store.revoke_api_key(user_id, key_id)
-    if revoked:
-        deps.identity_cache.clear()
-    return {"revoked": revoked}
 
 
 @app.post("/v1/projects")
