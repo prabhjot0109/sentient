@@ -38,7 +38,7 @@ from sentient.adapters.llm.openai_wire import (
 from sentient.adapters.stt import client as stt
 from sentient.adapters.stt.diagnostics import analyse_wav, explain_empty_transcription
 from sentient.api import deps
-from sentient.api.routers import health, keys
+from sentient.api.routers import health, keys, threads
 from sentient.core.concurrency import IngestJob, IngestQueue, ReindexJob, defer
 from sentient.core.config import Provider, SearchType, load_rag_settings
 from sentient.core.crypto import crypto_available, encrypt_key, key_hint
@@ -125,6 +125,7 @@ app.add_middleware(
 
 app.include_router(health.router)
 app.include_router(keys.router)
+app.include_router(threads.router)
 
 
 class RetrievedChunk(BaseModel):
@@ -932,17 +933,6 @@ async def list_projects(user: tuple[str, str] = Depends(deps.current_user)):
     return {"projects": await deps.state_store.list_projects(user_id)}
 
 
-@app.get("/v1/projects/{project_id}/threads")
-async def list_project_threads(
-    project_id: str,
-    user: tuple[str, str] = Depends(deps.current_user),
-):
-    user_id, _ = user
-    if await deps.state_store.get_project(user_id, project_id) is None:
-        raise HTTPException(status_code=404, detail="project not found")
-    return {"threads": await deps.state_store.list_threads(project_id)}
-
-
 class ProjectRenameInput(BaseModel):
     name: str = Field(min_length=1, max_length=200)
 
@@ -980,17 +970,6 @@ async def delete_project_endpoint(
     return {"deleted": True}
 
 
-@app.delete("/v1/threads/{thread_id}")
-async def delete_thread_endpoint(
-    thread_id: str,
-    user: tuple[str, str] = Depends(deps.current_user),
-):
-    user_id, _ = user
-    if not await deps.state_store.delete_thread(user_id, thread_id):
-        raise HTTPException(status_code=404, detail="thread not found")
-    return {"deleted": True}
-
-
 @app.get("/v1/projects/{project_id}/documents")
 async def list_project_documents(
     project_id: str,
@@ -1001,20 +980,6 @@ async def list_project_documents(
     if await deps.state_store.get_project(user_id, project_id) is None:
         raise HTTPException(status_code=404, detail="project not found")
     return {"documents": await deps.state_store.list_documents(project_id)}
-
-
-@app.get("/v1/threads/{thread_id}/messages")
-async def list_thread_messages(
-    thread_id: str,
-    limit: int = 50,
-    user: tuple[str, str] = Depends(deps.current_user),
-):
-    if not 1 <= limit <= 200:
-        raise HTTPException(status_code=422, detail="limit must be between 1 and 200")
-    user_id, _ = user
-    if await deps.state_store.get_thread(user_id, thread_id) is None:
-        raise HTTPException(status_code=404, detail="thread not found")
-    return {"messages": await deps.state_store.list_messages(thread_id, limit=limit)}
 
 
 @app.put("/v1/projects/{project_id}/config")
