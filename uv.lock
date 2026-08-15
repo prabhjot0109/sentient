@@ -2599,7 +2599,7 @@ wheels = [
 [[package]]
 name = "sentient"
 version = "0.1.0"
-source = { virtual = "." }
+source = { editable = "." }
 dependencies = [
     { name = "asyncpg" },
     { name = "cachetools" },
