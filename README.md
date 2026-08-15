@@ -37,9 +37,8 @@ sentient/
 │   ├── ingestion.py        # Document ingestion with FAISS
 │   ├── openai_adapter.py   # OpenAI-compatible /v1/chat/completions adapter
 │   ├── persona.py          # AI persona configuration
-│   ├── rag_engine.py       # RAG engine implementation
-│   └── sqlite_chat_store.py # Local chat history fallback (used when Supabase isn't configured)
-├── data/                   # Source PDFs (tracked) + generated FAISS index & local chat DB (gitignored)
+│   └── rag_engine.py       # RAG engine implementation
+├── data/                   # Source PDFs (tracked) + generated FAISS index & state DB (gitignored)
 └── frontend/               # Vite + React UI
     ├── src/
     │   ├── components/     # React components
@@ -107,8 +106,6 @@ RAG_MMR_LAMBDA=0.65
 RAG_SCORE_THRESHOLD=0.2
 RAG_CHUNK_SIZE=900
 RAG_CHUNK_OVERLAP=150
-SUPABASE_URL=your_supabase_project_url
-SUPABASE_SERVICE_ROLE_KEY=your_supabase_service_role_key
 NEON_AUTH_JWKS_URL=        # blank => auth disabled, single "default" user
 NEON_AUTH_ISSUER=          # Neon Auth base_url (token `iss`)
 NEON_AUTH_ALGORITHMS=EdDSA,RS256
@@ -194,7 +191,7 @@ The multi-project runtime keeps its relational state — users, API keys, projec
 | `supabase` | `PostgresStateStore` (asyncpg) | `SUPABASE_DB_URL` or `DATABASE_URL` |
 | `sqlite` | `SQLiteStateStore` | `${DATA_DIR}/state.db` |
 
-Neon and Supabase are both Postgres, so they share **one** asyncpg implementation — only the DSN differs. The schema ships as `db/migrations/0001_runtime_schema.sql` (applied idempotently on first pool use) and is mirrored by the SQLite store's `_init()`. With no `DATABASE_URL` the backend falls back to SQLite and behaves exactly as before — the relational tier is additive and separate from the chat-session storage below.
+Neon and Supabase are both Postgres, so they share **one** asyncpg implementation — only the DSN differs. The schema ships as `db/migrations/0001_runtime_schema.sql` (applied idempotently on first pool use) and is mirrored by the SQLite store's `_init()`. With no `DATABASE_URL` the backend falls back to SQLite and behaves exactly as before. Chat history lives in this same store as `chat_threads` / `chat_messages` (see below).
 
 ### Credential vault and thread memory
 
@@ -220,28 +217,13 @@ Web `POST /v1/chat` optionally accepts `project_id` and `thread_id`. Supplying a
 
 Server-side memory is deliberately **web-only**. Mantella/game completions stay payload-history-driven and never read stored messages. A game client that wants its sessions listed in the sidebar may send two optional non-OpenAI fields alongside the standard body — `session_id` (a stable id per in-game conversation) and `npc_name` — and the project game route will record a thread for them, write-only. Clients that omit them behave exactly as before.
 
-### Supabase Chat Storage
+### Chat history
 
-Create a `chat_sessions` table before using persistent chat history:
-
-```sql
-create extension if not exists pgcrypto;
-
-create table if not exists public.chat_sessions (
-    id uuid primary key default gen_random_uuid(),
-    client_id text not null,
-    title text not null,
-    preview text not null default '',
-    messages jsonb not null default '[]'::jsonb,
-    created_at timestamptz not null default now(),
-    updated_at timestamptz not null default now()
-);
-
-create index if not exists chat_sessions_client_id_updated_at_idx
-    on public.chat_sessions (client_id, updated_at desc);
-```
-
-The frontend stores a browser-scoped `client_id` locally and uses it to list and reopen previous chats through the backend. Supabase is **optional** — leave `SUPABASE_URL`/`SUPABASE_SERVICE_ROLE_KEY` blank and the backend transparently falls back to a local SQLite database under `data/chat_sessions.db` (this is the default; no setup required). Set both env vars and run the SQL above to switch chat history to Supabase — `has_supabase_chat_store()` in `api.py` checks both vars on every request, so it's live as soon as they're set, no restart-only caveat beyond the client being cached per key.
+Chat history is stored as project-scoped threads in the state store
+(`chat_threads` / `chat_messages`), reached through `/v1/projects/{id}/threads` and
+`/v1/threads/{id}/messages`. With no `DATABASE_URL` set this is SQLite on disk at
+`data/state.db` and needs no setup; set `DATABASE_URL` (Neon) or `SUPABASE_DB_URL`
+(Supabase as ordinary Postgres) to use a hosted database instead.
 
 ### Scanned PDF OCR
 
@@ -315,7 +297,7 @@ A warm `IdentityCache` (TTL, keyed by the token/key hash) memoizes the resolved 
 
 For Mantella, set `baseUrl` to `http://<host>:8000/v1/<api_key>/<project_id>`; Mantella appends `/chat/completions`. The old `http://<host>:8000/v1` base URL remains supported. Project config and persona edits invalidate the `RuntimeCache` immediately; its TTL is only a backstop.
 
-`/health` reports the active LLM provider, embedding provider, retrieval mode, local vs Supabase chat storage, and index manifest metadata so you can confirm the runtime configuration quickly.
+`/health` reports the active LLM provider, embedding provider, retrieval mode, and index manifest metadata so you can confirm the runtime configuration quickly.
 
 ## Latency: what actually matters
 

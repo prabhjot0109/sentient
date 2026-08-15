@@ -18,7 +18,7 @@ class RuntimeCompletionsTests(unittest.IsolatedAsyncioTestCase):
             clear=False,
         )
         self.env.start()
-        for name in ("SUPABASE_URL", "DATABASE_URL", "NEON_AUTH_JWKS_URL"):
+        for name in ("DATABASE_URL", "NEON_AUTH_JWKS_URL"):
             os.environ.pop(name, None)
 
         import api
