@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import sqlite3
 from contextlib import closing
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
 
@@ -11,7 +11,7 @@ from sentient.adapters.state.schema import _CONFIG_COLUMNS, _DEFAULT_USER_SENTIN
 
 
 def _now() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 class SQLiteStateStore:
@@ -91,8 +91,10 @@ class SQLiteStateStore:
             if row:
                 return dict(row)
             uid = uuid4().hex
-            conn.execute("INSERT INTO users (id, external_auth_id, email, created_at) VALUES (?,?,?,?)",
-                         (uid, key, email, _now()))
+            conn.execute(
+                "INSERT INTO users (id, external_auth_id, email, created_at) VALUES (?,?,?,?)",
+                (uid, key, email, _now()),
+            )
             return {"id": uid, "external_auth_id": key, "email": email}
 
     async def ensure_user(self, external_auth_id, email=None):
@@ -100,7 +102,9 @@ class SQLiteStateStore:
 
     def _get_user_by_api_key_hash(self, key_hash):
         with closing(self._connect()) as conn:
-            row = conn.execute("SELECT user_id, revoked FROM api_keys WHERE key_hash=?", (key_hash,)).fetchone()
+            row = conn.execute(
+                "SELECT user_id, revoked FROM api_keys WHERE key_hash=?", (key_hash,)
+            ).fetchone()
         return {"user_id": row["user_id"], "revoked": bool(row["revoked"])} if row else None
 
     async def get_user_by_api_key_hash(self, key_hash):
@@ -109,8 +113,11 @@ class SQLiteStateStore:
     def _create_api_key(self, user_id, key_hash, label):
         kid = uuid4().hex
         with closing(self._connect()) as conn, conn:
-            conn.execute("INSERT INTO api_keys (id, user_id, key_hash, label, revoked, created_at) "
-                         "VALUES (?,?,?,?,0,?)", (kid, user_id, key_hash, label, _now()))
+            conn.execute(
+                "INSERT INTO api_keys (id, user_id, key_hash, label, revoked, created_at) "
+                "VALUES (?,?,?,?,0,?)",
+                (kid, user_id, key_hash, label, _now()),
+            )
         return {"id": kid, "user_id": user_id, "label": label, "revoked": False}
 
     async def create_api_key(self, user_id, key_hash, label=None):
@@ -118,7 +125,9 @@ class SQLiteStateStore:
 
     def _revoke_api_key(self, user_id, key_id):
         with closing(self._connect()) as conn, conn:
-            cur = conn.execute("UPDATE api_keys SET revoked=1 WHERE id=? AND user_id=?", (key_id, user_id))
+            cur = conn.execute(
+                "UPDATE api_keys SET revoked=1 WHERE id=? AND user_id=?", (key_id, user_id)
+            )
         return cur.rowcount > 0
 
     async def revoke_api_key(self, user_id, key_id):
@@ -126,8 +135,9 @@ class SQLiteStateStore:
 
     def _list_api_keys(self, user_id):
         with closing(self._connect()) as conn:
-            rows = conn.execute("SELECT id, label, revoked, created_at FROM api_keys WHERE user_id=?",
-                                (user_id,)).fetchall()
+            rows = conn.execute(
+                "SELECT id, label, revoked, created_at FROM api_keys WHERE user_id=?", (user_id,)
+            ).fetchall()
         return [dict(r) for r in rows]
 
     async def list_api_keys(self, user_id):
@@ -137,18 +147,30 @@ class SQLiteStateStore:
     def _create_project(self, user_id, name, base_preset):
         pid = uuid4().hex
         with closing(self._connect()) as conn, conn:
-            conn.execute("INSERT INTO projects (id, user_id, name, base_preset, status, created_at) "
-                         "VALUES (?,?,?,?, 'active', ?)", (pid, user_id, name, base_preset, _now()))
-            conn.execute("INSERT INTO project_configs (project_id, updated_at) VALUES (?,?)", (pid, _now()))
-        return {"id": pid, "user_id": user_id, "name": name, "base_preset": base_preset, "status": "active"}
+            conn.execute(
+                "INSERT INTO projects (id, user_id, name, base_preset, status, created_at) "
+                "VALUES (?,?,?,?, 'active', ?)",
+                (pid, user_id, name, base_preset, _now()),
+            )
+            conn.execute(
+                "INSERT INTO project_configs (project_id, updated_at) VALUES (?,?)", (pid, _now())
+            )
+        return {
+            "id": pid,
+            "user_id": user_id,
+            "name": name,
+            "base_preset": base_preset,
+            "status": "active",
+        }
 
     async def create_project(self, user_id, name, base_preset="custom"):
         return await asyncio.to_thread(self._create_project, user_id, name, base_preset)
 
     def _get_project(self, user_id, project_id):
         with closing(self._connect()) as conn:
-            row = conn.execute("SELECT * FROM projects WHERE id=? AND user_id=?",
-                               (project_id, user_id)).fetchone()
+            row = conn.execute(
+                "SELECT * FROM projects WHERE id=? AND user_id=?", (project_id, user_id)
+            ).fetchone()
         return dict(row) if row else None
 
     async def get_project(self, user_id, project_id):
@@ -156,8 +178,9 @@ class SQLiteStateStore:
 
     def _list_projects(self, user_id):
         with closing(self._connect()) as conn:
-            rows = conn.execute("SELECT * FROM projects WHERE user_id=? ORDER BY created_at DESC",
-                                (user_id,)).fetchall()
+            rows = conn.execute(
+                "SELECT * FROM projects WHERE user_id=? ORDER BY created_at DESC", (user_id,)
+            ).fetchall()
         return [dict(r) for r in rows]
 
     async def list_projects(self, user_id):
@@ -200,7 +223,9 @@ class SQLiteStateStore:
     # ---- project_configs ----
     def _get_project_config(self, project_id):
         with closing(self._connect()) as conn:
-            row = conn.execute("SELECT * FROM project_configs WHERE project_id=?", (project_id,)).fetchone()
+            row = conn.execute(
+                "SELECT * FROM project_configs WHERE project_id=?", (project_id,)
+            ).fetchone()
         return dict(row) if row else None
 
     async def get_project_config(self, project_id):
@@ -209,13 +234,17 @@ class SQLiteStateStore:
     def _upsert_project_config(self, project_id, fields):
         cols = [c for c in fields if c in _CONFIG_COLUMNS]
         with closing(self._connect()) as conn, conn:
-            conn.execute("INSERT OR IGNORE INTO project_configs (project_id, updated_at) VALUES (?,?)",
-                         (project_id, _now()))
+            conn.execute(
+                "INSERT OR IGNORE INTO project_configs (project_id, updated_at) VALUES (?,?)",
+                (project_id, _now()),
+            )
             if cols:
                 assignments = ", ".join(f"{c}=?" for c in cols) + ", updated_at=?"
                 values = [fields[c] for c in cols] + [_now(), project_id]
                 conn.execute(f"UPDATE project_configs SET {assignments} WHERE project_id=?", values)
-            row = conn.execute("SELECT * FROM project_configs WHERE project_id=?", (project_id,)).fetchone()
+            row = conn.execute(
+                "SELECT * FROM project_configs WHERE project_id=?", (project_id,)
+            ).fetchone()
         return dict(row)
 
     async def upsert_project_config(self, project_id, **fields):
@@ -231,26 +260,44 @@ class SQLiteStateStore:
                 "ON CONFLICT(project_id, filename) DO UPDATE SET chunk_count=excluded.chunk_count, "
                 "embedding_signature=excluded.embedding_signature, status=excluded.status, "
                 "updated_at=excluded.updated_at",
-                (did, project_id, filename, chunk_count, embedding_signature, status, _now(), _now()))
-            row = conn.execute("SELECT * FROM documents WHERE project_id=? AND filename=?",
-                               (project_id, filename)).fetchone()
+                (
+                    did,
+                    project_id,
+                    filename,
+                    chunk_count,
+                    embedding_signature,
+                    status,
+                    _now(),
+                    _now(),
+                ),
+            )
+            row = conn.execute(
+                "SELECT * FROM documents WHERE project_id=? AND filename=?", (project_id, filename)
+            ).fetchone()
         return dict(row)
 
-    async def register_document(self, project_id, filename, chunk_count, embedding_signature, status="ready"):
-        return await asyncio.to_thread(self._register_document, project_id, filename, chunk_count,
-                                       embedding_signature, status)
+    async def register_document(
+        self, project_id, filename, chunk_count, embedding_signature, status="ready"
+    ):
+        return await asyncio.to_thread(
+            self._register_document, project_id, filename, chunk_count, embedding_signature, status
+        )
 
     def _set_document_status(self, project_id, filename, status):
         with closing(self._connect()) as conn, conn:
-            conn.execute("UPDATE documents SET status=?, updated_at=? WHERE project_id=? AND filename=?",
-                         (status, _now(), project_id, filename))
+            conn.execute(
+                "UPDATE documents SET status=?, updated_at=? WHERE project_id=? AND filename=?",
+                (status, _now(), project_id, filename),
+            )
 
     async def set_document_status(self, project_id, filename, status):
         await asyncio.to_thread(self._set_document_status, project_id, filename, status)
 
     def _list_documents(self, project_id):
         with closing(self._connect()) as conn:
-            rows = conn.execute("SELECT * FROM documents WHERE project_id=?", (project_id,)).fetchall()
+            rows = conn.execute(
+                "SELECT * FROM documents WHERE project_id=?", (project_id,)
+            ).fetchall()
         return [dict(r) for r in rows]
 
     def _delete_document(self, project_id, filename):
@@ -280,7 +327,8 @@ class SQLiteStateStore:
             )
             row = conn.execute(
                 "SELECT id, user_id, provider, encrypted_key, key_hint, created_at "
-                "FROM provider_credentials WHERE user_id=? AND provider=?", (user_id, provider)
+                "FROM provider_credentials WHERE user_id=? AND provider=?",
+                (user_id, provider),
             ).fetchone()
         return dict(row)
 
@@ -293,7 +341,8 @@ class SQLiteStateStore:
         with closing(self._connect()) as conn:
             row = conn.execute(
                 "SELECT id, user_id, provider, encrypted_key, key_hint, created_at "
-                "FROM provider_credentials WHERE user_id=? AND provider=?", (user_id, provider)
+                "FROM provider_credentials WHERE user_id=? AND provider=?",
+                (user_id, provider),
             ).fetchone()
         return dict(row) if row else None
 
@@ -304,7 +353,8 @@ class SQLiteStateStore:
         with closing(self._connect()) as conn:
             rows = conn.execute(
                 "SELECT provider, key_hint, created_at FROM provider_credentials "
-                "WHERE user_id=? ORDER BY provider", (user_id,)
+                "WHERE user_id=? ORDER BY provider",
+                (user_id,),
             ).fetchall()
         return [dict(row) for row in rows]
 
@@ -314,7 +364,8 @@ class SQLiteStateStore:
     def _delete_credential(self, user_id, provider):
         with closing(self._connect()) as conn, conn:
             result = conn.execute(
-                "DELETE FROM provider_credentials WHERE user_id=? AND provider=?", (user_id, provider)
+                "DELETE FROM provider_credentials WHERE user_id=? AND provider=?",
+                (user_id, provider),
             )
         return result.rowcount > 0
 
@@ -334,7 +385,8 @@ class SQLiteStateStore:
                 (thread_id, project_id, npc_name, session_id, title, now, now),
             )
             row = conn.execute(
-                "SELECT * FROM chat_threads WHERE project_id=? AND session_id=?", (project_id, session_id)
+                "SELECT * FROM chat_threads WHERE project_id=? AND session_id=?",
+                (project_id, session_id),
             ).fetchone()
         return dict(row)
 
@@ -345,7 +397,8 @@ class SQLiteStateStore:
         with closing(self._connect()) as conn:
             row = conn.execute(
                 "SELECT t.* FROM chat_threads t JOIN projects p ON p.id=t.project_id "
-                "WHERE t.id=? AND p.user_id=?", (thread_id, user_id)
+                "WHERE t.id=? AND p.user_id=?",
+                (thread_id, user_id),
             ).fetchone()
         return dict(row) if row else None
 
@@ -374,8 +427,13 @@ class SQLiteStateStore:
                 (message_id, thread_id, role, content, now),
             )
             conn.execute("UPDATE chat_threads SET updated_at=? WHERE id=?", (now, thread_id))
-        return {"id": message_id, "thread_id": thread_id, "role": role, "content": content,
-                "created_at": now}
+        return {
+            "id": message_id,
+            "thread_id": thread_id,
+            "role": role,
+            "content": content,
+            "created_at": now,
+        }
 
     async def add_message(self, thread_id, role, content):
         return await asyncio.to_thread(self._add_message, thread_id, role, content)
@@ -383,7 +441,8 @@ class SQLiteStateStore:
     def _list_threads(self, project_id):
         with closing(self._connect()) as conn:
             rows = conn.execute(
-                "SELECT * FROM chat_threads WHERE project_id=? ORDER BY updated_at DESC, id DESC", (project_id,)
+                "SELECT * FROM chat_threads WHERE project_id=? ORDER BY updated_at DESC, id DESC",
+                (project_id,),
             ).fetchall()
         return [dict(row) for row in rows]
 
@@ -399,7 +458,8 @@ class SQLiteStateStore:
                 "SELECT id, thread_id, role, content, created_at FROM "
                 "(SELECT rowid AS seq, id, thread_id, role, content, created_at FROM chat_messages "
                 "WHERE thread_id=? ORDER BY created_at DESC, seq DESC LIMIT ?) "
-                "ORDER BY created_at ASC, seq ASC", (thread_id, limit)
+                "ORDER BY created_at ASC, seq ASC",
+                (thread_id, limit),
             ).fetchall()
         return [dict(row) for row in rows]
 

@@ -2,11 +2,24 @@ from __future__ import annotations
 
 import re
 
+from langchain_core.messages import BaseMessage
+
 # Ambiguous referents that break vector retrieval when embedded literally. Word-
 # boundary matched so "item"/"pheasant" don't trigger on "it"/"he" substrings.
 _AMBIGUOUS = (
-    "they", "them", "their", "theirs", "those", "these",
-    "it", "its", "he", "she", "him", "her", "his",
+    "they",
+    "them",
+    "their",
+    "theirs",
+    "those",
+    "these",
+    "it",
+    "its",
+    "he",
+    "she",
+    "him",
+    "her",
+    "his",
 )
 _PRONOUN_RE = re.compile(r"\b(" + "|".join(_AMBIGUOUS) + r")\b", re.IGNORECASE)
 
@@ -16,8 +29,6 @@ def needs_condensation(text: str) -> bool:
     to resolve. Cheap regex — the TTFT gate before any LLM rewrite call."""
     return bool(text) and _PRONOUN_RE.search(text) is not None
 
-
-from langchain_core.messages import BaseMessage
 
 _MAX_HISTORY_TURNS = 6
 _CONDENSE_SYSTEM = (
@@ -42,10 +53,13 @@ async def condense_query(llm, history: list[BaseMessage], question: str) -> str:
     if not needs_condensation(question):
         return question
     from langchain_core.messages import HumanMessage, SystemMessage
+
     prompt = [
         SystemMessage(content=_CONDENSE_SYSTEM),
-        HumanMessage(content=f"Chat history:\n{_format_history(history)}\n\n"
-                             f"Follow-up: {question}\n\nStandalone query:"),
+        HumanMessage(
+            content=f"Chat history:\n{_format_history(history)}\n\n"
+            f"Follow-up: {question}\n\nStandalone query:"
+        ),
     ]
     try:
         result = await llm.ainvoke(prompt)

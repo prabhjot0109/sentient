@@ -8,9 +8,8 @@ from unittest.mock import AsyncMock, patch
 
 import httpx
 
-from sentient.api.routers import completions as completions_router
-
 from sentient.adapters.llm.openai_wire import ChatCompletionRequest
+from sentient.api.routers import completions as completions_router
 from sentient.services import chat as chat_service
 
 
@@ -26,15 +25,13 @@ class RuntimeCompletionsTests(unittest.IsolatedAsyncioTestCase):
         for name in ("DATABASE_URL", "NEON_AUTH_JWKS_URL"):
             os.environ.pop(name, None)
 
-        from sentient.api import app as api
-
-
-        from sentient.api import deps
         from sentient.adapters.auth import IdentityCache
-        from sentient.core.config import load_rag_settings
-        from sentient.core.cache import ObjectRegistry
-        from sentient.services.runtime import RuntimeCache
         from sentient.adapters.state import get_state_store
+        from sentient.api import app as api
+        from sentient.api import deps
+        from sentient.core.cache import ObjectRegistry
+        from sentient.core.config import load_rag_settings
+        from sentient.services.runtime import RuntimeCache
 
         self.api = api
         self.deps = deps
@@ -62,11 +59,15 @@ class RuntimeCompletionsTests(unittest.IsolatedAsyncioTestCase):
                 return []
 
         with (
-            patch.object(self.deps, "build_llm",
+            patch.object(
+                self.deps,
+                "build_llm",
                 new_callable=AsyncMock,
                 return_value=_FakeLLM(),
             ) as build_llm,
-            patch.object(self.deps, "get_archives_for_context",
+            patch.object(
+                self.deps,
+                "get_archives_for_context",
                 new_callable=AsyncMock,
                 return_value=_StubArchives(),
                 create=True,
@@ -116,11 +117,15 @@ class RuntimeCompletionsTests(unittest.IsolatedAsyncioTestCase):
                 return []
 
         with (
-            patch.object(self.deps, "build_llm",
+            patch.object(
+                self.deps,
+                "build_llm",
                 new_callable=AsyncMock,
                 return_value=_FakeLLM(),
             ),
-            patch.object(self.deps, "get_archives_for_context",
+            patch.object(
+                self.deps,
+                "get_archives_for_context",
                 new_callable=AsyncMock,
                 return_value=_StubArchives(),
                 create=True,
@@ -172,11 +177,15 @@ class RuntimeCompletionsTests(unittest.IsolatedAsyncioTestCase):
                 return []
 
         with (
-            patch.object(self.deps, "build_llm",
+            patch.object(
+                self.deps,
+                "build_llm",
                 new_callable=AsyncMock,
                 return_value=_FakeLLM(),
             ),
-            patch.object(self.deps, "get_archives_for_context",
+            patch.object(
+                self.deps,
+                "get_archives_for_context",
                 new_callable=AsyncMock,
                 return_value=_StubArchives(),
             ),
@@ -208,11 +217,15 @@ class RuntimeCompletionsTests(unittest.IsolatedAsyncioTestCase):
                 return []
 
         with (
-            patch.object(self.deps, "build_llm",
+            patch.object(
+                self.deps,
+                "build_llm",
                 new_callable=AsyncMock,
                 return_value=_FakeLLM(),
             ),
-            patch.object(self.deps, "get_archives_for_context",
+            patch.object(
+                self.deps,
+                "get_archives_for_context",
                 new_callable=AsyncMock,
                 return_value=_StubArchives(),
             ),
@@ -256,15 +269,15 @@ class RuntimeCompletionsTests(unittest.IsolatedAsyncioTestCase):
 
         with (
             patch.object(self.deps, "get_llm", side_effect=get_llm),
-            patch.object(self.deps, "get_archives_for_context",
+            patch.object(
+                self.deps,
+                "get_archives_for_context",
                 new_callable=AsyncMock,
                 return_value=_StubArchives(),
             ),
         ):
             ctx = await self.deps.completions_ctx(None, None)
-            request = ChatCompletionRequest(
-                messages=[{"role": "user", "content": "hi"}]
-            )
+            request = ChatCompletionRequest(messages=[{"role": "user", "content": "hi"}])
             response = await asyncio.wait_for(
                 completions_router._run_completions(request, ctx), timeout=0.3
             )
@@ -293,7 +306,9 @@ class RuntimeCompletionsTests(unittest.IsolatedAsyncioTestCase):
 
         first_archives = object()
         second_archives = object()
-        with patch.object(self.deps, "build_archives",
+        with patch.object(
+            self.deps,
+            "build_archives",
             new_callable=AsyncMock,
             side_effect=[first_archives, second_archives],
         ) as build_archives:
@@ -351,11 +366,15 @@ class RuntimeCompletionsTests(unittest.IsolatedAsyncioTestCase):
                 return []
 
         with (
-            patch.object(self.deps, "build_llm",
+            patch.object(
+                self.deps,
+                "build_llm",
                 new_callable=AsyncMock,
                 return_value=_FakeLLM(),
             ),
-            patch.object(self.deps, "get_archives_for_context",
+            patch.object(
+                self.deps,
+                "get_archives_for_context",
                 new_callable=AsyncMock,
                 return_value=_StubArchives(),
             ),

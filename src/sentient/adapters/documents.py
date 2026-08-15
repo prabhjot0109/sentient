@@ -126,9 +126,7 @@ class ArchivesIngestion:
         if not target_path.exists():
             return []
 
-        return sorted(
-            path for path in target_path.rglob("*") if self._is_supported_file(path)
-        )
+        return sorted(path for path in target_path.rglob("*") if self._is_supported_file(path))
 
     def list_sources(self) -> list[dict[str, str | int]]:
         return [
@@ -194,9 +192,7 @@ class ArchivesIngestion:
             documents = PyPDFLoader(str(path)).load()
             self._ocr_pdf_pages(path, documents)
         else:
-            documents = TextLoader(
-                str(path), encoding="utf-8", autodetect_encoding=True
-            ).load()
+            documents = TextLoader(str(path), encoding="utf-8", autodetect_encoding=True).load()
 
         for document in documents:
             page_number = document.metadata.get("page")
@@ -205,9 +201,7 @@ class ArchivesIngestion:
                     "source": path.name,
                     "source_path": str(path),
                     "file_type": path.suffix.lower().lstrip("."),
-                    "page_label": f", page {page_number + 1}"
-                    if page_number is not None
-                    else "",
+                    "page_label": f", page {page_number + 1}" if page_number is not None else "",
                 }
             )
 
@@ -326,9 +320,7 @@ class ArchivesIngestion:
 
         chunks = await asyncio.to_thread(self._split_documents, documents)
         manifest = await asyncio.to_thread(self.backend.metadata) or {}
-        persona = manifest.get("persona") or await asyncio.to_thread(
-            self._infer_persona, chunks
-        )
+        persona = manifest.get("persona") or await asyncio.to_thread(self._infer_persona, chunks)
         source_files = await asyncio.to_thread(self._resolve_source_files)
         metadata = await self.backend.add(
             chunks,

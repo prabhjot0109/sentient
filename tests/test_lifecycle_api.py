@@ -21,9 +21,7 @@ class LifecycleEndpointTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
-        self.env = patch.dict(
-            os.environ, {"DATA_DIR": self.tmp.name, "VECTOR_BACKEND": "faiss"}
-        )
+        self.env = patch.dict(os.environ, {"DATA_DIR": self.tmp.name, "VECTOR_BACKEND": "faiss"})
         self.env.start()
         self.addCleanup(self.env.stop)
 
@@ -33,13 +31,13 @@ class LifecycleEndpointTests(unittest.IsolatedAsyncioTestCase):
         embeddings.start()
         self.addCleanup(embeddings.stop)
 
+        from sentient.adapters.auth import IdentityCache
+        from sentient.adapters.state import get_state_store
         from sentient.api import app as api
         from sentient.api import deps
-        from sentient.adapters.auth import IdentityCache
-        from sentient.core.config import load_rag_settings
         from sentient.core.cache import ObjectRegistry
+        from sentient.core.config import load_rag_settings
         from sentient.services.runtime import RuntimeCache
-        from sentient.adapters.state import get_state_store
 
         # api.py builds these at import time; rebind them so this test does not
         # inherit an earlier test's tmpdir (see tests/test_management_endpoints.py).
@@ -63,9 +61,7 @@ class LifecycleEndpointTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_rename_project(self):
         project_id = await self._project()
-        response = await self.client.patch(
-            f"/v1/projects/{project_id}", json={"name": "Fallout 4"}
-        )
+        response = await self.client.patch(f"/v1/projects/{project_id}", json={"name": "Fallout 4"})
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["name"], "Fallout 4")
 
@@ -104,15 +100,11 @@ class LifecycleEndpointTests(unittest.IsolatedAsyncioTestCase):
         invalidate.assert_not_called()
 
     async def test_deleting_an_unknown_project_is_404(self):
-        self.assertEqual(
-            (await self.client.delete("/v1/projects/nope")).status_code, 404
-        )
+        self.assertEqual((await self.client.delete("/v1/projects/nope")).status_code, 404)
 
     async def test_delete_thread(self):
         project_id = await self._project()
-        thread = await self.deps.state_store.upsert_thread(
-            project_id, "sess-1", title="First chat"
-        )
+        thread = await self.deps.state_store.upsert_thread(project_id, "sess-1", title="First chat")
         response = await self.client.delete(f"/v1/threads/{thread['id']}")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(
@@ -148,9 +140,7 @@ class LifecycleEndpointTests(unittest.IsolatedAsyncioTestCase):
         # A blanket `except Exception -> 500` around the delete body would swallow
         # this HTTPException; R7's delta records that exact regression.
         project_id = await self._project()
-        response = await self.client.delete(
-            f"/v1/sources/absent.txt?project_id={project_id}"
-        )
+        response = await self.client.delete(f"/v1/sources/absent.txt?project_id={project_id}")
         self.assertEqual(response.status_code, 404)
 
 

@@ -39,7 +39,24 @@ sentient = "sentient.cli:main"
 [dependency-groups]
 dev = [
     "pytest>=9.1.1",
+    "ruff>=0.16.3",
 ]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/sentient"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+ignore = [
+    "E501",  # line length is enforced by the formatter, not the linter
+    # FastAPI *requires* calls in argument defaults: Depends(), File(), Form(),
+    # Header() are sentinels the framework reads out of __defaults__ to build the
+    # OpenAPI schema and pick a body parser. B008 is right about Python and wrong
+    # about FastAPI, so it is off for the whole project rather than noqa'd per route.
+    "B008",
+]

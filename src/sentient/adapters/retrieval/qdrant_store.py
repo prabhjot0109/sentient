@@ -82,7 +82,9 @@ class QdrantBackend:
             dim = len(self.embeddings.embed_query("dimension probe"))
             client.create_collection(
                 collection_name=self.collection,
-                vectors_config={DENSE: models.VectorParams(size=dim, distance=models.Distance.COSINE)},
+                vectors_config={
+                    DENSE: models.VectorParams(size=dim, distance=models.Distance.COSINE)
+                },
                 sparse_vectors_config={SPARSE: models.SparseVectorParams()},
                 hnsw_config=models.HnswConfigDiff(m=16, ef_construct=100),
                 quantization_config=models.ScalarQuantization(
@@ -95,7 +97,8 @@ class QdrantBackend:
             # Qdrant server (no-op in local mode, so tests just warn).
             for field in (_USER_KEY, _PROJECT_ID):
                 client.create_payload_index(
-                    collection_name=self.collection, field_name=field,
+                    collection_name=self.collection,
+                    field_name=field,
                     field_schema=models.PayloadSchemaType.KEYWORD,
                 )
         if self._store is None:
@@ -120,9 +123,7 @@ class QdrantBackend:
 
     # ---- payload tagging + filters ----
     @staticmethod
-    def _tag(
-        chunks: list[Document], user_key, project_id, embedding_signature
-    ) -> list[Document]:
+    def _tag(chunks: list[Document], user_key, project_id, embedding_signature) -> list[Document]:
         for chunk in chunks:
             chunk.metadata["user_key"] = user_key or chunk.metadata.get("user_key") or "default"
             if project_id is not None:
@@ -151,8 +152,16 @@ class QdrantBackend:
         )
 
     # ---- VectorBackend interface ----
-    async def index(self, chunks, *, source_names=None, persona="", user_key=None,
-                    project_id=None, embedding_signature=None) -> dict[str, Any] | None:
+    async def index(
+        self,
+        chunks,
+        *,
+        source_names=None,
+        persona="",
+        user_key=None,
+        project_id=None,
+        embedding_signature=None,
+    ) -> dict[str, Any] | None:
         # Replace-semantics parity with FaissBackend.index(), but scoped: drop only
         # this (user_key, project_id) partition so a rebuild never duplicates its own
         # vectors and never touches another tenant's/project's data.
@@ -168,8 +177,16 @@ class QdrantBackend:
         )
         return await asyncio.to_thread(self.metadata)
 
-    async def add(self, chunks, *, source_names=None, persona="", user_key=None,
-                  project_id=None, embedding_signature=None) -> dict[str, Any] | None:
+    async def add(
+        self,
+        chunks,
+        *,
+        source_names=None,
+        persona="",
+        user_key=None,
+        project_id=None,
+        embedding_signature=None,
+    ) -> dict[str, Any] | None:
         if not chunks:
             return await asyncio.to_thread(self.metadata)
         store = await self._ensure_ready()
@@ -181,8 +198,9 @@ class QdrantBackend:
 
     async def remove(self, source: str) -> dict[str, Any] | None:
         await self._ensure_ready()
-        qfilter = models.Filter(must=[models.FieldCondition(
-            key=_SOURCE, match=models.MatchValue(value=source))])
+        qfilter = models.Filter(
+            must=[models.FieldCondition(key=_SOURCE, match=models.MatchValue(value=source))]
+        )
         await asyncio.to_thread(self._delete_by_filter_sync, qfilter)
         return await asyncio.to_thread(self.metadata)
 
@@ -192,8 +210,17 @@ class QdrantBackend:
             scored = [(d, s) for d, s in scored if s >= threshold]
         return scored
 
-    async def retrieve(self, query, *, k=None, search_type=None, min_score=None,
-                       user_key=None, project_id=None, embedding_signature=None):
+    async def retrieve(
+        self,
+        query,
+        *,
+        k=None,
+        search_type=None,
+        min_score=None,
+        user_key=None,
+        project_id=None,
+        embedding_signature=None,
+    ):
         # search_type is ignored: HYBRID always runs dense + sparse and fuses (RRF).
         store = await self._ensure_ready()
         resolved_k = max(k or self.settings.top_k, 1)

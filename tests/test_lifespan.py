@@ -14,11 +14,11 @@ class LifespanTests(unittest.IsolatedAsyncioTestCase):
         with (
             patch.object(deps, "ingest_queue", queue),
             patch.object(deps, "any_provider_key_present", return_value=False),
+            self.assertRaisesRegex(RuntimeError, "boom"),
         ):
-            with self.assertRaisesRegex(RuntimeError, "boom"):
-                async with api.lifespan(api.app):
-                    queue.start.assert_awaited_once()
-                    raise RuntimeError("boom")
+            async with api.lifespan(api.app):
+                queue.start.assert_awaited_once()
+                raise RuntimeError("boom")
 
         queue.stop.assert_awaited_once()
 
@@ -33,7 +33,9 @@ class LifespanTests(unittest.IsolatedAsyncioTestCase):
         queue = SimpleNamespace(start=AsyncMock(), stop=AsyncMock())
         with (
             patch.object(deps, "ingest_queue", queue),
-            patch.object(deps, "reindex_queue", SimpleNamespace(start=AsyncMock(), stop=AsyncMock())),
+            patch.object(
+                deps, "reindex_queue", SimpleNamespace(start=AsyncMock(), stop=AsyncMock())
+            ),
             patch.object(deps, "any_provider_key_present", return_value=True),
             patch.object(deps, "get_default_archives", return_value=archives),
         ):
@@ -55,7 +57,9 @@ class LifespanTests(unittest.IsolatedAsyncioTestCase):
         queue = SimpleNamespace(start=AsyncMock(), stop=AsyncMock())
         with (
             patch.object(deps, "ingest_queue", queue),
-            patch.object(deps, "reindex_queue", SimpleNamespace(start=AsyncMock(), stop=AsyncMock())),
+            patch.object(
+                deps, "reindex_queue", SimpleNamespace(start=AsyncMock(), stop=AsyncMock())
+            ),
             patch.object(deps, "any_provider_key_present", return_value=True),
             patch.object(deps, "get_default_archives", return_value=archives),
         ):
@@ -72,7 +76,9 @@ class LifespanTests(unittest.IsolatedAsyncioTestCase):
         queue = SimpleNamespace(start=AsyncMock(), stop=AsyncMock())
         with (
             patch.object(deps, "ingest_queue", queue),
-            patch.object(deps, "reindex_queue", SimpleNamespace(start=AsyncMock(), stop=AsyncMock())),
+            patch.object(
+                deps, "reindex_queue", SimpleNamespace(start=AsyncMock(), stop=AsyncMock())
+            ),
             patch.object(deps, "any_provider_key_present", return_value=False),
             patch.object(deps, "get_default_archives", return_value=archives),
         ):

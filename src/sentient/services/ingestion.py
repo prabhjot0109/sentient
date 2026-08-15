@@ -53,9 +53,7 @@ async def run_ingest_job(job: IngestJob, *, state_store, archives) -> None:
             )
     except Exception:
         if job.project_id is not None:
-            await state_store.set_document_status(
-                job.project_id, job.filename, "failed"
-            )
+            await state_store.set_document_status(job.project_id, job.filename, "failed")
         raise
     finally:
         if staged_path != final_path and staged_path.exists():

@@ -26,9 +26,7 @@ async def _main():
 
     # Check for API Key
     if not os.getenv("GOOGLE_API_KEY") and not os.getenv("OPENAI_API_KEY"):
-        print(
-            "[!] No API Key found in env. Please set GOOGLE_API_KEY or OPENAI_API_KEY in .env"
-        )
+        print("[!] No API Key found in env. Please set GOOGLE_API_KEY or OPENAI_API_KEY in .env")
         print("    Running retrieval-only verification.")
 
         print("[*] Rebuilding FAISS index from 'data/'...")

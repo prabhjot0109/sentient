@@ -20,8 +20,9 @@ class DbBackendConfigTests(unittest.TestCase):
         self.assertEqual(settings.database_url, "postgres://x")
 
     def test_explicit_db_backend_wins(self):
-        with patch.dict(os.environ, {"DB_BACKEND": "supabase",
-                                     "SUPABASE_DB_URL": "postgres://s"}, clear=True):
+        with patch.dict(
+            os.environ, {"DB_BACKEND": "supabase", "SUPABASE_DB_URL": "postgres://s"}, clear=True
+        ):
             settings = load_rag_settings()
         self.assertEqual(settings.db_backend, "supabase")
         self.assertEqual(settings.supabase_db_url, "postgres://s")

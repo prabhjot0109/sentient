@@ -4,7 +4,6 @@ import os
 from dataclasses import dataclass
 from typing import Literal
 
-
 Provider = Literal["google", "openai", "huggingface", "groq", "cerebras", "openrouter"]
 
 # Providers that speak the OpenAI chat-completions wire format, so they can all
@@ -263,11 +262,14 @@ def load_rag_settings(api_key: str | None = None) -> RAGSettings:
     # Hub, which fails. Settings must never carry a provider/model pair that
     # disagree, so the fallback takes the model with it.
     embedding_model_override = None if embedding_fallback else os.getenv("EMBEDDING_MODEL_NAME")
-    embedding_model = embedding_model_override or {
-        "google": "models/gemini-embedding-001",
-        "openai": "text-embedding-3-small",
-        "huggingface": "BAAI/bge-base-en-v1.5",
-    }[embedding_provider]
+    embedding_model = (
+        embedding_model_override
+        or {
+            "google": "models/gemini-embedding-001",
+            "openai": "text-embedding-3-small",
+            "huggingface": "BAAI/bge-base-en-v1.5",
+        }[embedding_provider]
+    )
     embedding_base_url = provider_base_url(embedding_provider)
 
     chunk_size = _env_int("RAG_CHUNK_SIZE", 900)
@@ -317,8 +319,11 @@ def load_rag_settings(api_key: str | None = None) -> RAGSettings:
         hybrid=hybrid,
         neon_auth_jwks_url=os.getenv("NEON_AUTH_JWKS_URL"),
         neon_auth_issuer=os.getenv("NEON_AUTH_ISSUER"),
-        neon_auth_algorithms=[a.strip() for a in
-                              os.getenv("NEON_AUTH_ALGORITHMS", "EdDSA,RS256").split(",") if a.strip()],
+        neon_auth_algorithms=[
+            a.strip()
+            for a in os.getenv("NEON_AUTH_ALGORITHMS", "EdDSA,RS256").split(",")
+            if a.strip()
+        ],
         sentient_secret_key=os.getenv("SENTIENT_SECRET_KEY") or None,
         cors_allow_origins=tuple(
             origin.strip()

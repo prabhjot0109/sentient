@@ -122,7 +122,9 @@ def upstream_model(provider: str, requested: str) -> str:
     released model is usable without a code change.
     """
     if provider == "groq":
-        return requested if "whisper" in requested and requested != "whisper-1" else GROQ_DEFAULT_MODEL
+        return (
+            requested if "whisper" in requested and requested != "whisper-1" else GROQ_DEFAULT_MODEL
+        )
     return requested if requested.startswith("whisper-1") else OPENAI_DEFAULT_MODEL
 
 

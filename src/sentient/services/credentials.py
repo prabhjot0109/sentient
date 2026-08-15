@@ -51,9 +51,7 @@ async def store_credential(
         encrypted = encrypt_key(api_key, secret)
     except Exception as exc:
         raise VaultUnavailable("credential vault is unavailable") from exc
-    row = await state_store.upsert_credential(
-        user_id, normalized, encrypted, key_hint(api_key)
-    )
+    row = await state_store.upsert_credential(user_id, normalized, encrypted, key_hint(api_key))
     await invalidate_user_projects(state_store, runtime_cache, user_id)
     return {"provider": row["provider"], "key_hint": row["key_hint"]}
 

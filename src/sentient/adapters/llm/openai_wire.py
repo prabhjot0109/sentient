@@ -16,7 +16,8 @@ from __future__ import annotations
 import json
 import time
 import uuid
-from typing import Any, AsyncIterator, Optional
+from collections.abc import AsyncIterator
+from typing import Any
 
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
 from pydantic import BaseModel
@@ -30,17 +31,17 @@ _ROLE_TO_MESSAGE = {
 
 class OpenAIMessage(BaseModel):
     role: str
-    content: Optional[str] = ""
+    content: str | None = ""
 
 
 class ChatCompletionRequest(BaseModel):
     messages: list[OpenAIMessage]
-    model: Optional[str] = None
+    model: str | None = None
     stream: bool = False
-    temperature: Optional[float] = None
-    max_tokens: Optional[int] = None
-    session_id: Optional[str] = None
-    npc_name: Optional[str] = None
+    temperature: float | None = None
+    max_tokens: int | None = None
+    session_id: str | None = None
+    npc_name: str | None = None
 
 
 def last_user_text(messages: list[OpenAIMessage]) -> str:
@@ -142,7 +143,7 @@ async def astream_completion(
     completion_id = _completion_id()
     created = int(time.time())
 
-    def chunk(delta: dict[str, Any], finish_reason: Optional[str] = None) -> str:
+    def chunk(delta: dict[str, Any], finish_reason: str | None = None) -> str:
         payload = {
             "id": completion_id,
             "object": "chat.completion.chunk",

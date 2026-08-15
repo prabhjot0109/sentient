@@ -45,9 +45,7 @@ async def create_credential(
 async def list_credentials(user: tuple[str, str] = Depends(deps.current_user)):
     user_id, _ = user
     try:
-        rows = await service.list_credentials(
-            deps.state_store, deps._settings, user_id=user_id
-        )
+        rows = await service.list_credentials(deps.state_store, deps._settings, user_id=user_id)
     except VaultUnavailable as e:
         raise HTTPException(status_code=503, detail=str(e)) from e
     return {"credentials": rows}

@@ -41,7 +41,9 @@ class SQLiteStateStoreTests(unittest.IsolatedAsyncioTestCase):
         b = await self.store.ensure_user("B")
         proj = await self.store.create_project(a["id"], "Skyrim Live", base_preset="skyrim")
         self.assertIsNotNone(await self.store.get_project(a["id"], proj["id"]))
-        self.assertIsNone(await self.store.get_project(b["id"], proj["id"]))  # B can't see A's project
+        self.assertIsNone(
+            await self.store.get_project(b["id"], proj["id"])
+        )  # B can't see A's project
 
     async def test_project_config_overlay_fields(self):
         u = await self.store.ensure_user("A")
@@ -54,10 +56,12 @@ class SQLiteStateStoreTests(unittest.IsolatedAsyncioTestCase):
     async def test_persona_prompt_is_editable_config(self):
         u = await self.store.ensure_user("A")
         p = await self.store.create_project(u["id"], "P")
-        await self.store.upsert_project_config(p["id"], persona_prompt="You are the world of Skyrim.")
+        await self.store.upsert_project_config(
+            p["id"], persona_prompt="You are the world of Skyrim."
+        )
         await self.store.upsert_project_config(p["id"], persona_prompt="v2 voice")
         cfg = await self.store.get_project_config(p["id"])
-        self.assertEqual(cfg["persona_prompt"], "v2 voice")   # single editable persona per project
+        self.assertEqual(cfg["persona_prompt"], "v2 voice")  # single editable persona per project
 
     async def test_document_registry_and_status(self):
         u = await self.store.ensure_user("A")
@@ -90,8 +94,8 @@ class FreshCloneStartupTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNotNone(user["id"])
 
     async def test_get_state_store_boots_without_data_dir(self):
-        from sentient.core.config import load_rag_settings
         from sentient.adapters.state import get_state_store
+        from sentient.core.config import load_rag_settings
 
         data_dir = str(Path(self.tmp.name) / "nested" / "data")
         with patch.dict(os.environ, {"DATA_DIR": data_dir}, clear=False):
@@ -214,7 +218,10 @@ class PostgresStoreSurfaceTests(unittest.TestCase):
         from sentient.adapters.state.postgres_store import PostgresStateStore
 
         for name in (
-            "delete_project", "rename_project", "delete_thread", "delete_document",
+            "delete_project",
+            "rename_project",
+            "delete_thread",
+            "delete_document",
         ):
             self.assertTrue(
                 callable(getattr(PostgresStateStore, name, None)),
@@ -227,6 +234,7 @@ class StateStoreFactoryTests(unittest.TestCase):
         from sentient.adapters.state import get_state_store
         from sentient.adapters.state.sqlite_store import SQLiteStateStore
         from sentient.core.config import load_rag_settings
+
         with patch.dict(os.environ, {"DATA_DIR": tempfile.mkdtemp()}, clear=True):
             store = get_state_store(load_rag_settings())
         self.assertIsInstance(store, SQLiteStateStore)
@@ -235,7 +243,10 @@ class StateStoreFactoryTests(unittest.TestCase):
         from sentient.adapters.state import get_state_store
         from sentient.adapters.state.postgres_store import PostgresStateStore
         from sentient.core.config import load_rag_settings
-        with patch.dict(os.environ, {"DATABASE_URL": "postgres://x", "DB_BACKEND": "neon"}, clear=True):
+
+        with patch.dict(
+            os.environ, {"DATABASE_URL": "postgres://x", "DB_BACKEND": "neon"}, clear=True
+        ):
             store = get_state_store(load_rag_settings())
         self.assertIsInstance(store, PostgresStateStore)
 

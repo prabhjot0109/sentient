@@ -1,19 +1,19 @@
 from __future__ import annotations
 
 import os
-import unittest
 import tempfile
+import unittest
 from dataclasses import replace
 from pathlib import Path
 from unittest.mock import patch
 
 import httpx
-from cryptography.fernet import Fernet
+from cryptography.fernet import Fernet, InvalidToken
 
+from sentient.adapters.state.sqlite_store import SQLiteStateStore
 from sentient.core.config import load_rag_settings
 from sentient.core.crypto import decrypt_key
 from sentient.services.runtime import RuntimeCache
-from sentient.adapters.state.sqlite_store import SQLiteStateStore
 
 
 class CryptoPrimitiveTests(unittest.TestCase):
@@ -22,18 +22,23 @@ class CryptoPrimitiveTests(unittest.TestCase):
 
     def test_roundtrip(self):
         from sentient.core.crypto import decrypt_key, encrypt_key
+
         token = encrypt_key("AIza-super-secret", self.secret)
-        self.assertNotIn("super-secret", token)          # ciphertext, not plaintext
+        self.assertNotIn("super-secret", token)  # ciphertext, not plaintext
         self.assertEqual(decrypt_key(token, self.secret), "AIza-super-secret")
 
     def test_hint_shows_only_tail(self):
         from sentient.core.crypto import key_hint
+
         self.assertEqual(key_hint("sk-abcdefgh1234"), "…1234")
 
     def test_wrong_secret_fails_loudly(self):
         from sentient.core.crypto import decrypt_key, encrypt_key
+
         token = encrypt_key("k", self.secret)
-        with self.assertRaises(Exception):
+        # Narrow on purpose: a blind `Exception` would also pass on a TypeError
+        # from a signature change, hiding the fact that the crypto stopped working.
+        with self.assertRaises(InvalidToken):
             decrypt_key(token, Fernet.generate_key().decode())
 
 
@@ -52,7 +57,10 @@ class CredentialStoreTests(unittest.IsolatedAsyncioTestCase):
         stored = await self.store.get_credential(user["id"], "google")
         self.assertEqual(stored["encrypted_key"], "cipher-2")
         listed = await self.store.list_credentials(user["id"])
-        self.assertEqual(listed, [{"provider": "google", "key_hint": "…2222", "created_at": stored["created_at"]}])
+        self.assertEqual(
+            listed,
+            [{"provider": "google", "key_hint": "…2222", "created_at": stored["created_at"]}],
+        )
 
     async def test_user_cannot_read_or_delete_another_users_credential(self):
         owner = await self.store.ensure_user("owner")
@@ -171,9 +179,7 @@ class CredentialEndpointTests(unittest.IsolatedAsyncioTestCase):
         listed = await self.client.get("/v1/credentials")
         self.assertNotIn("encrypted_key", listed.text)
         self.assertNotIn(raw_key, listed.text)
-        self.assertEqual(
-            [row["provider"] for row in listed.json()["credentials"]], ["openai"]
-        )
+        self.assertEqual([row["provider"] for row in listed.json()["credentials"]], ["openai"])
 
         # The database must hold ciphertext only, and it must decrypt to the original.
         stored = await self.store.get_credential(self.user["id"], "openai")
@@ -206,9 +212,7 @@ class CredentialEndpointTests(unittest.IsolatedAsyncioTestCase):
     async def test_writing_a_credential_invalidates_the_users_cached_contexts(self):
         project = await self.store.create_project(self.user["id"], "P")
         await self.store.upsert_project_config(project["id"], llm_provider="openai")
-        resolve_args = dict(
-            user_id=self.user["id"], user_key="default", project_id=project["id"]
-        )
+        resolve_args = dict(user_id=self.user["id"], user_key="default", project_id=project["id"])
         cold = await self.deps.runtime_cache.resolve(
             self.store, self.deps._settings, **resolve_args
         )

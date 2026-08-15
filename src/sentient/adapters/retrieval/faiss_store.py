@@ -3,12 +3,11 @@ from __future__ import annotations
 import asyncio
 import json
 import shutil
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 from langchain_community.vectorstores import FAISS
-from langchain_core.documents import Document
 
 from sentient.core.config import RAGSettings
 
@@ -69,7 +68,7 @@ class FaissBackend:
             "chunk_count": chunk_count,
             "sources": source_names,
             "persona": persona,
-            "updated_at": datetime.now(timezone.utc).isoformat(),
+            "updated_at": datetime.now(UTC).isoformat(),
         }
         self.index_path.mkdir(parents=True, exist_ok=True)
         self.manifest_path.write_text(
@@ -111,10 +110,20 @@ class FaissBackend:
         db.save_local(str(self.index_path))
         self._store = db
         names = source_names or sorted({c.metadata.get("source", "unknown") for c in chunks})
-        return self._write_manifest(source_names=list(names), chunk_count=len(chunks), persona=persona)
+        return self._write_manifest(
+            source_names=list(names), chunk_count=len(chunks), persona=persona
+        )
 
-    async def index(self, chunks, *, source_names=None, persona="", user_key=None,
-                    project_id=None, embedding_signature=None) -> dict[str, Any] | None:
+    async def index(
+        self,
+        chunks,
+        *,
+        source_names=None,
+        persona="",
+        user_key=None,
+        project_id=None,
+        embedding_signature=None,
+    ) -> dict[str, Any] | None:
         if not chunks:
             self.reset()
             return None
@@ -136,12 +145,21 @@ class FaissBackend:
         names = source_names or manifest.get("sources", [])
         total = manifest.get("chunk_count", 0) + len(chunks)
         return self._write_manifest(
-            source_names=list(names), chunk_count=total,
+            source_names=list(names),
+            chunk_count=total,
             persona=persona or manifest.get("persona", ""),
         )
 
-    async def add(self, chunks, *, source_names=None, persona="", user_key=None,
-                  project_id=None, embedding_signature=None) -> dict[str, Any] | None:
+    async def add(
+        self,
+        chunks,
+        *,
+        source_names=None,
+        persona="",
+        user_key=None,
+        project_id=None,
+        embedding_signature=None,
+    ) -> dict[str, Any] | None:
         if not chunks:
             return self.metadata()
         async with _get_index_lock():
@@ -193,6 +211,15 @@ class FaissBackend:
         )
         return [(d, None) for d in docs]
 
-    async def retrieve(self, query, *, k=None, search_type=None, min_score=None,
-                       user_key=None, project_id=None, embedding_signature=None):
+    async def retrieve(
+        self,
+        query,
+        *,
+        k=None,
+        search_type=None,
+        min_score=None,
+        user_key=None,
+        project_id=None,
+        embedding_signature=None,
+    ):
         return await asyncio.to_thread(self._retrieve_sync, query, k, search_type, min_score)

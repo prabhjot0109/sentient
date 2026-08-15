@@ -73,9 +73,10 @@ class BuildChatModelProviderTests(unittest.TestCase):
         import sentient.adapters.llm.models as models_module
 
         models_module.build_chat_model.cache_clear()
-        with patch.object(models_module, "ChatHuggingFace") as mock_chat_cls, patch.object(
-            models_module, "HuggingFaceEndpoint"
-        ) as mock_endpoint_cls:
+        with (
+            patch.object(models_module, "ChatHuggingFace") as mock_chat_cls,
+            patch.object(models_module, "HuggingFaceEndpoint") as mock_endpoint_cls,
+        ):
             mock_endpoint_cls.return_value = "endpoint-instance"
             mock_chat_cls.return_value = "hf-chat-instance"
             result = models_module.build_chat_model(
@@ -110,9 +111,9 @@ class SentientRAGTests(unittest.TestCase):
         self.env_patcher.start()
 
         from sentient.adapters.auth import IdentityCache
+        from sentient.adapters.state import get_state_store
         from sentient.core.cache import ObjectRegistry
         from sentient.services.runtime import RuntimeCache
-        from sentient.adapters.state import get_state_store
 
         deps._settings = load_rag_settings()
         deps.state_store = get_state_store(deps._settings)
@@ -154,41 +155,43 @@ class SentientRAGTests(unittest.TestCase):
             "The core technology is Retrieval Augmented Generation."
         )
 
-        with patch("sentient.adapters.documents.build_embeddings", return_value=FakeEmbeddings()):
-            with TestClient(api.app) as client:
-                upload_response = client.post(
-                    "/v1/upload",
-                    files={"file": ("lore.txt", lore_text.encode("utf-8"), "text/plain")},
-                )
-                self.assertEqual(upload_response.status_code, 202)
-                self.assertEqual(
-                    upload_response.json(),
-                    {"status": "processing", "filename": "lore.txt"},
-                )
+        with (
+            patch("sentient.adapters.documents.build_embeddings", return_value=FakeEmbeddings()),
+            TestClient(api.app) as client,
+        ):
+            upload_response = client.post(
+                "/v1/upload",
+                files={"file": ("lore.txt", lore_text.encode("utf-8"), "text/plain")},
+            )
+            self.assertEqual(upload_response.status_code, 202)
+            self.assertEqual(
+                upload_response.json(),
+                {"status": "processing", "filename": "lore.txt"},
+            )
 
-                deadline = time.monotonic() + 3
-                while time.monotonic() < deadline:
-                    health_response = client.get("/health")
-                    if health_response.json()["index_loaded"]:
-                        break
-                    time.sleep(0.02)
-                else:
-                    self.fail("background ingestion did not become ready")
+            deadline = time.monotonic() + 3
+            while time.monotonic() < deadline:
+                health_response = client.get("/health")
+                if health_response.json()["index_loaded"]:
+                    break
+                time.sleep(0.02)
+            else:
+                self.fail("background ingestion did not become ready")
 
-                self.assertTrue((self.data_dir / "lore.txt").exists())
-                retrieve_response = client.post(
-                    "/v1/retrieve",
-                    json={"query": "Who guards the archives?", "top_k": 2},
-                )
-                self.assertEqual(retrieve_response.status_code, 200)
-                payload = retrieve_response.json()
-                self.assertTrue(payload["chunks"])
-                self.assertEqual(payload["chunks"][0]["source"], "lore.txt")
-                self.assertIn("guardian", payload["chunks"][0]["content"].lower())
+            self.assertTrue((self.data_dir / "lore.txt").exists())
+            retrieve_response = client.post(
+                "/v1/retrieve",
+                json={"query": "Who guards the archives?", "top_k": 2},
+            )
+            self.assertEqual(retrieve_response.status_code, 200)
+            payload = retrieve_response.json()
+            self.assertTrue(payload["chunks"])
+            self.assertEqual(payload["chunks"][0]["source"], "lore.txt")
+            self.assertIn("guardian", payload["chunks"][0]["content"].lower())
 
-                delete_response = client.delete("/v1/sources/lore.txt")
-                self.assertEqual(delete_response.status_code, 200)
-                self.assertFalse((self.data_dir / "lore.txt").exists())
+            delete_response = client.delete("/v1/sources/lore.txt")
+            self.assertEqual(delete_response.status_code, 200)
+            self.assertFalse((self.data_dir / "lore.txt").exists())
 
     def test_refresh_knowledge_reflects_uploads_and_deletes_from_another_instance(self):
         """Regression test: NPCBrain.refresh_knowledge() must actually pick up
@@ -197,11 +200,14 @@ class SentientRAGTests(unittest.TestCase):
         while a long-lived NPCBrain holds its own ArchivesIngestion. Previously
         refresh_knowledge() was a no-op after the first load because
         load_index() returned its cached FAISS handle unconditionally."""
-        with patch.dict(
-            os.environ,
-            {"GOOGLE_API_KEY": "AIzaTest", "RAG_SCORE_THRESHOLD": "0"},
-            clear=False,
-        ), patch("sentient.adapters.documents.build_embeddings", return_value=FakeEmbeddings()):
+        with (
+            patch.dict(
+                os.environ,
+                {"GOOGLE_API_KEY": "AIzaTest", "RAG_SCORE_THRESHOLD": "0"},
+                clear=False,
+            ),
+            patch("sentient.adapters.documents.build_embeddings", return_value=FakeEmbeddings()),
+        ):
             from sentient.adapters.documents import ArchivesIngestion
             from sentient.services.rag import NPCBrain
 

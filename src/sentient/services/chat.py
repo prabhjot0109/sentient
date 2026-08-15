@@ -137,9 +137,7 @@ async def prepare_completion(
             return []
         try:
             resolved_archives = archives or await get_archives(ctx)
-            search_type = (
-                ctx.rag_settings["search_type"] if ctx.project_id else "similarity"
-            )
+            search_type = ctx.rag_settings["search_type"] if ctx.project_id else "similarity"
             return await resolved_archives.retrieve(
                 retrieval_query,
                 k=ctx.rag_settings["top_k"],
@@ -193,6 +191,4 @@ async def record_game_turn(ctx, *, state_store, session_locks) -> None:
     server-side memory — Mantella carries the conversation in its own payload."""
     assert ctx.session_id is not None
     async with session_locks.lock(ctx.session_id):
-        await state_store.upsert_thread(
-            ctx.project_id, ctx.session_id, npc_name=ctx.npc_name
-        )
+        await state_store.upsert_thread(ctx.project_id, ctx.session_id, npc_name=ctx.npc_name)

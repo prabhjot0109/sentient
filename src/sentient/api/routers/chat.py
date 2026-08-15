@@ -39,9 +39,7 @@ async def chat_endpoint(
         started_at = perf_counter()
         provider_key = deps._as_provider_key(payload.api_key)
         if not (
-            provider_key
-            or deps.any_provider_key_present()
-            or deps._settings.sentient_secret_key
+            provider_key or deps.any_provider_key_present() or deps._settings.sentient_secret_key
         ):
             raise ValueError("API Key not found. Please provide one or set it in .env")
 
@@ -77,9 +75,7 @@ async def chat_endpoint(
             history_window = (
                 await deps.state_store.get_project_config(payload.project_id) or {}
             ).get("history_window") or 20
-            history = await deps.state_store.list_messages(
-                thread["id"], limit=history_window
-            )
+            history = await deps.state_store.list_messages(thread["id"], limit=history_window)
             result = await service.run_project_turn(
                 ctx,
                 history,
@@ -138,7 +134,7 @@ async def chat_endpoint(
         raise  # ownership/validation statuses must survive the catch-all below
     except Exception as e:
         print(f"Chat Endpoint Error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @router.post("/v1/retrieve", response_model=RetrievalResponse)
@@ -167,4 +163,4 @@ async def retrieve_endpoint(payload: RetrievalInput):
             chunks=serialized_chunks,
         )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e

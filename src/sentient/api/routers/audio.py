@@ -10,7 +10,6 @@ Error translation, preserved exactly from the pre-R9 route body:
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Optional
 
 from fastapi import APIRouter, File, Form, Header, HTTPException, UploadFile
 from fastapi.responses import PlainTextResponse
@@ -27,12 +26,12 @@ router = APIRouter()
 async def audio_transcriptions(
     file: UploadFile = File(...),
     model: str = Form(stt.GROQ_DEFAULT_MODEL),
-    language: Optional[str] = Form(None),
-    prompt: Optional[str] = Form(None),
-    response_format: Optional[str] = Form("json"),
-    temperature: Optional[float] = Form(0.0),
-    authorization: Optional[str] = Header(default=None),
-    x_api_key: Optional[str] = Header(default=None, alias="X-API-Key"),
+    language: str | None = Form(None),
+    prompt: str | None = Form(None),
+    response_format: str | None = Form("json"),
+    temperature: float | None = Form(0.0),
+    authorization: str | None = Header(default=None),
+    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
 ):
     """OpenAI-compatible speech-to-text that doubles as a microphone diagnostic.
 

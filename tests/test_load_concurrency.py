@@ -18,13 +18,13 @@ class LoadConcurrencyTests(unittest.IsolatedAsyncioTestCase):
         for name in ("DATABASE_URL", "NEON_AUTH_JWKS_URL"):
             os.environ.pop(name, None)
 
+        from sentient.adapters.auth import IdentityCache
+        from sentient.adapters.state import get_state_store
         from sentient.api import app as api
         from sentient.api import deps
-        from sentient.adapters.auth import IdentityCache
-        from sentient.core.config import load_rag_settings
         from sentient.core.cache import ObjectRegistry
+        from sentient.core.config import load_rag_settings
         from sentient.services.runtime import RuntimeCache
-        from sentient.adapters.state import get_state_store
 
         self.api = api
         self.deps = deps
@@ -69,17 +69,22 @@ class LoadConcurrencyTests(unittest.IsolatedAsyncioTestCase):
                 return []
 
         with (
-            patch.object(self.deps, "build_llm",
+            patch.object(
+                self.deps,
+                "build_llm",
                 new_callable=AsyncMock,
                 return_value=_SlowLLM(),
             ),
-            patch.object(self.deps, "get_archives_for_context",
+            patch.object(
+                self.deps,
+                "get_archives_for_context",
                 new_callable=AsyncMock,
                 return_value=_StubArchives(),
             ),
         ):
             transport = httpx.ASGITransport(app=self.api.app)
             async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+
                 async def one(key: str):
                     return await client.post(
                         f"/v1/{key}/chat/completions",

@@ -62,8 +62,8 @@ class STTCredentialResolutionTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(key)
 
     async def test_stored_credential_beats_env_when_no_bearer(self):
-        from sentient.core.crypto import encrypt_key
         from sentient.adapters.stt.client import resolve_stt_credential
+        from sentient.core.crypto import encrypt_key
 
         secret = Fernet.generate_key().decode()
         settings = SimpleNamespace(sentient_secret_key=secret)
@@ -133,9 +133,7 @@ class UpstreamModelTests(unittest.TestCase):
     def test_groq_model_is_passed_through(self):
         from sentient.adapters.stt.client import upstream_model
 
-        self.assertEqual(
-            upstream_model("groq", "whisper-large-v3"), "whisper-large-v3"
-        )
+        self.assertEqual(upstream_model("groq", "whisper-large-v3"), "whisper-large-v3")
 
     def test_openai_falls_back_to_its_only_model(self):
         from sentient.adapters.stt.client import upstream_model
@@ -146,7 +144,6 @@ class UpstreamModelTests(unittest.TestCase):
 class TranscriptionEndpointTests(unittest.IsolatedAsyncioTestCase):
     async def _post(self, audio: bytes, **kwargs):
         from sentient.api import app as api
-        from sentient.services import transcription
 
         transport = httpx.ASGITransport(app=api.app)
         async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
@@ -163,9 +160,7 @@ class TranscriptionEndpointTests(unittest.IsolatedAsyncioTestCase):
         fake = MagicMock()
         fake.audio.transcriptions.create.return_value = SimpleNamespace(text="hello there")
         with patch.object(stt, "stt_client", return_value=fake) as build:
-            response = await self._post(
-                SPEECH, headers={"Authorization": "Bearer gsk_forwarded"}
-            )
+            response = await self._post(SPEECH, headers={"Authorization": "Bearer gsk_forwarded"})
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["text"], "hello there")
@@ -178,9 +173,7 @@ class TranscriptionEndpointTests(unittest.IsolatedAsyncioTestCase):
         # Whisper's signature hallucination on a dead mic.
         fake.audio.transcriptions.create.return_value = SimpleNamespace(text="Thank you.")
         with patch.object(stt, "stt_client", return_value=fake):
-            response = await self._post(
-                SILENCE, headers={"Authorization": "Bearer gsk_forwarded"}
-            )
+            response = await self._post(SILENCE, headers={"Authorization": "Bearer gsk_forwarded"})
 
         self.assertEqual(response.status_code, 200)
         # Empty => Mantella replays its "could not detect speech" cue instead of
@@ -193,9 +186,7 @@ class TranscriptionEndpointTests(unittest.IsolatedAsyncioTestCase):
         fake = MagicMock()
         fake.audio.transcriptions.create.return_value = SimpleNamespace(text="Thank you.")
         with patch.object(stt, "stt_client", return_value=fake):
-            response = await self._post(
-                SPEECH, headers={"Authorization": "Bearer gsk_forwarded"}
-            )
+            response = await self._post(SPEECH, headers={"Authorization": "Bearer gsk_forwarded"})
 
         self.assertEqual(response.json()["text"], "Thank you.")
 
@@ -217,24 +208,19 @@ class TranscriptionEndpointTests(unittest.IsolatedAsyncioTestCase):
         fake = MagicMock()
         fake.audio.transcriptions.create.side_effect = RuntimeError("groq is down")
         with patch.object(stt, "stt_client", return_value=fake):
-            response = await self._post(
-                SPEECH, headers={"Authorization": "Bearer gsk_forwarded"}
-            )
+            response = await self._post(SPEECH, headers={"Authorization": "Bearer gsk_forwarded"})
 
         self.assertEqual(response.status_code, 502)
 
     async def test_optional_fields_are_only_sent_when_set(self):
-        from sentient.api import app as api
-        from sentient.services import transcription
         import sentient.adapters.stt.client as stt
+        from sentient.api import app as api
 
         fake = MagicMock()
         fake.audio.transcriptions.create.return_value = SimpleNamespace(text="hi")
         transport = httpx.ASGITransport(app=api.app)
         with patch.object(stt, "stt_client", return_value=fake):
-            async with httpx.AsyncClient(
-                transport=transport, base_url="http://test"
-            ) as client:
+            async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
                 await client.post(
                     "/v1/audio/transcriptions",
                     files={"file": ("mic.wav", SPEECH, "audio/wav")},
@@ -249,9 +235,9 @@ class TranscriptionEndpointTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("prompt", sent)
 
     async def test_recent_endpoint_reports_transcriptions_and_silence_count(self):
+        import sentient.adapters.stt.client as stt
         from sentient.api import app as api
         from sentient.services import transcription
-        import sentient.adapters.stt.client as stt
 
         transcription._STT_HISTORY.clear()
         fake = MagicMock()
@@ -273,7 +259,6 @@ class TranscriptionEndpointTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("gsk_f", str(body))
 
     async def test_history_is_bounded(self):
-        from sentient.api import app as api
         from sentient.services import transcription
 
         transcription._STT_HISTORY.clear()
@@ -282,7 +267,9 @@ class TranscriptionEndpointTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(len(transcription._STT_HISTORY), transcription._STT_HISTORY_LIMIT)
         # Oldest dropped, newest kept.
-        self.assertEqual(transcription._STT_HISTORY[-1]["time"], str(transcription._STT_HISTORY_LIMIT + 9))
+        self.assertEqual(
+            transcription._STT_HISTORY[-1]["time"], str(transcription._STT_HISTORY_LIMIT + 9)
+        )
 
     async def test_no_raw_key_is_returned_on_any_path(self):
         import sentient.adapters.stt.client as stt

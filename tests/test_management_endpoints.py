@@ -18,13 +18,13 @@ class ManagementEndpointTests(unittest.IsolatedAsyncioTestCase):
         for name in ("DATABASE_URL", "NEON_AUTH_JWKS_URL"):
             os.environ.pop(name, None)
 
+        from sentient.adapters.auth import IdentityCache
+        from sentient.adapters.state import get_state_store
         from sentient.api import app as api
         from sentient.api import deps
-        from sentient.adapters.auth import IdentityCache
-        from sentient.core.config import load_rag_settings
         from sentient.core.cache import ObjectRegistry
+        from sentient.core.config import load_rag_settings
         from sentient.services.runtime import RuntimeCache
-        from sentient.adapters.state import get_state_store
 
         self.api = api
         self.deps = deps
@@ -99,17 +99,16 @@ class ManagementEndpointTests(unittest.IsolatedAsyncioTestCase):
         archives = SimpleNamespace(data_dir=Path(self.tmp.name) / "project-data")
 
         with (
-            patch.object(self.deps, "get_archives_for_context",
+            patch.object(
+                self.deps,
+                "get_archives_for_context",
                 new_callable=AsyncMock,
                 return_value=archives,
             ),
-            patch.object(self.deps, "enqueue_ingest", new_callable=AsyncMock
-            ) as enqueue,
+            patch.object(self.deps, "enqueue_ingest", new_callable=AsyncMock) as enqueue,
         ):
             transport = httpx.ASGITransport(app=self.api.app)
-            async with httpx.AsyncClient(
-                transport=transport, base_url="http://test"
-            ) as client:
+            async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
                 response = await client.post(
                     "/v1/upload",
                     headers={"X-API-Key": raw_key},

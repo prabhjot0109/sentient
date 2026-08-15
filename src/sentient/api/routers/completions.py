@@ -18,7 +18,6 @@ from __future__ import annotations
 import time
 from dataclasses import replace
 from time import perf_counter
-from typing import Optional
 
 from fastapi import APIRouter, Header, HTTPException
 from fastapi.responses import StreamingResponse
@@ -93,7 +92,7 @@ async def _run_completions(
 @router.post("/v1/chat/completions")
 async def openai_chat_completions(
     request: ChatCompletionRequest,
-    x_api_key: Optional[str] = Header(default=None, alias="X-API-Key"),
+    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
 ):
     """OpenAI-compatible env-default route retained for existing clients."""
     try:

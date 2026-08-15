@@ -10,8 +10,8 @@ from typing import Any
 from cachetools import TTLCache
 
 from sentient.core.config import provider_api_key, resolve_provider
-from sentient.core.presets import get_preset
 from sentient.core.crypto import crypto_available, decrypt_key
+from sentient.core.presets import get_preset
 
 logger = logging.getLogger(__name__)
 
@@ -72,19 +72,34 @@ def _floor(settings, provider_key: str | None) -> tuple[dict, dict]:
 
 
 # project_configs column -> (target dict, key). None values are skipped (floor wins).
-_LLM_MAP = {"llm_provider": "provider", "model_name": "model", "temperature": "temperature",
-            "max_tokens": "max_tokens", "reasoning_effort": "reasoning_effort",
-            "reasoning_format": "reasoning_format"}
-_RAG_MAP = {"embedding_provider": "embedding_provider", "embedding_model_name": "embedding_model",
-            "mrl_vector_size": "mrl_vector_size", "rag_search_type": "search_type",
-            "rag_top_k": "top_k", "rag_fetch_k": "fetch_k", "rag_mmr_lambda": "mmr_lambda",
-            "rag_score_threshold": "score_threshold", "rag_chunk_size": "chunk_size",
-            "rag_chunk_overlap": "chunk_overlap"}
+_LLM_MAP = {
+    "llm_provider": "provider",
+    "model_name": "model",
+    "temperature": "temperature",
+    "max_tokens": "max_tokens",
+    "reasoning_effort": "reasoning_effort",
+    "reasoning_format": "reasoning_format",
+}
+_RAG_MAP = {
+    "embedding_provider": "embedding_provider",
+    "embedding_model_name": "embedding_model",
+    "mrl_vector_size": "mrl_vector_size",
+    "rag_search_type": "search_type",
+    "rag_top_k": "top_k",
+    "rag_fetch_k": "fetch_k",
+    "rag_mmr_lambda": "mmr_lambda",
+    "rag_score_threshold": "score_threshold",
+    "rag_chunk_size": "chunk_size",
+    "rag_chunk_overlap": "chunk_overlap",
+}
 
 
 def _belongs_to(provider: str, provider_key: str | None) -> str | None:
     """The request-supplied key, but only when its prefix says it is this provider's."""
-    if provider_key and resolve_provider("auto", api_key=provider_key, fallback=provider) == provider:
+    if (
+        provider_key
+        and resolve_provider("auto", api_key=provider_key, fallback=provider) == provider
+    ):
         return provider_key
     return None
 
@@ -129,8 +144,11 @@ async def _resolve_keys(state, settings, user_id, provider_key, llm: dict, rag: 
 
 def _signature(llm: dict, rag: dict) -> str:
     subset = {
-        "provider": llm["provider"], "model": llm["model"], "base_url": llm["base_url"],
-        "embedding_provider": rag["embedding_provider"], "embedding_model": rag["embedding_model"],
+        "provider": llm["provider"],
+        "model": llm["model"],
+        "base_url": llm["base_url"],
+        "embedding_provider": rag["embedding_provider"],
+        "embedding_model": rag["embedding_model"],
         "mrl_vector_size": rag["mrl_vector_size"],
         # distinguish credentials without leaking them
         "llm_key": hashlib.sha256((llm["api_key"] or "").encode()).hexdigest(),
@@ -139,8 +157,9 @@ def _signature(llm: dict, rag: dict) -> str:
     return hashlib.sha256(json.dumps(subset, sort_keys=True).encode()).hexdigest()[:24]
 
 
-async def resolve_runtime_context(state, settings, *, user_id, user_key, project_id=None,
-                                  session_id=None, provider_key=None) -> RuntimeContext:
+async def resolve_runtime_context(
+    state, settings, *, user_id, user_key, project_id=None, session_id=None, provider_key=None
+) -> RuntimeContext:
     llm, rag = _floor(settings, provider_key)
     system_prompt = ""
     project = None
@@ -157,15 +176,19 @@ async def resolve_runtime_context(state, settings, *, user_id, user_key, project
         # project persona > base_preset > generic
         system_prompt = (config or {}).get("persona_prompt") or ""
         project = await state.get_project(user_id, project_id)
-        if not system_prompt:
-            if project:
-                system_prompt = get_preset(project.get("base_preset", ""))
+        if not system_prompt and project:
+            system_prompt = get_preset(project.get("base_preset", ""))
 
     await _resolve_keys(state, settings, user_id, provider_key, llm, rag)
 
     return RuntimeContext(
-        user_key=user_key, user_id=user_id, project_id=project_id, session_id=session_id,
-        llm_settings=llm, rag_settings=rag, system_prompt=system_prompt,
+        user_key=user_key,
+        user_id=user_id,
+        project_id=project_id,
+        session_id=session_id,
+        llm_settings=llm,
+        rag_settings=rag,
+        system_prompt=system_prompt,
         config_signature=_signature(llm, rag),
         status=(project or {}).get("status", "active"),
     )
@@ -185,11 +208,10 @@ class RuntimeCache:
         self._cache: TTLCache = TTLCache(maxsize=maxsize, ttl=ttl)
         self._locks: dict[tuple, asyncio.Lock] = {}
 
-    async def resolve(self, state, settings, *, user_id, user_key, project_id,
-                      session_id=None, provider_key=None) -> RuntimeContext:
-        provider_fingerprint = hashlib.sha256(
-            (provider_key or "").encode()
-        ).hexdigest()[:16]
+    async def resolve(
+        self, state, settings, *, user_id, user_key, project_id, session_id=None, provider_key=None
+    ) -> RuntimeContext:
+        provider_fingerprint = hashlib.sha256((provider_key or "").encode()).hexdigest()[:16]
         cache_key = (user_id, user_key, project_id, provider_fingerprint)
         hit = self._cache.get(cache_key)
         if hit is None:
@@ -200,9 +222,14 @@ class RuntimeCache:
                     hit = self._cache.get(cache_key)
                     if hit is None:
                         hit = await resolve_runtime_context(
-                            state, settings, user_id=user_id, user_key=user_key,
-                            project_id=project_id, session_id=session_id,
-                            provider_key=provider_key)
+                            state,
+                            settings,
+                            user_id=user_id,
+                            user_key=user_key,
+                            project_id=project_id,
+                            session_id=session_id,
+                            provider_key=provider_key,
+                        )
                         self._cache[cache_key] = hit
             finally:
                 self._locks.pop(lock_key, None)

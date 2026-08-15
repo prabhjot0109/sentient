@@ -22,9 +22,7 @@ class DocumentsEndpointTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
-        self.env = patch.dict(
-            os.environ, {"DATA_DIR": self.tmp.name, "VECTOR_BACKEND": "faiss"}
-        )
+        self.env = patch.dict(os.environ, {"DATA_DIR": self.tmp.name, "VECTOR_BACKEND": "faiss"})
         self.env.start()
         self.addCleanup(self.env.stop)
 
@@ -36,13 +34,13 @@ class DocumentsEndpointTests(unittest.IsolatedAsyncioTestCase):
         embeddings.start()
         self.addCleanup(embeddings.stop)
 
+        from sentient.adapters.auth import IdentityCache
+        from sentient.adapters.state import get_state_store
         from sentient.api import app as api
         from sentient.api import deps
-        from sentient.adapters.auth import IdentityCache
-        from sentient.core.config import load_rag_settings
         from sentient.core.cache import ObjectRegistry
+        from sentient.core.config import load_rag_settings
         from sentient.services.runtime import RuntimeCache
-        from sentient.adapters.state import get_state_store
 
         # api.py builds these at import time, so a module cached by an earlier test
         # still points at that test's tmpdir. Rebind them the way
@@ -90,14 +88,10 @@ class DocumentsEndpointTests(unittest.IsolatedAsyncioTestCase):
     async def test_sources_listing_is_scoped_to_the_requested_project(self):
         project_id = await self._project()
         # Write a file into the default partition only.
-        (Path(self.tmp.name) / "default-only.txt").write_text(
-            "shared lore", encoding="utf-8"
-        )
+        (Path(self.tmp.name) / "default-only.txt").write_text("shared lore", encoding="utf-8")
 
         default_body = (await self.client.get("/v1/sources")).json()
-        self.assertIn(
-            "default-only.txt", [item["name"] for item in default_body["sources"]]
-        )
+        self.assertIn("default-only.txt", [item["name"] for item in default_body["sources"]])
 
         scoped = (await self.client.get(f"/v1/sources?project_id={project_id}")).json()
         # A project's partition is its own directory; the default file must not leak in.

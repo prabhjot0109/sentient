@@ -44,9 +44,15 @@ class VectorBackend(Protocol):
     ) -> dict[str, Any] | None: ...
     async def remove(self, source: str) -> dict[str, Any] | None: ...
     async def retrieve(
-        self, query: str, *, k: int | None = None, search_type: str | None = None,
-        min_score: float | None = None, user_key: str | None = None,
-        project_id: str | None = None, embedding_signature: str | None = None,
+        self,
+        query: str,
+        *,
+        k: int | None = None,
+        search_type: str | None = None,
+        min_score: float | None = None,
+        user_key: str | None = None,
+        project_id: str | None = None,
+        embedding_signature: str | None = None,
     ) -> list[tuple[Document, float | None]]: ...
     def clear_project(self, user_key: str | None, project_id: str) -> None: ...
     def exists(self) -> bool: ...

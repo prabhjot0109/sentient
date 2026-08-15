@@ -31,7 +31,6 @@ import os
 from dataclasses import replace
 from functools import lru_cache
 from pathlib import Path
-from typing import Optional
 
 from fastapi import Header, HTTPException
 
@@ -201,15 +200,15 @@ def get_default_archives() -> ArchivesIngestion:
     return ArchivesIngestion()
 
 
-def get_archives(api_key: Optional[str] = None) -> ArchivesIngestion:
+def get_archives(api_key: str | None = None) -> ArchivesIngestion:
     if api_key:
         return ArchivesIngestion(api_key=api_key)
     return get_default_archives()
 
 
 async def current_user(
-    authorization: Optional[str] = Header(default=None),
-    x_api_key: Optional[str] = Header(default=None, alias="X-API-Key"),
+    authorization: str | None = Header(default=None),
+    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
 ) -> tuple[str, str]:
     """Resolve web identity: Bearer JWT or X-API-Key → (user_id, user_key).
 
@@ -286,6 +285,7 @@ async def enqueue_reindex(job: ReindexJob) -> None:
 # process singletons, and it is wired straight into route signatures. It keeps
 # raising HTTPException directly -- deps.py is the api layer, so HTTP vocabulary
 # is legal here, and routing it through core.errors would only add a hop.
+
 
 async def completions_ctx(
     api_key: str | None,

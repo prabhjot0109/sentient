@@ -10,7 +10,6 @@ Error translation, preserved exactly from the pre-R9 route bodies:
 from __future__ import annotations
 
 import asyncio
-from typing import Optional
 
 from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, UploadFile
 
@@ -36,9 +35,9 @@ async def list_project_documents(
 @router.post("/v1/upload", status_code=202)
 async def upload_file(
     file: UploadFile = File(...),
-    api_key: Optional[str] = Form(default=None),
-    project_id: Optional[str] = Form(default=None),
-    x_api_key: Optional[str] = Header(default=None, alias="X-API-Key"),
+    api_key: str | None = Form(default=None),
+    project_id: str | None = Form(default=None),
+    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
 ):
     """Stage an upload and enqueue non-blocking, tenant-scoped ingestion."""
     try:
@@ -67,8 +66,8 @@ async def upload_file(
 
 @router.get("/v1/sources")
 async def list_sources(
-    project_id: Optional[str] = None,
-    x_api_key: Optional[str] = Header(default=None, alias="X-API-Key"),
+    project_id: str | None = None,
+    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
 ):
     """List source documents for the caller's archive partition.
 
@@ -87,8 +86,8 @@ async def list_sources(
 @router.delete("/v1/sources/{filename}")
 async def delete_source(
     filename: str,
-    project_id: Optional[str] = None,
-    x_api_key: Optional[str] = Header(default=None, alias="X-API-Key"),
+    project_id: str | None = None,
+    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
 ):
     """Delete a source document from the caller's partition and its registry row.
 

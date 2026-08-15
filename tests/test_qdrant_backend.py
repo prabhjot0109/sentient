@@ -32,12 +32,18 @@ class QdrantBackendTests(unittest.IsolatedAsyncioTestCase):
         from sentient.adapters.retrieval.qdrant_store import QdrantBackend
 
         backend = QdrantBackend(_qdrant_settings(), _FakeDense(), location=":memory:")
-        await backend.index([
-            Document(page_content="Nords have frost resistance and two-handed skill.",
-                     metadata={"source": "skills.pdf", "chunk_id": 0}),
-            Document(page_content="The city of Whiterun sits in the tundra.",
-                     metadata={"source": "places.pdf", "chunk_id": 1}),
-        ])
+        await backend.index(
+            [
+                Document(
+                    page_content="Nords have frost resistance and two-handed skill.",
+                    metadata={"source": "skills.pdf", "chunk_id": 0},
+                ),
+                Document(
+                    page_content="The city of Whiterun sits in the tundra.",
+                    metadata={"source": "places.pdf", "chunk_id": 1},
+                ),
+            ]
+        )
         results = await backend.retrieve("Nord frost resistance", k=2, min_score=0.0)
         self.assertTrue(results)
         self.assertIsInstance(results[0][0], Document)
@@ -46,10 +52,12 @@ class QdrantBackendTests(unittest.IsolatedAsyncioTestCase):
         from sentient.adapters.retrieval.qdrant_store import QdrantBackend
 
         backend = QdrantBackend(_qdrant_settings(), _FakeDense(), location=":memory:")
-        await backend.add([Document(page_content="tenant A lore",
-                                    metadata={"source": "a.txt", "user_key": "A"})])
-        await backend.add([Document(page_content="tenant B lore",
-                                    metadata={"source": "b.txt", "user_key": "B"})])
+        await backend.add(
+            [Document(page_content="tenant A lore", metadata={"source": "a.txt", "user_key": "A"})]
+        )
+        await backend.add(
+            [Document(page_content="tenant B lore", metadata={"source": "b.txt", "user_key": "B"})]
+        )
         a_hits = await backend.retrieve("lore", k=5, min_score=0.0, user_key="A")
         sources = {d.metadata.get("source") for d, _ in a_hits}
         self.assertIn("a.txt", sources)
@@ -60,16 +68,16 @@ class QdrantBackendTests(unittest.IsolatedAsyncioTestCase):
 
         backend = QdrantBackend(_qdrant_settings(), _FakeDense(), location=":memory:")
         await backend.add(
-            [Document(page_content="tenant A lore", metadata={"source": "a.txt", "user_key": "stale"})],
+            [
+                Document(
+                    page_content="tenant A lore", metadata={"source": "a.txt", "user_key": "stale"}
+                )
+            ],
             user_key="tenant-a",
         )
 
-        tenant_hits = await backend.retrieve(
-            "lore", k=5, min_score=0.0, user_key="tenant-a"
-        )
-        stale_hits = await backend.retrieve(
-            "lore", k=5, min_score=0.0, user_key="stale"
-        )
+        tenant_hits = await backend.retrieve("lore", k=5, min_score=0.0, user_key="tenant-a")
+        stale_hits = await backend.retrieve("lore", k=5, min_score=0.0, user_key="stale")
         self.assertEqual({d.metadata.get("source") for d, _ in tenant_hits}, {"a.txt"})
         self.assertEqual(stale_hits, [])
 
@@ -99,19 +107,21 @@ class QdrantBackendTests(unittest.IsolatedAsyncioTestCase):
         tenant_b = await backend.retrieve(
             "lore", k=5, min_score=0.0, user_key="tenant-b", project_id="shared"
         )
-        self.assertEqual(
-            {d.metadata.get("source") for d, _ in tenant_a}, {"new-a.txt"}
-        )
+        self.assertEqual({d.metadata.get("source") for d, _ in tenant_a}, {"new-a.txt"})
         self.assertEqual({d.metadata.get("source") for d, _ in tenant_b}, {"b.txt"})
 
     async def test_project_id_isolation_and_clear(self):
         from sentient.adapters.retrieval.qdrant_store import QdrantBackend
 
         backend = QdrantBackend(_qdrant_settings(), _FakeDense(), location=":memory:")
-        await backend.add([Document(page_content="skyrim lore", metadata={"source": "sky.txt"})],
-                          project_id="skyrim")
-        await backend.add([Document(page_content="fallout lore", metadata={"source": "fo.txt"})],
-                          project_id="fallout")
+        await backend.add(
+            [Document(page_content="skyrim lore", metadata={"source": "sky.txt"})],
+            project_id="skyrim",
+        )
+        await backend.add(
+            [Document(page_content="fallout lore", metadata={"source": "fo.txt"})],
+            project_id="fallout",
+        )
 
         skyrim = await backend.retrieve("lore", k=5, min_score=0.0, project_id="skyrim")
         self.assertEqual({d.metadata.get("source") for d, _ in skyrim}, {"sky.txt"})
@@ -127,8 +137,10 @@ class QdrantBackendTests(unittest.IsolatedAsyncioTestCase):
         from sentient.adapters.retrieval.qdrant_store import QdrantBackend
 
         backend = QdrantBackend(_qdrant_settings(), _FakeDense(), location=":memory:")
-        await backend.add([Document(page_content="v1 lore", metadata={"source": "v1.txt"})],
-                          embedding_signature="sig-v1")
+        await backend.add(
+            [Document(page_content="v1 lore", metadata={"source": "v1.txt"})],
+            embedding_signature="sig-v1",
+        )
         # A query stamped with the current signature only sees current-signature vectors.
         hits = await backend.retrieve("lore", k=5, min_score=0.0, embedding_signature="sig-v1")
         self.assertEqual({d.metadata.get("source") for d, _ in hits}, {"v1.txt"})
@@ -139,12 +151,17 @@ class QdrantBackendTests(unittest.IsolatedAsyncioTestCase):
         from sentient.adapters.retrieval.qdrant_store import QdrantBackend
 
         backend = QdrantBackend(_qdrant_settings(), _FakeDense(), location=":memory:")
-        await backend.add([
-            Document(page_content="alpha", metadata={"source": "a.txt"}),
-            Document(page_content="beta", metadata={"source": "b.txt"}),
-        ])
+        await backend.add(
+            [
+                Document(page_content="alpha", metadata={"source": "a.txt"}),
+                Document(page_content="beta", metadata={"source": "b.txt"}),
+            ]
+        )
         await backend.remove("a.txt")
-        sources = {d.metadata.get("source") for d, _ in await backend.retrieve("alpha beta", k=5, min_score=0.0)}
+        sources = {
+            d.metadata.get("source")
+            for d, _ in await backend.retrieve("alpha beta", k=5, min_score=0.0)
+        }
         self.assertNotIn("a.txt", sources)
 
 
@@ -153,8 +170,9 @@ class QdrantFactoryTests(unittest.TestCase):
         from sentient.adapters.retrieval.factory import get_vector_backend
         from sentient.adapters.retrieval.qdrant_store import QdrantBackend
 
-        with patch.dict(os.environ, {"VECTOR_BACKEND": "qdrant", "QDRANT_URL": "http://x:6333"},
-                        clear=False):
+        with patch.dict(
+            os.environ, {"VECTOR_BACKEND": "qdrant", "QDRANT_URL": "http://x:6333"}, clear=False
+        ):
             settings = load_rag_settings()
         backend = get_vector_backend(settings, None, _FakeDense())
         self.assertIsInstance(backend, QdrantBackend)

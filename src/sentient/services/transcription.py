@@ -36,7 +36,7 @@ def record_history(entry: dict) -> None:
 
 def recent_history(limit: int) -> dict[str, Any]:
     """The last few utterances with their measured mic levels, for debugging."""
-    window = _STT_HISTORY[-max(1, min(limit, _STT_HISTORY_LIMIT)):]
+    window = _STT_HISTORY[-max(1, min(limit, _STT_HISTORY_LIMIT)) :]
     return {
         "count": len(window),
         "empty_transcriptions": sum(1 for item in window if not item["text"]),

@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from sentient.core.config import RAGSettings
 from sentient.adapters.retrieval.base import VectorBackend
 from sentient.adapters.retrieval.faiss_store import FaissBackend
+from sentient.core.config import RAGSettings
 
 
 def get_vector_backend(settings: RAGSettings, index_path, embeddings) -> VectorBackend:

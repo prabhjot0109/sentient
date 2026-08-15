@@ -3,8 +3,9 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import secrets
+from collections.abc import Awaitable, Callable
 from functools import lru_cache
-from typing import Any, Awaitable, Callable
+from typing import Any
 
 import jwt
 from cachetools import TTLCache
@@ -101,12 +102,19 @@ class IdentityCache:
         self._cache.clear()
 
 
-async def resolve_user(state, settings, *, jwt_token: str | None = None,
-                       api_key: str | None = None, header_key: str | None = None,
-                       cache: IdentityCache | None = None) -> tuple[str, str]:
+async def resolve_user(
+    state,
+    settings,
+    *,
+    jwt_token: str | None = None,
+    api_key: str | None = None,
+    header_key: str | None = None,
+    cache: IdentityCache | None = None,
+) -> tuple[str, str]:
     key = api_key or header_key
 
     if jwt_token and auth_enabled(settings):
+
         async def _load_jwt():
             claims = verify_jwt(jwt_token, settings)
             sub = claims.get("sub")
@@ -114,15 +122,18 @@ async def resolve_user(state, settings, *, jwt_token: str | None = None,
                 raise AuthError("token has no sub claim")
             user = await state.ensure_user(sub, claims.get("email"))
             return (user["id"], user_key_of(sub))
+
         ck = "jwt:" + hash_key(jwt_token)
         return await (cache.resolve(ck, _load_jwt) if cache else _load_jwt())
 
     if key:
+
         async def _load_key():
             row = await state.get_user_by_api_key_hash(hash_key(key))
             if not row or row.get("revoked"):
                 raise AuthError("unknown or revoked api key")
             return (row["user_id"], user_key_of(key))
+
         ck = "key:" + hash_key(key)
         return await (cache.resolve(ck, _load_key) if cache else _load_key())
 

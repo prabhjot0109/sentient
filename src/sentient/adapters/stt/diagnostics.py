@@ -17,7 +17,6 @@ from __future__ import annotations
 import io
 import wave
 from dataclasses import dataclass, field
-from typing import Optional
 
 import numpy as np
 
@@ -185,7 +184,7 @@ def _classify(report: AudioReport) -> tuple[str, str]:
     return "OK", f"healthy speech level (RMS {report.rms * 100:.1f}%)"
 
 
-def explain_empty_transcription(report: Optional[AudioReport]) -> str:
+def explain_empty_transcription(report: AudioReport | None) -> str:
     """Why the STT model returned nothing, phrased as the next thing to try."""
     if report is None or report.speech_plausible:
         return (

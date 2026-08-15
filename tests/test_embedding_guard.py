@@ -8,12 +8,10 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock, patch
 
 import httpx
-
-from sentient.api.routers import completions as completions_router
-
 from fastapi import HTTPException
 
 from sentient.adapters.llm.openai_wire import ChatCompletionRequest
+from sentient.api.routers import completions as completions_router
 
 
 class EmbeddingSignatureTests(unittest.TestCase):
@@ -34,12 +32,20 @@ class EmbeddingSignatureTests(unittest.TestCase):
     def test_model_change_changes_signature(self) -> None:
         from sentient.services.runtime import embedding_signature
 
-        a = embedding_signature({
-            "embedding_provider": "google", "embedding_model": "m-a", "mrl_vector_size": None,
-        })
-        b = embedding_signature({
-            "embedding_provider": "google", "embedding_model": "m-b", "mrl_vector_size": None,
-        })
+        a = embedding_signature(
+            {
+                "embedding_provider": "google",
+                "embedding_model": "m-a",
+                "mrl_vector_size": None,
+            }
+        )
+        b = embedding_signature(
+            {
+                "embedding_provider": "google",
+                "embedding_model": "m-b",
+                "mrl_vector_size": None,
+            }
+        )
         self.assertNotEqual(a, b)
 
 
@@ -55,15 +61,13 @@ class ReindexGuardTests(unittest.IsolatedAsyncioTestCase):
         for name in ("DATABASE_URL", "NEON_AUTH_JWKS_URL"):
             os.environ.pop(name, None)
 
-        from sentient.api import app as api
-
-
-        from sentient.api import deps
         from sentient.adapters.auth import IdentityCache
-        from sentient.core.config import load_rag_settings
-        from sentient.core.cache import ObjectRegistry
-        from sentient.services.runtime import RuntimeCache
         from sentient.adapters.state import get_state_store
+        from sentient.api import app as api
+        from sentient.api import deps
+        from sentient.core.cache import ObjectRegistry
+        from sentient.core.config import load_rag_settings
+        from sentient.services.runtime import RuntimeCache
 
         self.api = api
         self.deps = deps

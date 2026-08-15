@@ -76,9 +76,7 @@ async def set_persona(
 ) -> dict[str, Any]:
     if await state_store.get_project(user_id, project_id) is None:
         raise NotFound("project not found")
-    config = await state_store.upsert_project_config(
-        project_id, persona_prompt=system_prompt
-    )
+    config = await state_store.upsert_project_config(project_id, persona_prompt=system_prompt)
     runtime_cache.invalidate(project_id)
     return config
 
@@ -97,9 +95,7 @@ async def update_config(
     project = await state_store.get_project(user_id, project_id)
     if project is None:
         raise NotFound("project not found")
-    prior = (await state_store.get_project_config(project_id) or {}).get(
-        "embedding_signature"
-    )
+    prior = (await state_store.get_project_config(project_id) or {}).get("embedding_signature")
     await state_store.upsert_project_config(project_id, **fields)
     ctx = await resolve_runtime_context(
         state_store,
@@ -113,11 +109,7 @@ async def update_config(
     )
     new_signature = config["embedding_signature"]
     runtime_cache.invalidate(project_id)
-    if (
-        prior is not None
-        and prior != new_signature
-        and project["status"] != "reindexing_required"
-    ):
+    if prior is not None and prior != new_signature and project["status"] != "reindexing_required":
         await state_store.set_project_status(project_id, "reindexing_required")
         await enqueue_reindex(
             ReindexJob(

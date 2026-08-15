@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from collections import defaultdict, deque
-from typing import Deque
 
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
 
@@ -16,7 +15,7 @@ class SessionMemory:
 
     def __init__(self, max_turns: int = 12) -> None:
         self._max = max_turns
-        self._threads: dict[tuple[str, str], Deque[BaseMessage]] = defaultdict(
+        self._threads: dict[tuple[str, str], deque[BaseMessage]] = defaultdict(
             lambda: deque(maxlen=self._max)
         )
 

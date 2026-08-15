@@ -62,9 +62,8 @@ class BrainEmbeddingSpaceTests(unittest.TestCase):
     can query an index built in a different embedding space."""
 
     def test_brain_uses_the_context_embedding_settings_not_the_llm_key(self):
-        from sentient.api import app as api
-        from sentient.services.runtime import RuntimeContext
         from sentient.api import deps
+        from sentient.services.runtime import RuntimeContext
 
         ctx = RuntimeContext(
             user_key="default",

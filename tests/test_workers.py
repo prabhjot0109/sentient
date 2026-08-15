@@ -21,9 +21,7 @@ class IngestQueueTests(unittest.IsolatedAsyncioTestCase):
 
         queue = IngestQueue(handler)
         await queue.start()
-        await queue.enqueue(
-            IngestJob("p", "uk", None, "/x/a.pdf", "a.pdf", "sig")
-        )
+        await queue.enqueue(IngestJob("p", "uk", None, "/x/a.pdf", "a.pdf", "sig"))
         await queue.stop()
 
         self.assertEqual(processed, ["a.pdf"])
@@ -82,7 +80,6 @@ class IngestQueueTests(unittest.IsolatedAsyncioTestCase):
 
 class IngestHandlerTests(unittest.IsolatedAsyncioTestCase):
     async def test_ingest_handler_awaits_add_and_marks_project_ready(self):
-        from sentient.api import app as api
         from sentient.api import deps
         from sentient.core.concurrency import IngestJob
 
@@ -97,9 +94,7 @@ class IngestHandlerTests(unittest.IsolatedAsyncioTestCase):
                 register_document=AsyncMock(),
                 set_document_status=AsyncMock(),
             )
-            job = IngestJob(
-                "project-a", "tenant-a", None, str(path), "lore.txt", "sig-a", archives
-            )
+            job = IngestJob("project-a", "tenant-a", None, str(path), "lore.txt", "sig-a", archives)
 
             with patch.object(deps, "state_store", store):
                 await deps._ingest_handler(job)
@@ -116,7 +111,6 @@ class IngestHandlerTests(unittest.IsolatedAsyncioTestCase):
         store.set_document_status.assert_not_awaited()
 
     async def test_ingest_handler_marks_project_failed(self):
-        from sentient.api import app as api
         from sentient.api import deps
         from sentient.core.concurrency import IngestJob
 
@@ -132,13 +126,13 @@ class IngestHandlerTests(unittest.IsolatedAsyncioTestCase):
             "project-a", "tenant-a", None, "/tmp/lore.txt", "lore.txt", "sig-a", archives
         )
 
-        with patch.object(deps, "state_store", store):
-            with self.assertRaisesRegex(RuntimeError, "embed failed"):
-                await deps._ingest_handler(job)
+        with (
+            patch.object(deps, "state_store", store),
+            self.assertRaisesRegex(RuntimeError, "embed failed"),
+        ):
+            await deps._ingest_handler(job)
 
-        store.set_document_status.assert_awaited_once_with(
-            "project-a", "lore.txt", "failed"
-        )
+        store.set_document_status.assert_awaited_once_with("project-a", "lore.txt", "failed")
 
 
 class SessionLockTests(unittest.IsolatedAsyncioTestCase):
@@ -161,8 +155,6 @@ class SessionLockTests(unittest.IsolatedAsyncioTestCase):
 
 class DeferredTurnTests(unittest.IsolatedAsyncioTestCase):
     async def test_stream_schedules_session_work_after_completion(self):
-        from sentient.api import app as api
-        from sentient.api import deps
 
         class _LLM:
             async def astream(self, messages):

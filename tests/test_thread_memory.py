@@ -12,9 +12,9 @@ import httpx
 from cryptography.fernet import Fernet
 
 from sentient.adapters.auth import IdentityCache
+from sentient.adapters.state.sqlite_store import SQLiteStateStore
 from sentient.core.cache import ObjectRegistry
 from sentient.services.runtime import RuntimeCache
-from sentient.adapters.state.sqlite_store import SQLiteStateStore
 
 
 class ThreadStoreTests(unittest.IsolatedAsyncioTestCase):
@@ -35,7 +35,9 @@ class ThreadStoreTests(unittest.IsolatedAsyncioTestCase):
         second = await self.store.upsert_thread(project["id"], "session")
         self.assertEqual(first["id"], second["id"])
         for index in range(30):
-            await self.store.add_message(first["id"], "user" if index % 2 == 0 else "assistant", f"m{index}")
+            await self.store.add_message(
+                first["id"], "user" if index % 2 == 0 else "assistant", f"m{index}"
+            )
         tail = await self.store.list_messages(first["id"], limit=20)
         self.assertEqual([row["content"] for row in tail], [f"m{i}" for i in range(10, 30)])
 
@@ -43,7 +45,9 @@ class ThreadStoreTests(unittest.IsolatedAsyncioTestCase):
         """A coarse clock must not let the assistant reply sort before its question."""
         _, project = await self._project()
         thread = await self.store.upsert_thread(project["id"], "session")
-        with patch("sentient.adapters.state.sqlite_store._now", return_value="2026-07-10T00:00:00+00:00"):
+        with patch(
+            "sentient.adapters.state.sqlite_store._now", return_value="2026-07-10T00:00:00+00:00"
+        ):
             for index in range(6):
                 await self.store.add_message(thread["id"], "user", f"m{index}")
         tail = await self.store.list_messages(thread["id"], limit=4)
@@ -60,8 +64,11 @@ class ThreadMemoryEndpointTests(unittest.IsolatedAsyncioTestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.store = SQLiteStateStore(str(Path(self.tmp.name) / "state.db"))
         self.original = (
-            deps.state_store, deps._settings, deps.runtime_cache,
-            deps.object_registry, deps.identity_cache,
+            deps.state_store,
+            deps._settings,
+            deps.runtime_cache,
+            deps.object_registry,
+            deps.identity_cache,
         )
         deps.state_store = self.store
         # /v1/chat refuses to run with no credential anywhere; the vault secret keeps
@@ -81,8 +88,11 @@ class ThreadMemoryEndpointTests(unittest.IsolatedAsyncioTestCase):
         await self.client.aclose()
         await self._drain_deferred()
         (
-            self.deps.state_store, self.deps._settings, self.deps.runtime_cache,
-            self.deps.object_registry, self.deps.identity_cache,
+            self.deps.state_store,
+            self.deps._settings,
+            self.deps.runtime_cache,
+            self.deps.object_registry,
+            self.deps.identity_cache,
         ) = self.original
         self.api.app.dependency_overrides.clear()
         self.tmp.cleanup()
@@ -92,7 +102,8 @@ class ThreadMemoryEndpointTests(unittest.IsolatedAsyncioTestCase):
         """Let post-response writes finish before the temp DB is removed — Windows
         refuses to unlink a file another thread still has open."""
         pending = [
-            task for task in asyncio.all_tasks()
+            task
+            for task in asyncio.all_tasks()
             if (task.get_name() or "").startswith("sentient-deferred-")
         ]
         if pending:
@@ -118,7 +129,8 @@ class ThreadMemoryEndpointTests(unittest.IsolatedAsyncioTestCase):
         return (
             patch.object(self.deps, "get_llm", AsyncMock(return_value=FakeLLM())),
             patch.object(self.deps, "build_llm", AsyncMock(return_value=FakeLLM())),
-            patch.object(self.deps, "get_archives_for_context", AsyncMock(return_value=EmptyArchives())
+            patch.object(
+                self.deps, "get_archives_for_context", AsyncMock(return_value=EmptyArchives())
             ),
         )
 
@@ -166,14 +178,12 @@ class ThreadMemoryEndpointTests(unittest.IsolatedAsyncioTestCase):
 
         llm, _, archives = self._fake_generation()
         with llm, archives:
-            answered = await self._say(
-                "now", project_id=self.project["id"], thread_id=thread["id"]
-            )
+            answered = await self._say("now", project_id=self.project["id"], thread_id=thread["id"])
         self.assertEqual(answered.status_code, 200)
         prompt = self.captured[-1]
         self.assertIn("old-5", prompt)
         self.assertIn("old-4", prompt)
-        self.assertNotIn("old-3", prompt)   # window=2 keeps exactly the last two
+        self.assertNotIn("old-3", prompt)  # window=2 keeps exactly the last two
 
     async def test_thread_id_without_project_id_is_rejected(self):
         rejected = await self._say("orphan", thread_id="whatever")
@@ -188,17 +198,13 @@ class ThreadMemoryEndpointTests(unittest.IsolatedAsyncioTestCase):
         self._become_another_user()
         llm, _, archives = self._fake_generation()
         with llm, archives:
-            foreign = await self._say(
-                "yours", project_id=self.project["id"], thread_id=thread_id
-            )
+            foreign = await self._say("yours", project_id=self.project["id"], thread_id=thread_id)
         self.assertEqual(foreign.status_code, 404)
 
     async def test_chat_without_a_project_keeps_the_legacy_shape(self):
         """No project_id => no thread, no memory, no deferral — as before R7."""
         brain = SimpleNamespace(
-            ask_with_context=AsyncMock(
-                return_value={"answer": "legacy", "sources": [], "top_k": 3}
-            )
+            ask_with_context=AsyncMock(return_value={"answer": "legacy", "sources": [], "top_k": 3})
         )
         with patch.object(self.deps, "get_brain", AsyncMock(return_value=brain)):
             answered = await self._say("plain")
@@ -226,8 +232,9 @@ class ThreadMemoryEndpointTests(unittest.IsolatedAsyncioTestCase):
         await asyncio.sleep(0.05)  # the sidebar upsert is deferred past the reply
 
         threads = await self.store.list_threads(self.project["id"])
-        self.assertEqual([(t["session_id"], t["npc_name"]) for t in threads],
-                         [("mantella-session-1", "Lydia")])
+        self.assertEqual(
+            [(t["session_id"], t["npc_name"]) for t in threads], [("mantella-session-1", "Lydia")]
+        )
         # Write-only: the game path never persists turns as server-side memory.
         self.assertEqual(await self.store.list_messages(threads[0]["id"]), [])
 

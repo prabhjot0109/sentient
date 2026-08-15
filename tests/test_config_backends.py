@@ -24,10 +24,14 @@ class BackendSettingsDefaultsTests(unittest.TestCase):
         with patch.dict(
             os.environ,
             {
-                "VECTOR_BACKEND": "qdrant", "QDRANT_URL": "https://x.cloud.qdrant.io:6333",
-                "QDRANT_API_KEY": "qk", "QDRANT_PREFER_GRPC": "true",
-                "QDRANT_COLLECTION": "my_lore", "RAG_SPARSE_MODEL": "Qdrant/bm25",
-                "RAG_CONDENSE_QUERIES": "true", "RAG_HYBRID": "true",
+                "VECTOR_BACKEND": "qdrant",
+                "QDRANT_URL": "https://x.cloud.qdrant.io:6333",
+                "QDRANT_API_KEY": "qk",
+                "QDRANT_PREFER_GRPC": "true",
+                "QDRANT_COLLECTION": "my_lore",
+                "RAG_SPARSE_MODEL": "Qdrant/bm25",
+                "RAG_CONDENSE_QUERIES": "true",
+                "RAG_HYBRID": "true",
             },
             clear=False,
         ):
