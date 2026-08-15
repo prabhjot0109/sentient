@@ -18,11 +18,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 
-from sentient.adapters.auth import (
-    AuthError,
-    generate_api_key,
-    resolve_user,
-)
+from sentient.adapters.auth import AuthError, resolve_user
 from sentient.adapters.llm.openai_wire import (
     ChatCompletionRequest,
     OpenAIMessage,
@@ -38,10 +34,9 @@ from sentient.adapters.llm.openai_wire import (
 from sentient.adapters.stt import client as stt
 from sentient.adapters.stt.diagnostics import analyse_wav, explain_empty_transcription
 from sentient.api import deps
-from sentient.api.routers import health, keys, threads
+from sentient.api.routers import credentials, health, keys, threads
 from sentient.core.concurrency import IngestJob, IngestQueue, ReindexJob, defer
 from sentient.core.config import Provider, SearchType, load_rag_settings
-from sentient.core.crypto import crypto_available, encrypt_key, key_hint
 from sentient.core.presets import list_presets
 from sentient.services.condense import condense_query
 from sentient.services.runtime import (
@@ -126,6 +121,7 @@ app.add_middleware(
 app.include_router(health.router)
 app.include_router(keys.router)
 app.include_router(threads.router)
+app.include_router(credentials.router)
 
 
 class RetrievedChunk(BaseModel):
@@ -198,11 +194,6 @@ class ConfigInput(BaseModel):
 
 class PersonaInput(BaseModel):
     system_prompt: str
-
-
-class CredentialInput(BaseModel):
-    provider: str = Field(min_length=1, max_length=50)
-    api_key: str = Field(min_length=1)
 
 
 async def _ingest_handler(job: IngestJob) -> None:
@@ -844,63 +835,6 @@ def recent_transcriptions(limit: int = 20):
         "empty_transcriptions": sum(1 for item in window if not item["text"]),
         "transcriptions": list(reversed(window)),
     }
-
-
-_CREDENTIAL_PROVIDERS = {"google", "openai", "huggingface", "groq", "cerebras", "openrouter"}
-
-
-def _credential_provider(provider: str) -> str:
-    normalized = provider.strip().lower()
-    if normalized not in _CREDENTIAL_PROVIDERS:
-        raise HTTPException(status_code=400, detail="unknown provider")
-    return normalized
-
-
-def _credential_secret() -> str:
-    if not crypto_available(deps._settings):
-        raise HTTPException(status_code=503, detail="credential vault is not configured")
-    return deps._settings.sentient_secret_key
-
-
-async def _invalidate_user_projects(user_id: str) -> None:
-    for project in await deps.state_store.list_projects(user_id):
-        deps.runtime_cache.invalidate(project["id"])
-
-
-@app.post("/v1/credentials")
-async def create_credential(
-    payload: CredentialInput,
-    user: tuple[str, str] = Depends(deps.current_user),
-):
-    secret = _credential_secret()  # gate on the vault before validating anything else
-    provider = _credential_provider(payload.provider)
-    try:
-        encrypted = encrypt_key(payload.api_key, secret)
-    except Exception as exc:
-        raise HTTPException(status_code=503, detail="credential vault is unavailable") from exc
-    user_id, _ = user
-    row = await deps.state_store.upsert_credential(user_id, provider, encrypted, key_hint(payload.api_key))
-    await _invalidate_user_projects(user_id)
-    return {"provider": row["provider"], "key_hint": row["key_hint"]}
-
-
-@app.get("/v1/credentials")
-async def list_credentials(user: tuple[str, str] = Depends(deps.current_user)):
-    _credential_secret()
-    user_id, _ = user
-    return {"credentials": await deps.state_store.list_credentials(user_id)}
-
-
-@app.delete("/v1/credentials/{provider}")
-async def delete_credential(
-    provider: str,
-    user: tuple[str, str] = Depends(deps.current_user),
-):
-    _credential_secret()
-    user_id, _ = user
-    deleted = await deps.state_store.delete_credential(user_id, _credential_provider(provider))
-    await _invalidate_user_projects(user_id)
-    return {"deleted": deleted}
 
 
 @app.post("/v1/projects")
