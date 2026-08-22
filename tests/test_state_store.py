@@ -72,6 +72,32 @@ class SQLiteStateStoreTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(docs), 1)
         self.assertEqual(docs[0]["status"], "reindexing")
 
+    async def test_thread_prefix_hash_round_trips_and_is_project_scoped(self):
+        """G4 keys a game thread by a hash of the conversation so far, so the hash
+        must be looked up per project and must advance as the conversation grows."""
+        user = await self.store.ensure_user("prefix-owner")
+        skyrim = await self.store.create_project(user["id"], "Skyrim")
+        fallout = await self.store.create_project(user["id"], "Fallout")
+
+        thread = await self.store.upsert_thread(skyrim["id"], "sess-1", title="Lydia")
+        self.assertIsNone(await self.store.get_thread_by_prefix(skyrim["id"], "hash-a"))
+
+        await self.store.set_thread_prefix(thread["id"], "hash-a")
+        found = await self.store.get_thread_by_prefix(skyrim["id"], "hash-a")
+        self.assertIsNotNone(found)
+        self.assertEqual(found["id"], thread["id"])
+        self.assertEqual(found["prefix_hash"], "hash-a")
+
+        # Same hash, different project: a different conversation.
+        self.assertIsNone(await self.store.get_thread_by_prefix(fallout["id"], "hash-a"))
+
+        # The hash advances with the conversation; the old one stops matching.
+        await self.store.set_thread_prefix(thread["id"], "hash-b")
+        self.assertIsNone(await self.store.get_thread_by_prefix(skyrim["id"], "hash-a"))
+        self.assertEqual(
+            (await self.store.get_thread_by_prefix(skyrim["id"], "hash-b"))["id"], thread["id"]
+        )
+
 
 class FreshCloneStartupTests(unittest.IsolatedAsyncioTestCase):
     """data_dir is gitignored, so a fresh clone has no data/ at all. The store is
@@ -222,6 +248,8 @@ class PostgresStoreSurfaceTests(unittest.TestCase):
             "rename_project",
             "delete_thread",
             "delete_document",
+            "get_thread_by_prefix",
+            "set_thread_prefix",
         ):
             self.assertTrue(
                 callable(getattr(PostgresStateStore, name, None)),

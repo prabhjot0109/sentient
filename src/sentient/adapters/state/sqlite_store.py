@@ -59,7 +59,8 @@ class SQLiteStateStore:
                   FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE);
                 CREATE TABLE IF NOT EXISTS chat_threads (
                   id TEXT PRIMARY KEY, project_id TEXT NOT NULL, npc_name TEXT,
-                  session_id TEXT NOT NULL, title TEXT, created_at TEXT, updated_at TEXT,
+                  session_id TEXT NOT NULL, title TEXT, prefix_hash TEXT,
+                  created_at TEXT, updated_at TEXT,
                   FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE);
                 CREATE INDEX IF NOT EXISTS chat_threads_session_idx ON chat_threads(session_id);
                 CREATE UNIQUE INDEX IF NOT EXISTS chat_threads_project_session_idx
@@ -82,6 +83,20 @@ class SQLiteStateStore:
                   UNIQUE(project_id, filename),
                   FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE);
                 """
+            )
+            # sqlite has no `ADD COLUMN IF NOT EXISTS`, and CREATE TABLE IF NOT EXISTS
+            # above is a no-op on a database that already has chat_threads. Existing
+            # data/state.db files therefore need this explicitly.
+            columns = {
+                row["name"] for row in conn.execute("PRAGMA table_info(chat_threads)").fetchall()
+            }
+            if "prefix_hash" not in columns:
+                conn.execute("ALTER TABLE chat_threads ADD COLUMN prefix_hash TEXT")
+            # Indexed only here, after the column is guaranteed to exist: inside the
+            # script above it would reference a column an older database lacks.
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS chat_threads_project_prefix_idx "
+                "ON chat_threads(project_id, prefix_hash)"
             )
 
     # ---- users / api keys ----
@@ -438,6 +453,29 @@ class SQLiteStateStore:
 
     async def get_thread(self, user_id: str, thread_id: str) -> dict[str, Any] | None:
         return await asyncio.to_thread(self._get_thread, user_id, thread_id)
+
+    def _get_thread_by_prefix(self, project_id: str, prefix_hash: str) -> dict[str, Any] | None:
+        with closing(self._connect()) as conn:
+            row = conn.execute(
+                "SELECT * FROM chat_threads WHERE project_id=? AND prefix_hash=? "
+                "ORDER BY updated_at DESC LIMIT 1",
+                (project_id, prefix_hash),
+            ).fetchone()
+        return dict(row) if row else None
+
+    async def get_thread_by_prefix(
+        self, project_id: str, prefix_hash: str
+    ) -> dict[str, Any] | None:
+        return await asyncio.to_thread(self._get_thread_by_prefix, project_id, prefix_hash)
+
+    def _set_thread_prefix(self, thread_id: str, prefix_hash: str) -> None:
+        with closing(self._connect()) as conn, conn:
+            conn.execute(
+                "UPDATE chat_threads SET prefix_hash=? WHERE id=?", (prefix_hash, thread_id)
+            )
+
+    async def set_thread_prefix(self, thread_id: str, prefix_hash: str) -> None:
+        await asyncio.to_thread(self._set_thread_prefix, thread_id, prefix_hash)
 
     def _delete_thread(self, user_id: str, thread_id: str) -> bool:
         with closing(self._connect()) as conn, conn:

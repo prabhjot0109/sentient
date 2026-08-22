@@ -321,6 +321,27 @@ class PostgresStateStore:
             )
         return dict(row) if row else None
 
+    async def get_thread_by_prefix(
+        self, project_id: str, prefix_hash: str
+    ) -> dict[str, Any] | None:
+        pool = await self._pool_()
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                "SELECT id::text, project_id::text, npc_name, session_id, title, prefix_hash, "
+                "created_at, updated_at FROM chat_threads "
+                "WHERE project_id=$1 AND prefix_hash=$2 ORDER BY updated_at DESC LIMIT 1",
+                project_id,
+                prefix_hash,
+            )
+        return dict(row) if row else None
+
+    async def set_thread_prefix(self, thread_id: str, prefix_hash: str) -> None:
+        pool = await self._pool_()
+        async with pool.acquire() as conn:
+            await conn.execute(
+                "UPDATE chat_threads SET prefix_hash=$2 WHERE id=$1", thread_id, prefix_hash
+            )
+
     async def delete_thread(self, user_id: str, thread_id: str) -> bool:
         # Ownership rides through the thread's project; a thread has no user_id.
         # Messages go with it via ON DELETE CASCADE.
