@@ -206,6 +206,50 @@ def get_archives(api_key: str | None = None) -> ArchivesIngestion:
     return get_default_archives()
 
 
+def _bearer_token(authorization: str | None) -> str | None:
+    """Extract a Bearer token, rejecting any other scheme."""
+    if not authorization:
+        return None
+    if not authorization.lower().startswith("bearer "):
+        raise HTTPException(
+            status_code=401,
+            detail="authorization must use Bearer authentication",
+        )
+    return authorization[7:].strip() or None
+
+
+async def resolve_caller(
+    *,
+    jwt_token: str | None = None,
+    api_key: str | None = None,
+    provider_key: str | None = None,
+) -> tuple[str, str]:
+    """The one credential funnel: any credential in, `(user_id, user_key)` out.
+
+    Every authenticated route resolves through here so the auth-enabled 401 is
+    applied in exactly one place. `completions_ctx` used to run its own parallel
+    resolution with no such check, which is how /v1/upload and /v1/sources served
+    unauthenticated callers against the default tenant (spec A3).
+
+    `provider_key` is never an identity -- it selects no user. It is accepted only
+    so the legacy `/v1/<provider-key>/chat/completions` wiring still counts as
+    "the caller sent a credential" and keeps resolving to the default tenant
+    instead of 401-ing.
+    """
+    if auth_enabled(_settings) and not (jwt_token or api_key or provider_key):
+        raise HTTPException(status_code=401, detail="authentication required")
+    try:
+        return await resolve_user(
+            state_store,
+            _settings,
+            jwt_token=jwt_token,
+            api_key=api_key,
+            cache=identity_cache,
+        )
+    except AuthError as e:
+        raise HTTPException(status_code=401, detail=str(e)) from e
+
+
 async def current_user(
     authorization: str | None = Header(default=None),
     x_api_key: str | None = Header(default=None, alias="X-API-Key"),
@@ -214,24 +258,10 @@ async def current_user(
 
     Falls back to the default user when auth is unconfigured / no credential.
     """
-    if authorization and not authorization.lower().startswith("bearer "):
-        raise HTTPException(
-            status_code=401,
-            detail="authorization must use Bearer authentication",
-        )
-    jwt_token = authorization[7:].strip() if authorization else None
-    if auth_enabled(_settings) and not (jwt_token or x_api_key):
-        raise HTTPException(status_code=401, detail="authentication required")
-    try:
-        return await resolve_user(
-            state_store,
-            _settings,
-            jwt_token=jwt_token,
-            header_key=x_api_key,
-            cache=identity_cache,
-        )
-    except AuthError as e:
-        raise HTTPException(status_code=401, detail=str(e)) from e
+    return await resolve_caller(
+        jwt_token=_bearer_token(authorization),
+        api_key=x_api_key,
+    )
 
 
 # --- Ingestion / reindex workers ---------------------------------------------
@@ -290,18 +320,16 @@ async def enqueue_reindex(job: ReindexJob) -> None:
 async def completions_ctx(
     api_key: str | None,
     project_id: str | None,
+    *,
+    jwt_token: str | None = None,
 ) -> RuntimeContext:
     provider_key = _as_provider_key(api_key)
     identity_key = None if provider_key and project_id is None else api_key
-    try:
-        user_id, user_key = await resolve_user(
-            state_store,
-            _settings,
-            api_key=identity_key,
-            cache=identity_cache,
-        )
-    except AuthError as e:
-        raise HTTPException(status_code=401, detail=str(e)) from e
+    user_id, user_key = await resolve_caller(
+        jwt_token=jwt_token,
+        api_key=identity_key,
+        provider_key=provider_key,
+    )
 
     if project_id is not None:
         project = await state_store.get_project(user_id, project_id)
