@@ -68,8 +68,9 @@ it; a violation is an architectural regression, so move the code rather than wea
   captures, so do not retune them without new measurements.
 - **`services/`** — domain logic, no FastAPI. `rag.py` (`NPCBrain`), `runtime.py`
   (`RuntimeContext` per-request tenant resolution, `embedding_signature`, `RuntimeCache`),
-  `chat.py`, `ingestion.py`, `projects.py`, `credentials.py`, `transcription.py`, `condense.py`,
-  `memory.py`.
+  `chat.py` (grounded generation, conversation-prefix thread identity, and the deferred
+  transcript writer — `chat_messages` is the one durable memory for both surfaces),
+  `ingestion.py`, `projects.py`, `credentials.py`, `transcription.py`, `condense.py`.
 - **`api/`** — HTTP only. `app.py` is a 112-line app factory: lifespan, CORS, nine
   `include_router` calls, nothing else. `deps.py` is the composition root holding every
   module-level singleton. `routers/` holds the nine routers (none over 250 lines) and `schemas/`
