@@ -1,4 +1,5 @@
 import { motion } from "framer-motion";
+import { GITHUB_REPO_URL } from "@/lib/site";
 
 export function Vision() {
   return (
@@ -47,7 +48,7 @@ export function Vision() {
               Get Started
             </a>
             <a
-              href="https://github.com/prabhjot0109/sentient-worlds"
+              href={GITHUB_REPO_URL}
               target="_blank"
               rel="noopener noreferrer"
               className="btn-ghost"

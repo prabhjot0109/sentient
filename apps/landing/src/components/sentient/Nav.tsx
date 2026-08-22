@@ -2,6 +2,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { useEffect, useState } from "react";
 import { Github, Menu, X } from "lucide-react";
 import { Logo } from "./Logo";
+import { GITHUB_REPO_URL } from "@/lib/site";
 
 const links = [
   { label: "Architecture", href: "#architecture" },
@@ -10,8 +11,6 @@ const links = [
   { label: "Platform", href: "#platform" },
   { label: "Docs", href: "#docs" },
 ];
-
-const GITHUB_REPO_URL = "https://github.com/prabhjot0109/sentient-worlds";
 
 const sectionIds = links.map((l) => l.href.replace("#", "")).filter(Boolean);
 

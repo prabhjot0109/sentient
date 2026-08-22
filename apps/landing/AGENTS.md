@@ -43,12 +43,26 @@ npm run format     # prettier --write
 - Page sections live in `src/components/sentient/`; `src/components/ui/` is vendored shadcn
   and should be edited sparingly.
 
+## Hero media
+
+The hero grid ships as eight stills. Four tiles are wired to play a looping clip and light
+up automatically once the files exist — `Hero.tsx` discovers them with `import.meta.glob`
+over `src/assets/games/*.{mp4,webm}`, so an empty directory means stills and no error path.
+**Read `src/assets/games/README.md` before touching this**; it covers the encode script,
+the size budget, why only four tiles move, and the four gates that suppress video entirely
+(reduced motion, <768px, save-data, 2g). Do not add `autoPlay` back — dropping it is what
+makes those gates able to prevent the download rather than just hide the result.
+
 ## Known issues
 
-- `src/assets/games/*.mp4.asset.json` are Lovable CDN pointers (`/__l5e/assets-v1/...`),
-  not files in this repo. Outside Lovable's host those URLs 404 and the hero falls back to
-  the `.jpg` posters. Either download the eight clips into `public/` or drop the video
-  layer before deploying.
+- Outbound URLs live in `src/lib/site.ts`. Do not re-inline them; all three copies had
+  drifted to a nonexistent repo slug before they were centralized.
+- `Performance.tsx` metrics (84ms TTFT, 12k concurrent, 99.98% uptime) are **invented**,
+  and `Spark()` draws the same `Math.sin` curve under all four. There is no telemetry
+  behind any of it. Do not cite these numbers anywhere else; they need to be measured or
+  removed.
+- Nav and footer link to `#docs`, which is the code-sample section. There is no CTA to
+  `apps/web` yet — deliberate, pending the auth shell (F1).
 - `@lovable.dev/vite-tanstack-config` and `src/lib/lovable-error-reporting.ts` are
   platform lock-in. The reporter is inert off-platform (it no-ops when
   `window.__lovableEvents` is absent), so it is harmless but dead. Replacing the config

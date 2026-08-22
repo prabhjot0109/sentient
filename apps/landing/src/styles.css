@@ -395,3 +395,37 @@
     0 30px 80px -30px oklch(0 0 0 / 0.8),
     0 0 0 1px oklch(1 0 0 / 0.06);
 }
+
+/*
+ * Reduced motion.
+ *
+ * This page is built almost entirely out of motion: pointer parallax, a 250vh
+ * scroll-pinned architecture section, a particle canvas, blur-in staggers and
+ * typewriter text. For a vestibular-sensitive visitor that is not a style choice,
+ * it is a barrier — so collapse every animation and transition to effectively
+ * instant rather than trying to tune each one.
+ *
+ * Components that need to skip work entirely (Hero's video, AmbientBackground's
+ * rAF loop) read the same signal in JS via framer-motion's useReducedMotion.
+ */
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  /* Hover lifts are position changes, not just decoration — drop the travel. */
+  .btn-primary:hover,
+  .btn-ghost:hover,
+  .card-lift:hover {
+    transform: none;
+  }
+}

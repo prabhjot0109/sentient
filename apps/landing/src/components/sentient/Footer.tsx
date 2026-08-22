@@ -1,4 +1,5 @@
 import { Logo } from "./Logo";
+import { GITHUB_REPO_URL } from "@/lib/site";
 
 const cols = [
   {
@@ -15,7 +16,7 @@ const cols = [
     links: [
       { label: "Documentation", href: "#docs" },
       { label: "API Reference", href: "#docs" },
-      { label: "GitHub", href: "https://github.com/prabhjot0109/sentient-worlds" },
+      { label: "GitHub", href: GITHUB_REPO_URL },
       { label: "Changelog", href: "#" },
     ],
   },

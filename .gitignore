@@ -269,3 +269,5 @@ marimo/_static/
 marimo/_lsp/
 __marimo__/
 data/state.db
+.neon
+skills-lock.json

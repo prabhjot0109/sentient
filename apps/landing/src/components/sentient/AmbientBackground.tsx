@@ -1,13 +1,20 @@
 import { useEffect, useRef } from "react";
+import { useReducedMotion } from "framer-motion";
 
 /**
  * Cinematic ambient background: aurora blobs, animated grid mask, and
  * lightweight floating particles on a canvas. Fixed behind all content.
+ *
+ * The particle loop stops in a hidden tab and never starts under reduced motion —
+ * it is decorative, and an unconditional rAF loop on a fixed background is just
+ * battery drain once the page is not being looked at.
  */
 export function AmbientBackground() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const reduced = useReducedMotion() ?? false;
 
   useEffect(() => {
+    if (reduced) return;
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext("2d");
@@ -58,11 +65,18 @@ export function AmbientBackground() {
     };
     tick();
 
+    const onVisibility = () => {
+      cancelAnimationFrame(raf);
+      if (document.visibilityState === "visible") tick();
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+
     return () => {
       cancelAnimationFrame(raf);
       window.removeEventListener("resize", resize);
+      document.removeEventListener("visibilitychange", onVisibility);
     };
-  }, []);
+  }, [reduced]);
 
   return (
     <div aria-hidden className="pointer-events-none fixed inset-0 -z-10 overflow-hidden">
