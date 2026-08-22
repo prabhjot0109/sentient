@@ -128,7 +128,10 @@ async def resolve_user(
             if not sub:
                 raise AuthError("token has no sub claim")
             user = await state.ensure_user(sub, claims.get("email"))
-            return (user["id"], user_key_of(sub))
+            # Tenant identity is the PERSON, not the credential. Deriving it from
+            # `sub` here (or from the api key below) made one human two tenants:
+            # lore uploaded in the console was invisible to the game. Spec G1.
+            return (user["id"], user_key_of(user["id"]))
 
         ck = "jwt:" + hash_key(jwt_token)
         return await (cache.resolve(ck, _load_jwt) if cache else _load_jwt())
@@ -139,7 +142,7 @@ async def resolve_user(
             row = await state.get_user_by_api_key_hash(hash_key(key))
             if not row or row.get("revoked"):
                 raise AuthError("unknown or revoked api key")
-            return (row["user_id"], user_key_of(key))
+            return (row["user_id"], user_key_of(row["user_id"]))
 
         ck = "key:" + hash_key(key)
         return await (cache.resolve(ck, _load_key) if cache else _load_key())

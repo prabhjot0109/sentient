@@ -119,7 +119,7 @@ class ManagementEndpointTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(response.status_code, 202)
         job = enqueue.await_args.args[0]
-        self.assertEqual(job.user_key, user_key_of(raw_key))
+        self.assertEqual(job.user_key, user_key_of(owner["id"]))
         self.assertEqual(job.project_id, project["id"])
         self.assertEqual(documents[0]["status"], "processing")
         Path(job.file_path).unlink(missing_ok=True)

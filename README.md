@@ -89,6 +89,18 @@ src/sentient/
 `adapters/retrieval/` are Protocol seams with swappable implementations (SQLite/Postgres,
 FAISS/Qdrant). `apps/web` and `apps/landing` are separate Node builds outside the backend gates.
 
+### Tenant partitions
+
+The vector store is partitioned by `user_key`, a short opaque hash of the **user id**, not of the
+credential used to authenticate. One person therefore reads and writes one partition whether they
+signed in to the console or their game sent an API key, and holding two API keys does not fragment
+their lore.
+
+**Upgrading from before 2026-08-22:** partitions written by an earlier build were keyed on the
+credential and are now orphaned. There is no automatic migration. Delete `data/projects/` and
+re-upload your documents (FAISS), or drop and re-ingest the collection (Qdrant). Do this before
+accumulating real data, because the cost only grows.
+
 ## Development
 
 ```bash

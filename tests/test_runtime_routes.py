@@ -153,7 +153,7 @@ class RuntimeCompletionsTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(
             captured["retrieve_kwargs"]["user_key"],  # type: ignore[index]
-            user_key_of("sk-sent-project"),
+            user_key_of(user["id"]),
         )
         get_archives_for_context.assert_awaited_once()
 
@@ -198,7 +198,7 @@ class RuntimeCompletionsTests(unittest.IsolatedAsyncioTestCase):
                 )
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(captured["user_key"], user_key_of("sk-sent-key-only"))
+        self.assertEqual(captured["user_key"], user_key_of(user["id"]))
         self.assertIsNone(captured["project_id"])
 
     async def test_streaming_route_keeps_openai_sse_contract(self) -> None:
