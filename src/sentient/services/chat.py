@@ -35,6 +35,7 @@ from sentient.adapters.llm.openai_wire import (
 from sentient.core.errors import ReindexInProgress
 from sentient.services.condense import condense_query
 from sentient.services.runtime import embedding_signature
+from sentient.services.usage import TokenUsage, usage_of
 
 
 def _hash_pairs(pairs: list[tuple[str, str]]) -> str:
@@ -134,6 +135,7 @@ async def run_project_turn(
         "answer": str(result.content),
         "sources": sources,
         "top_k": top_k or ctx.rag_settings["top_k"],
+        "usage": usage_of(result, ctx.llm_settings["model"]),
     }
 
 
@@ -143,15 +145,19 @@ async def store_thread_turn(
     thread_id: str,
     message: str,
     reply: str,
+    usage: TokenUsage,
 ) -> None:
     """Append the user line and the reply under the thread's lock.
 
     The lock is per-thread, not global: two turns on the same thread must not
     interleave their writes, but turns on different threads are independent.
+
+    Usage lands on the assistant row only. A user message consumed no tokens of
+    its own; the prompt count for the turn belongs to the completion that read it.
     """
     async with session_locks.lock(thread_id):
         await state_store.add_message(thread_id, "user", message)
-        await state_store.add_message(thread_id, "assistant", reply)
+        await state_store.add_message(thread_id, "assistant", reply, **usage.as_kwargs())
 
 
 async def prepare_completion(
@@ -227,22 +233,29 @@ async def prepare_completion(
 async def stream_completion(llm, messages, model_name: str, *, on_complete):
     """Keep the response path lock-free; queue post-turn work after streaming ends.
 
-    `on_complete` receives the full reply text. If the client disconnects mid-stream
-    `astream_completion` never reaches its sink, so the callback gets "" — callers
-    must treat an empty reply as "nothing worth persisting", not as a valid turn.
+    `on_complete(reply, usage)` runs after the last token. If the client
+    disconnects mid-stream `astream_completion` never reaches its sink, so the
+    callback gets ("", an empty usage) — callers must treat an empty reply as
+    "nothing worth persisting", not as a valid turn.
     """
-    captured: list[str] = []
+    captured: list[tuple[str, TokenUsage]] = []
+
+    def _sink(text: str, usage_chunk) -> None:
+        captured.append((text, usage_of(usage_chunk, model_name)))
+
     try:
-        async for event in astream_completion(llm, messages, model_name, on_reply=captured.append):
+        async for event in astream_completion(llm, messages, model_name, on_reply=_sink):
             yield event
     finally:
-        on_complete("".join(captured))
+        reply, usage = captured[0] if captured else ("", TokenUsage(model_name))
+        on_complete(reply, usage)
 
 
 async def record_game_turn(
     ctx,
     messages: list[OpenAIMessage],
     reply: str,
+    usage: TokenUsage,
     *,
     state_store,
     session_locks,
@@ -299,5 +312,5 @@ async def record_game_turn(
             )
 
         await state_store.add_message(thread["id"], "user", user_text)
-        await state_store.add_message(thread["id"], "assistant", reply)
+        await state_store.add_message(thread["id"], "assistant", reply, **usage.as_kwargs())
         await state_store.set_thread_prefix(thread["id"], outgoing)

@@ -17,6 +17,7 @@ from sentient.services.chat import (
     conversation_prefix_hash_after,
     record_game_turn,
 )
+from sentient.services.usage import TokenUsage
 
 RAW_KEY = "sk-sent-game-route"
 
@@ -123,6 +124,7 @@ class GameTurnPersistenceTests(unittest.IsolatedAsyncioTestCase):
             self._ctx(**ctx_kwargs),
             messages,
             reply,
+            TokenUsage(),
             state_store=self.store,
             session_locks=self.locks,
         )
@@ -201,6 +203,7 @@ class GameTurnPersistenceTests(unittest.IsolatedAsyncioTestCase):
             ctx,
             _msgs(("user", "Hello.")),
             "Greetings.",
+            TokenUsage(),
             state_store=self.store,
             session_locks=self.locks,
         )

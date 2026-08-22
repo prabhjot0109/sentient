@@ -139,14 +139,18 @@ async def astream_completion(
     messages: list[BaseMessage],
     model: str,
     *,
-    on_reply: Callable[[str], None] | None = None,
+    on_reply: Callable[[str, Any], None] | None = None,
 ) -> AsyncIterator[str]:
     """Yield OpenAI SSE chunks from LangChain's non-blocking async stream.
 
-    `on_reply` receives the joined reply once, after the last token. The join
-    already happens for the log line below, so handing it to a callback costs
-    nothing per token — which is the only reason it is done here rather than by
-    re-parsing the SSE frames downstream.
+    `on_reply(reply, chunk)` is called once, after the last token. `reply` is the
+    joined text, which already happens for the log line below; `chunk` is the
+    LangChain chunk that carried usage metadata, which the caller interprets —
+    `adapters/` cannot import `services/`, and this module has no business
+    knowing which field name a given provider uses.
+
+    Both values already exist here, so this costs nothing per token, which is the
+    only reason it is done here rather than by re-parsing the SSE frames.
     """
     completion_id = _completion_id()
     created = int(time.time())
@@ -165,7 +169,15 @@ async def astream_completion(
     started = time.perf_counter()
     first_token_logged = False
     parts: list[str] = []
+    last_chunk: Any = None
+    usage_chunk: Any = None
     async for piece in llm.astream(messages):
+        last_chunk = piece
+        # Not simply the last chunk: several providers report usage mid-stream and
+        # then send a final empty chunk carrying only the finish reason, which
+        # would overwrite the counters with nothing. One getattr per chunk.
+        if getattr(piece, "usage_metadata", None):
+            usage_chunk = piece
         content = piece.content
         if content:
             text = str(content)
@@ -181,4 +193,4 @@ async def astream_completion(
     reply = "".join(parts)
     print(f"[Mantella]   << reply ({len(reply)} chars): {reply!r}")
     if on_reply is not None:
-        on_reply(reply)
+        on_reply(reply, usage_chunk if usage_chunk is not None else last_chunk)

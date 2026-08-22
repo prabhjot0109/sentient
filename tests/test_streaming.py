@@ -60,7 +60,7 @@ class StreamedReplyCaptureTests(unittest.IsolatedAsyncioTestCase):
                 _ScriptedStreamLLM("Greet", "ings, ", "thane."),
                 [],
                 "test-model",
-                on_complete=captured.append,
+                on_complete=lambda reply, _usage: captured.append(reply),
             )
         ]
 
@@ -72,7 +72,10 @@ class StreamedReplyCaptureTests(unittest.IsolatedAsyncioTestCase):
 
         captured: list[str] = []
         async for _ in stream_completion(
-            _ScriptedStreamLLM(), [], "test-model", on_complete=captured.append
+            _ScriptedStreamLLM(),
+            [],
+            "test-model",
+            on_complete=lambda reply, _usage: captured.append(reply),
         ):
             pass
 

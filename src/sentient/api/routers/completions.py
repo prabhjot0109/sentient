@@ -31,11 +31,12 @@ from sentient.core.concurrency import defer
 from sentient.core.config import load_rag_settings
 from sentient.core.errors import ReindexInProgress
 from sentient.services import chat as service
+from sentient.services.usage import TokenUsage, usage_of
 
 router = APIRouter()
 
 
-def _schedule_deferred_turn_work(ctx, request, reply: str) -> None:
+def _schedule_deferred_turn_work(ctx, request, reply: str, usage: TokenUsage) -> None:
     """Queue the transcript write. Requires only a project — B2's session_id
     requirement is gone, because Mantella never sent one and the thread is now
     identified from the payload itself."""
@@ -46,6 +47,7 @@ def _schedule_deferred_turn_work(ctx, request, reply: str) -> None:
             ctx,
             request.messages,
             reply,
+            usage,
             state_store=deps.state_store,
             session_locks=deps.session_locks,
         ),
@@ -59,7 +61,7 @@ async def _stream_with_deferred_turn_work(llm, messages, model_name, ctx, reques
         llm,
         messages,
         model_name,
-        on_complete=lambda reply: _schedule_deferred_turn_work(ctx, request, reply),
+        on_complete=lambda reply, usage: _schedule_deferred_turn_work(ctx, request, reply, usage),
     ):
         yield event
 
@@ -93,7 +95,7 @@ async def _run_completions(
     result = await llm.ainvoke(messages)
     reply = str(result.content)
     print(f"[Mantella:{ctx.user_key}]   << reply ({len(reply)} chars): {reply!r}")
-    _schedule_deferred_turn_work(ctx, request, reply)
+    _schedule_deferred_turn_work(ctx, request, reply, usage_of(result, model_name))
     return build_completion_response(reply, model_name)
 
 

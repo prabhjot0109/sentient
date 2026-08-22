@@ -91,6 +91,7 @@ async def chat_endpoint(
                     thread["id"],
                     payload.message,
                     result["answer"],
+                    result["usage"],
                 ),
                 label="thread-memory",
             )

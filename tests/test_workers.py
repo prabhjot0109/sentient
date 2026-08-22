@@ -8,6 +8,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 from sentient.api.routers import completions as completions_router
+from sentient.services.usage import TokenUsage
 
 
 class IngestQueueTests(unittest.IsolatedAsyncioTestCase):
@@ -158,7 +159,11 @@ class DeferredTurnTests(unittest.IsolatedAsyncioTestCase):
 
         class _LLM:
             async def astream(self, messages):
-                yield SimpleNamespace(content="Done.")
+                yield SimpleNamespace(
+                    content="Done.",
+                    usage_metadata={"input_tokens": 9, "output_tokens": 2, "total_tokens": 11},
+                    response_metadata={},
+                )
 
         ctx = SimpleNamespace()
         request = SimpleNamespace(messages=[])
@@ -172,8 +177,9 @@ class DeferredTurnTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertTrue(events[-1].endswith("[DONE]\n\n"))
         # G4: the streamed reply reaches the scheduler, which is what lets the
-        # deferred writer persist the assistant side of a streamed turn.
-        schedule.assert_called_once_with(ctx, request, "Done.")
+        # deferred writer persist the assistant side of a streamed turn. H4: so
+        # does the usage the provider reported on the stream.
+        schedule.assert_called_once_with(ctx, request, "Done.", TokenUsage("test-model", 9, 2, 11))
 
 
 class SessionLockEvictionTests(unittest.IsolatedAsyncioTestCase):
