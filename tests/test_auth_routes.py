@@ -34,7 +34,15 @@ class FakeEmbeddings(Embeddings):
         return [self.embed_query(text) for text in texts]
 
 
-class AuthMatrixTests(unittest.IsolatedAsyncioTestCase):
+class _AuthenticatedApp:
+    """Shared fixture: the app with auth ON, one owner, one key, one project.
+
+    A mixin rather than a base TestCase on purpose. pytest collects every
+    unittest.TestCase subclass regardless of its name, so a shared base class
+    would re-run each of its own tests once per subclass, rebuilding this
+    fixture every time for no added coverage.
+    """
+
     async def asyncSetUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
@@ -115,6 +123,8 @@ class AuthMatrixTests(unittest.IsolatedAsyncioTestCase):
             self.deps, "get_archives_for_context", new_callable=AsyncMock, return_value=archives
         )
 
+
+class AuthMatrixTests(_AuthenticatedApp, unittest.IsolatedAsyncioTestCase):
     async def test_upload_rejects_a_request_with_no_credential(self):
         response = await self.client.post(
             "/v1/upload",
@@ -197,3 +207,50 @@ class AuthMatrixTests(unittest.IsolatedAsyncioTestCase):
             headers={"Authorization": "Basic Zm9vOmJhcg=="},
         )
         self.assertEqual(response.status_code, 401)
+
+
+class RetrieveScopingTests(_AuthenticatedApp, unittest.IsolatedAsyncioTestCase):
+    """`/v1/retrieve` was the only route with no dependency, no header and no
+    project scoping -- a raw lore read open to anyone who could reach the port."""
+
+    async def test_retrieve_rejects_a_request_with_no_credential(self):
+        response = await self.client.post(
+            "/v1/retrieve", json={"query": "dragons", "project_id": self.project["id"]}
+        )
+        self.assertEqual(response.status_code, 401)
+
+    async def test_retrieve_scopes_to_the_callers_tenant_and_project(self):
+        from sentient.adapters.auth import user_key_of
+
+        captured: dict[str, object] = {}
+
+        class _StubArchives:
+            async def retrieve(self, *args, **kwargs):
+                captured.update(kwargs)
+                return []
+
+        with patch.object(
+            self.deps,
+            "get_archives_for_context",
+            new_callable=AsyncMock,
+            return_value=_StubArchives(),
+        ):
+            response = await self.client.post(
+                "/v1/retrieve",
+                headers={"Authorization": "Bearer console-token"},
+                json={"query": "dragons", "project_id": self.project["id"]},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(captured["project_id"], self.project["id"])
+        self.assertEqual(captured["user_key"], user_key_of(self.owner["id"]))
+
+    async def test_retrieve_404s_on_a_project_the_caller_does_not_own(self):
+        stranger = await self.deps.state_store.ensure_user("someone-else")
+        theirs = await self.deps.state_store.create_project(stranger["id"], "Fallout")
+        response = await self.client.post(
+            "/v1/retrieve",
+            headers={"Authorization": "Bearer console-token"},
+            json={"query": "dragons", "project_id": theirs["id"]},
+        )
+        self.assertEqual(response.status_code, 404)

@@ -23,9 +23,9 @@ from sentient.api.schemas.chat import (
     RetrievedChunk,
 )
 from sentient.core.concurrency import defer
-from sentient.core.config import load_rag_settings
 from sentient.core.errors import ReindexInProgress
 from sentient.services import chat as service
+from sentient.services.runtime import embedding_signature
 
 router = APIRouter()
 
@@ -138,11 +138,42 @@ async def chat_endpoint(
 
 
 @router.post("/v1/retrieve", response_model=RetrievalResponse)
-async def retrieve_endpoint(payload: RetrievalInput):
+async def retrieve_endpoint(
+    payload: RetrievalInput,
+    user: tuple[str, str] = Depends(deps.current_user),
+):
+    """Raw lore read, scoped to the caller's tenant and project.
+
+    Resolves through `get_archives_for_context` -- the same partition every other
+    read and write uses -- rather than the unscoped `get_archives`.
+    """
     try:
         started_at = perf_counter()
-        archives = deps.get_archives(payload.api_key)
-        chunks = await archives.retrieve(payload.query, k=payload.top_k)
+        user_id, user_key = user
+        if payload.project_id and (
+            await deps.state_store.get_project(user_id, payload.project_id) is None
+        ):
+            raise HTTPException(status_code=404, detail="project not found")
+
+        ctx = await deps.runtime_cache.resolve(
+            deps.state_store,
+            deps._settings,
+            user_id=user_id,
+            user_key=user_key,
+            project_id=payload.project_id,
+            session_id=None,
+            provider_key=deps._as_provider_key(payload.api_key),
+        )
+        archives = await deps.get_archives_for_context(ctx)
+        chunks = await archives.retrieve(
+            payload.query,
+            k=payload.top_k or ctx.rag_settings["top_k"],
+            search_type=ctx.rag_settings["search_type"],
+            min_score=ctx.rag_settings["score_threshold"],
+            user_key=ctx.user_key,
+            project_id=ctx.project_id,
+            embedding_signature=embedding_signature(ctx.rag_settings),
+        )
         elapsed_ms = round((perf_counter() - started_at) * 1000, 2)
         serialized_chunks = [
             RetrievedChunk(
@@ -158,9 +189,11 @@ async def retrieve_endpoint(payload: RetrievalInput):
         return RetrievalResponse(
             success=True,
             query=payload.query,
-            top_k=payload.top_k or load_rag_settings(payload.api_key).top_k,
+            top_k=payload.top_k or ctx.rag_settings["top_k"],
             retrieval_ms=elapsed_ms,
             chunks=serialized_chunks,
         )
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e

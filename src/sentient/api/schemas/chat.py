@@ -35,8 +35,12 @@ class ChatResponse(BaseModel):
 
 class RetrievalInput(BaseModel):
     query: str
+    # A PROVIDER credential only (Google/Groq/...), used to build the embedding
+    # client. Caller identity comes from the Authorization or X-API-Key header;
+    # this field never selects a tenant. It used to, which made the route open.
     api_key: str | None = None
     top_k: int | None = Field(default=None, ge=1, le=20)
+    project_id: str | None = None
 
 
 class RetrievalResponse(BaseModel):
