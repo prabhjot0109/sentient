@@ -38,11 +38,19 @@ async def upload_file(
     api_key: str | None = Form(default=None),
     project_id: str | None = Form(default=None),
     x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+    authorization: str | None = Header(default=None),
 ):
-    """Stage an upload and enqueue non-blocking, tenant-scoped ingestion."""
+    """Stage an upload and enqueue non-blocking, tenant-scoped ingestion.
+
+    Accepts either surface's credential: a console Bearer JWT, or the game's
+    product key via header or form field. Without `authorization` a browser could
+    not upload at all -- it resolved to the default user and 403'd (spec A2).
+    """
     try:
         credential = x_api_key or api_key
-        ctx = await deps.completions_ctx(credential, project_id)
+        ctx = await deps.completions_ctx(
+            credential, project_id, jwt_token=deps._bearer_token(authorization)
+        )
         archives = await deps.get_archives_for_context(ctx)
         safe_name = await service.stage_and_enqueue(
             deps.state_store,
@@ -68,6 +76,7 @@ async def upload_file(
 async def list_sources(
     project_id: str | None = None,
     x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+    authorization: str | None = Header(default=None),
 ):
     """List source documents for the caller's archive partition.
 
@@ -76,7 +85,9 @@ async def list_sources(
     archive than the one just written to. No key and no project_id resolves to the
     default partition, identical to the pre-R8 behaviour.
     """
-    ctx = await deps.completions_ctx(x_api_key, project_id)
+    ctx = await deps.completions_ctx(
+        x_api_key, project_id, jwt_token=deps._bearer_token(authorization)
+    )
     archives = await deps.get_archives_for_context(ctx)
     # stat()s every file in the partition: filesystem I/O, off the event loop.
     sources = await asyncio.to_thread(archives.list_sources)
@@ -88,6 +99,7 @@ async def delete_source(
     filename: str,
     project_id: str | None = None,
     x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+    authorization: str | None = Header(default=None),
 ):
     """Delete a source document from the caller's partition and its registry row.
 
@@ -96,7 +108,9 @@ async def delete_source(
     documents row is what stops /v1/projects/{id}/documents reporting a file that is
     no longer on disk.
     """
-    ctx = await deps.completions_ctx(x_api_key, project_id)
+    ctx = await deps.completions_ctx(
+        x_api_key, project_id, jwt_token=deps._bearer_token(authorization)
+    )
     archives = await deps.get_archives_for_context(ctx)
 
     try:
