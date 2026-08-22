@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+
 import pytest
 
 # Every environment variable that core/config.py, services/rag.py or the api
@@ -9,6 +11,13 @@ import pytest
 # (LLM_PROVIDER=cerebras) and filters out FAISS hits (RAG_SCORE_THRESHOLD=0.2).
 # Scrub them so every test starts from the same "fresh clone, no .env" baseline and
 # opts into exactly the vars it sets via patch.dict.
+#
+# The auth and database names below are load-bearing for the same reason and were
+# missing until 2026-08-22: a real NEON_AUTH_JWKS_URL in .env turned auth on for
+# the whole suite (18 failures, all 401), and a real DATABASE_URL swapped
+# SQLiteStateStore for a live Neon connection. Neither shows up in CI, which has
+# no .env, so the suite was green there and red on the machine that could fix it.
+# test_env_isolation.py pins the list against config.py so it cannot drift again.
 _CONFIG_ENV_VARS = (
     "DATA_DIR",
     "FAISS_INDEX_PATH",
@@ -47,7 +56,24 @@ _CONFIG_ENV_VARS = (
     "SENTIENT_SECRET_KEY",
     "CORS_ALLOW_ORIGINS",
     "TESSERACT_CMD",
+    "DATABASE_URL",
+    "DB_BACKEND",
+    "SUPABASE_DB_URL",
+    "NEON_AUTH_JWKS_URL",
+    "NEON_AUTH_ISSUER",
+    "NEON_AUTH_ALGORITHMS",
 )
+
+
+# Scrubbed here, at conftest import, and not only in the fixture below. pytest
+# imports every test module during collection, before the first fixture runs, so
+# a module-level `from sentient.api import deps` (test_rag_pipeline.py has one)
+# executes `load_rag_settings()` against the developer's real .env and freezes the
+# result in `deps._settings` for the whole session. Per-test scrubbing is too late
+# to stop that; the fixture below only keeps each test honest afterwards.
+os.environ["PYTHON_DOTENV_DISABLED"] = "1"
+for _name in _CONFIG_ENV_VARS:
+    os.environ.pop(_name, None)
 
 
 @pytest.fixture(autouse=True)
