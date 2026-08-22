@@ -31,5 +31,53 @@ class AstreamCompletionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(text, "Hello, traveler.")
 
 
+class _ScriptedStreamLLM:
+    """Same idiom as _FakeStreamLLM above, with the pieces supplied per test."""
+
+    def __init__(self, *pieces: str):
+        self._pieces = pieces
+
+    async def astream(self, messages):
+        for piece in self._pieces:
+
+            class _Response:
+                content = piece
+
+            yield _Response()
+
+
+class StreamedReplyCaptureTests(unittest.IsolatedAsyncioTestCase):
+    """G4 persists the assistant side of a streamed turn, so the reply text has
+    to leave the stream. It is joined after the last token, never per token."""
+
+    async def test_on_complete_receives_the_whole_reply(self):
+        from sentient.services.chat import stream_completion
+
+        captured: list[str] = []
+        events = [
+            event
+            async for event in stream_completion(
+                _ScriptedStreamLLM("Greet", "ings, ", "thane."),
+                [],
+                "test-model",
+                on_complete=captured.append,
+            )
+        ]
+
+        self.assertEqual(captured, ["Greetings, thane."])
+        self.assertTrue(events[-1].startswith("data: [DONE]"))
+
+    async def test_on_complete_receives_an_empty_string_when_nothing_streamed(self):
+        from sentient.services.chat import stream_completion
+
+        captured: list[str] = []
+        async for _ in stream_completion(
+            _ScriptedStreamLLM(), [], "test-model", on_complete=captured.append
+        ):
+            pass
+
+        self.assertEqual(captured, [""])
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -16,7 +16,7 @@ from __future__ import annotations
 import json
 import time
 import uuid
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from typing import Any
 
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
@@ -138,8 +138,16 @@ async def astream_completion(
     llm: Any,
     messages: list[BaseMessage],
     model: str,
+    *,
+    on_reply: Callable[[str], None] | None = None,
 ) -> AsyncIterator[str]:
-    """Yield OpenAI SSE chunks from LangChain's non-blocking async stream."""
+    """Yield OpenAI SSE chunks from LangChain's non-blocking async stream.
+
+    `on_reply` receives the joined reply once, after the last token. The join
+    already happens for the log line below, so handing it to a callback costs
+    nothing per token — which is the only reason it is done here rather than by
+    re-parsing the SSE frames downstream.
+    """
     completion_id = _completion_id()
     created = int(time.time())
 
@@ -172,3 +180,5 @@ async def astream_completion(
     yield "data: [DONE]\n\n"
     reply = "".join(parts)
     print(f"[Mantella]   << reply ({len(reply)} chars): {reply!r}")
+    if on_reply is not None:
+        on_reply(reply)

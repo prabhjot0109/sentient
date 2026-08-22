@@ -51,7 +51,7 @@ async def _stream_with_deferred_turn_work(llm, messages, model_name, ctx):
         llm,
         messages,
         model_name,
-        on_complete=lambda: _schedule_deferred_turn_work(ctx),
+        on_complete=lambda _reply: _schedule_deferred_turn_work(ctx),
     ):
         yield event
 

@@ -224,12 +224,18 @@ async def prepare_completion(
 
 
 async def stream_completion(llm, messages, model_name: str, *, on_complete):
-    """Keep the response path lock-free; queue post-turn work after streaming ends."""
+    """Keep the response path lock-free; queue post-turn work after streaming ends.
+
+    `on_complete` receives the full reply text. If the client disconnects mid-stream
+    `astream_completion` never reaches its sink, so the callback gets "" — callers
+    must treat an empty reply as "nothing worth persisting", not as a valid turn.
+    """
+    captured: list[str] = []
     try:
-        async for event in astream_completion(llm, messages, model_name):
+        async for event in astream_completion(llm, messages, model_name, on_reply=captured.append):
             yield event
     finally:
-        on_complete()
+        on_complete("".join(captured))
 
 
 async def record_game_turn(ctx, *, state_store, session_locks) -> None:
