@@ -45,13 +45,15 @@ npm run format     # prettier --write
 
 ## Hero media
 
-The hero grid ships as eight stills. Four tiles are wired to play a looping clip and light
-up automatically once the files exist — `Hero.tsx` discovers them with `import.meta.glob`
-over `src/assets/games/*.{mp4,webm}`, so an empty directory means stills and no error path.
-**Read `src/assets/games/README.md` before touching this**; it covers the encode script,
-the size budget, why only four tiles move, and the four gates that suppress video entirely
-(reduced motion, <768px, save-data, 2g). Do not add `autoPlay` back — dropping it is what
-makes those gates able to prevent the download rather than just hide the result.
+The hero grid ships as eight stills. All eight tiles are wired to play a looping clip and
+light up automatically once the matching file exists — `Hero.tsx` discovers them with
+`import.meta.glob` over `src/assets/games/*.{mp4,webm}`, so an empty directory means
+stills and no error path, and a partial set of clips is a valid state. **Read
+`src/assets/games/README.md` before touching this**; it covers the encode script, the
+6MB/8-clip budget, and the four gates that suppress video entirely (reduced motion,
+<768px, save-data, 2g) — those gates carry more weight now than in a 4-tile design, since
+all eight can autoplay at once. Do not add `autoPlay` back — dropping it is what makes
+those gates able to prevent the download rather than just hide the result.
 
 ## Known issues
 

@@ -60,5 +60,5 @@ ffmpeg -hide_banner -loglevel error -y \
 echo "==> written:"
 ls -lh "${OUT_DIR}/${NAME}".{mp4,webm,jpg} | awk '{printf "    %-8s %s\n", $5, $9}'
 echo
-echo "    Budget check: keep all four clips under ~3MB combined."
+echo "    Budget check: keep all eight clips under ~6MB combined (~700KB each)."
 echo "    Too big? Raise -crf (27 -> 30) or shorten the clip before raising resolution."

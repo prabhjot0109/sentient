@@ -44,21 +44,18 @@ function findClip(name: string): Clip | undefined {
 }
 
 /**
- * Only four of the eight tiles are allowed to move.
- *
- * Eight simultaneously-playing clips behind a wordmark is noise, not cinema — the
- * eye has nowhere to rest and the title stops being the subject. These four are the
- * high-`depth` tiles below, so motion reinforces the depth hierarchy rather than
- * fighting it, and the four stills act as visual rest.
+ * All eight tiles carry a clip. Each still renders unconditionally underneath its
+ * own video (see `ParallaxTile`), so a tile with no matching file in
+ * `src/assets/games/` just stays a still — nothing here needs to change per clip.
  */
 const tiles = [
-  { src: game1, name: "game-1", motion: false },
+  { src: game1, name: "game-1", motion: true },
   { src: game2, name: "game-2", motion: true },
-  { src: game3, name: "game-3", motion: false },
+  { src: game3, name: "game-3", motion: true },
   { src: game4, name: "game-4", motion: true },
   { src: game5, name: "game-5", motion: true },
-  { src: game6, name: "game-6", motion: false },
-  { src: game7, name: "game-7", motion: false },
+  { src: game6, name: "game-6", motion: true },
+  { src: game7, name: "game-7", motion: true },
   { src: game8, name: "game-8", motion: true },
 ];
 
@@ -67,9 +64,9 @@ const depths = [0.35, 0.85, 0.5, 1.1, 0.95, 0.45, 0.7, 1.25];
 
 const ease = [0.22, 1, 0.36, 1] as const;
 
-// Spacing between decoder start-ups. Spinning four hardware decoders up in the same
+// Spacing between decoder start-ups. Spinning up eight hardware decoders in the same
 // frame produces a visible hitch on mid-range laptops; staggered, it reads as intent.
-const STAGGER_MS = 250;
+const STAGGER_MS = 220;
 
 type NetworkInformation = { saveData?: boolean; effectiveType?: string };
 
