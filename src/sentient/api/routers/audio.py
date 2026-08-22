@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from fastapi import APIRouter, File, Form, Header, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, UploadFile
 from fastapi.responses import PlainTextResponse
 
 from sentient.adapters.stt import client as stt
@@ -91,6 +91,14 @@ async def audio_transcriptions(
 
 
 @router.get("/v1/audio/transcriptions/recent")
-def recent_transcriptions(limit: int = 20):
-    """The last few utterances with their measured mic levels, for debugging."""
-    return service.recent_history(limit)
+async def recent_transcriptions(
+    limit: int = 20,
+    user: tuple[str, str] = Depends(deps.current_user),
+):
+    """The last few utterances with their measured mic levels, for debugging.
+
+    Scoped to the caller: this buffer echoes transcribed player speech, and a
+    single process-wide list let any caller read every tenant's voice input.
+    """
+    _, user_key = user
+    return service.recent_history(user_key, limit)

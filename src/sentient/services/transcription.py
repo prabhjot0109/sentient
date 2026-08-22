@@ -14,13 +14,23 @@ import asyncio
 from time import perf_counter
 from typing import Any
 
-from sentient.adapters.auth import AuthError
+from sentient.adapters.auth import AuthError, user_key_of
 from sentient.adapters.stt import client as stt
 from sentient.adapters.stt.diagnostics import analyse_wav, explain_empty_transcription
 from sentient.core.errors import InvalidRequest, Unauthenticated, UpstreamFailure
 
-_STT_HISTORY: list[dict] = []
+# Keyed by `user_key`, the same tenant id resolve_user hands every other route,
+# so a Mantella POST carrying X-API-Key and a console GET carrying a JWT reach one
+# bucket for one person. That holds only because user_key is derived from the user
+# id rather than the credential (spec G1).
+_STT_HISTORY: dict[str, list[dict]] = {}
 _STT_HISTORY_LIMIT = 50
+
+# resolve_user's no-credential branch returns this literal as the user_key, so the
+# anonymous POST and the anonymous GET have one spelling of "no identity". Without
+# a shared literal the single-user local mode records under one name and reads
+# under another, and the diagnostic always looks empty.
+ANONYMOUS_BUCKET = "default"
 
 _NO_CREDENTIAL = (
     "No speech-to-text credential available: set GROQ_API_KEY or OPENAI_API_KEY "
@@ -29,14 +39,27 @@ _NO_CREDENTIAL = (
 )
 
 
-def record_history(entry: dict) -> None:
-    _STT_HISTORY.append(entry)
-    del _STT_HISTORY[:-_STT_HISTORY_LIMIT]
+def history_bucket(user_id: str | None) -> str:
+    """The buffer key for a caller, mirroring resolve_user's two branches."""
+    return user_key_of(user_id) if user_id else ANONYMOUS_BUCKET
 
 
-def recent_history(limit: int) -> dict[str, Any]:
+def record_history(user_key: str, entry: dict) -> None:
+    """Append to this caller's buffer only.
+
+    The buffer holds transcribed player speech, so a single shared list meant any
+    caller of GET /v1/audio/transcriptions/recent read every tenant's voice input
+    (spec A5). Each bucket is bounded independently.
+    """
+    bucket = _STT_HISTORY.setdefault(user_key, [])
+    bucket.append(entry)
+    del bucket[:-_STT_HISTORY_LIMIT]
+
+
+def recent_history(user_key: str, limit: int) -> dict[str, Any]:
     """The last few utterances with their measured mic levels, for debugging."""
-    window = _STT_HISTORY[-max(1, min(limit, _STT_HISTORY_LIMIT)) :]
+    bucket = _STT_HISTORY.get(user_key, [])
+    window = bucket[-max(1, min(limit, _STT_HISTORY_LIMIT)) :]
     return {
         "count": len(window),
         "empty_transcriptions": sum(1 for item in window if not item["text"]),
@@ -133,6 +156,7 @@ async def transcribe(
         print(f"   [ERROR] {provider} transcription failed: {e}")
         print("=" * 65 + "\n")
         record_history(
+            history_bucket(user_id),
             {
                 "time": timestamp,
                 "text": "",
@@ -140,7 +164,7 @@ async def transcribe(
                 "provider": provider,
                 "model": stt_model,
                 "audio": report.as_dict(),
-            }
+            },
         )
         raise UpstreamFailure(f"{provider} STT failed: {e}") from e
 
@@ -166,6 +190,7 @@ async def transcribe(
     print("=" * 65 + "\n")
 
     record_history(
+        history_bucket(user_id),
         {
             "time": timestamp,
             "text": text,
@@ -175,7 +200,7 @@ async def transcribe(
             "model": stt_model,
             "elapsed_s": round(elapsed, 3),
             "audio": report.as_dict(),
-        }
+        },
     )
 
     return {"text": text, "report": report, "discarded": discarded, "elapsed": elapsed}

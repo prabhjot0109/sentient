@@ -3,6 +3,7 @@ from __future__ import annotations
 import io
 import unittest
 import wave
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
@@ -142,6 +143,21 @@ class UpstreamModelTests(unittest.TestCase):
 
 
 class TranscriptionEndpointTests(unittest.IsolatedAsyncioTestCase):
+    async def asyncSetUp(self):
+        # GET /v1/audio/transcriptions/recent resolves identity now, so it reads the
+        # state store. This class used to inherit whichever store a previous test
+        # left on deps, which is a temp directory that has since been deleted.
+        import tempfile
+
+        from sentient.adapters.state.sqlite_store import SQLiteStateStore
+        from sentient.api import deps
+
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        original = deps.state_store
+        self.addCleanup(lambda: setattr(deps, "state_store", original))
+        deps.state_store = SQLiteStateStore(str(Path(self.tmp.name) / "state.db"))
+
     async def _post(self, audio: bytes, **kwargs):
         from sentient.api import app as api
 
@@ -261,15 +277,15 @@ class TranscriptionEndpointTests(unittest.IsolatedAsyncioTestCase):
     async def test_history_is_bounded(self):
         from sentient.services import transcription
 
+        bucket = transcription.ANONYMOUS_BUCKET
         transcription._STT_HISTORY.clear()
         for i in range(transcription._STT_HISTORY_LIMIT + 10):
-            transcription.record_history({"time": str(i), "text": "x"})
+            transcription.record_history(bucket, {"time": str(i), "text": "x"})
 
-        self.assertEqual(len(transcription._STT_HISTORY), transcription._STT_HISTORY_LIMIT)
+        stored = transcription._STT_HISTORY[bucket]
+        self.assertEqual(len(stored), transcription._STT_HISTORY_LIMIT)
         # Oldest dropped, newest kept.
-        self.assertEqual(
-            transcription._STT_HISTORY[-1]["time"], str(transcription._STT_HISTORY_LIMIT + 9)
-        )
+        self.assertEqual(stored[-1]["time"], str(transcription._STT_HISTORY_LIMIT + 9))
 
     async def test_no_raw_key_is_returned_on_any_path(self):
         import sentient.adapters.stt.client as stt
@@ -286,3 +302,70 @@ class TranscriptionEndpointTests(unittest.IsolatedAsyncioTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TranscriptionHistoryScopingTests(unittest.TestCase):
+    """The buffer holds transcribed player speech; it must not be shared.
+
+    Keyed on `user_key`, not `user_id`, so the anonymous bucket has one spelling.
+    `resolve_identity` reports no Sentient identity as None while `current_user`
+    reports it as the default user's row id, and the two routes have to agree or
+    the local single-user diagnostic always reads empty.
+    """
+
+    def setUp(self):
+        from sentient.services import transcription
+
+        transcription._STT_HISTORY.clear()
+        self.addCleanup(transcription._STT_HISTORY.clear)
+
+    def test_history_is_partitioned_by_user(self):
+        from sentient.services import transcription
+
+        transcription.record_history("user-a", {"time": "00:00:01", "text": "alice speaking"})
+        transcription.record_history("user-b", {"time": "00:00:02", "text": "bob speaking"})
+
+        alice = transcription.recent_history("user-a", 20)
+        self.assertEqual(alice["count"], 1)
+        self.assertEqual(alice["transcriptions"][0]["text"], "alice speaking")
+
+        bob = transcription.recent_history("user-b", 20)
+        self.assertEqual(bob["count"], 1)
+        self.assertEqual(bob["transcriptions"][0]["text"], "bob speaking")
+
+    def test_anonymous_history_is_its_own_bucket(self):
+        from sentient.services import transcription
+
+        transcription.record_history(transcription.ANONYMOUS_BUCKET, {"time": "1", "text": "anon"})
+        self.assertEqual(transcription.recent_history("user-a", 20)["count"], 0)
+        self.assertEqual(
+            transcription.recent_history(transcription.ANONYMOUS_BUCKET, 20)["count"], 1
+        )
+
+    def test_the_anonymous_bucket_matches_what_current_user_resolves_to(self):
+        """Anonymous POST and anonymous GET must name the same bucket. resolve_user's
+        no-credential branch returns the literal "default" as user_key; this pins the
+        buffer to that same literal so the two cannot drift apart."""
+        from sentient.services import transcription
+
+        self.assertEqual(transcription.ANONYMOUS_BUCKET, "default")
+
+    def test_the_bucket_for_an_identified_caller_is_their_user_key(self):
+        from sentient.adapters.auth import user_key_of
+        from sentient.services import transcription
+
+        self.assertEqual(transcription.history_bucket("uid-7"), user_key_of("uid-7"))
+        self.assertEqual(transcription.history_bucket(None), transcription.ANONYMOUS_BUCKET)
+
+    def test_each_bucket_is_bounded_independently(self):
+        from sentient.services import transcription
+
+        for i in range(transcription._STT_HISTORY_LIMIT + 10):
+            transcription.record_history("user-a", {"time": str(i), "text": f"line {i}"})
+        transcription.record_history("user-b", {"time": "x", "text": "one line"})
+
+        self.assertEqual(
+            transcription.recent_history("user-a", 200)["count"],
+            transcription._STT_HISTORY_LIMIT,
+        )
+        self.assertEqual(transcription.recent_history("user-b", 200)["count"], 1)
