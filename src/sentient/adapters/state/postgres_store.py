@@ -258,6 +258,18 @@ class PostgresStateStore:
             )
         return int(total or 0)
 
+    async def fail_stuck_documents(self) -> int:
+        """Mark every in-flight ingest row failed. Process-wide and idempotent:
+        the dead process could have been mid-ingest for any tenant, and a second
+        run finds nothing left to change."""
+        pool = await self._pool_()
+        async with pool.acquire() as conn:
+            rows = await conn.fetch(
+                "UPDATE documents SET status='failed', updated_at=now() "
+                "WHERE status IN ('processing', 'reindexing') RETURNING id"
+            )
+        return len(rows)
+
     async def delete_document(self, project_id: str, filename: str) -> bool:
         pool = await self._pool_()
         async with pool.acquire() as conn:

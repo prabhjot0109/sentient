@@ -90,5 +90,63 @@ class LifespanTests(unittest.IsolatedAsyncioTestCase):
         archives.retrieve.assert_not_awaited()
 
 
+class StuckIngestReconciliationAtStartupTests(unittest.IsolatedAsyncioTestCase):
+    """H7. A restart mid-ingest leaves documents.status='processing' with no job
+    to finish it, and F6 would render that as an in-flight ingest forever."""
+
+    def _queues(self):
+        return SimpleNamespace(start=AsyncMock(), stop=AsyncMock())
+
+    async def test_startup_fails_rows_left_in_flight_by_the_previous_process(self):
+        import tempfile
+        from pathlib import Path
+
+        from sentient.adapters.state.sqlite_store import SQLiteStateStore
+        from sentient.api import app as api
+        from sentient.api import deps
+
+        with tempfile.TemporaryDirectory() as tmp:
+            store = SQLiteStateStore(str(Path(tmp) / "state.db"))
+            user = await store.ensure_user("lifespan-owner")
+            project = await store.create_project(user["id"], "Skyrim")
+            await store.register_document(project["id"], "a.pdf", 0, "sig", status="processing")
+            await store.register_document(project["id"], "b.pdf", 3, "sig", status="ready")
+
+            with (
+                patch.object(deps, "ingest_queue", self._queues()),
+                patch.object(deps, "reindex_queue", self._queues()),
+                patch.object(deps, "any_provider_key_present", return_value=False),
+                patch.object(deps, "state_store", store),
+            ):
+                async with api.lifespan(api.app):
+                    pass
+
+            documents = await store.list_documents(project["id"])
+
+        self.assertEqual(
+            {d["filename"]: d["status"] for d in documents},
+            {"a.pdf": "failed", "b.pdf": "ready"},
+        )
+
+    async def test_a_reconciliation_failure_never_stops_startup(self):
+        from sentient.api import app as api
+        from sentient.api import deps
+
+        store = SimpleNamespace(
+            fail_stuck_documents=AsyncMock(side_effect=RuntimeError("database is locked"))
+        )
+        queue = self._queues()
+        with (
+            patch.object(deps, "ingest_queue", queue),
+            patch.object(deps, "reindex_queue", self._queues()),
+            patch.object(deps, "any_provider_key_present", return_value=False),
+            patch.object(deps, "state_store", store),
+        ):
+            async with api.lifespan(api.app):
+                pass  # must not raise
+
+        queue.stop.assert_awaited_once()
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -60,6 +60,19 @@ async def lifespan(app: FastAPI):
     await deps.ingest_queue.start()
     await deps.reindex_queue.start()
     try:
+        try:
+            # The ingest queue is in-process and not crash-durable: anything left
+            # in `processing` when the previous process died will never finish,
+            # and F6 would show it as an in-flight ingest forever, indistinguishable
+            # from a slow one. Failing them is the honest state and the user can
+            # retry the upload. Wrapped deliberately -- a reconciliation failure
+            # must not stop the server from starting, exactly as warmup does not.
+            stuck = await deps.state_store.fail_stuck_documents()
+            if stuck:
+                log.warning("marked orphaned ingest rows failed", extra={"count": stuck})
+        except Exception:
+            log.exception("could not reconcile stuck ingest rows")
+
         have_provider_key = deps.any_provider_key_present()
         try:
             if have_provider_key:

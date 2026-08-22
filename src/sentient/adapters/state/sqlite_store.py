@@ -395,6 +395,21 @@ class SQLiteStateStore:
         """Bytes this user has stored across every project they own."""
         return await asyncio.to_thread(self._user_storage_bytes, user_id)
 
+    def _fail_stuck_documents(self) -> int:
+        with closing(self._connect()) as conn, conn:
+            cursor = conn.execute(
+                "UPDATE documents SET status='failed', updated_at=? "
+                "WHERE status IN ('processing', 'reindexing')",
+                (_now(),),
+            )
+        return cursor.rowcount
+
+    async def fail_stuck_documents(self) -> int:
+        """Mark every in-flight ingest row failed. Process-wide and idempotent:
+        the dead process could have been mid-ingest for any tenant, and a second
+        run finds nothing left to change."""
+        return await asyncio.to_thread(self._fail_stuck_documents)
+
     # ---- provider credentials ----
     def _upsert_credential(
         self, user_id: str, provider: str, encrypted_key: str, hint: str
