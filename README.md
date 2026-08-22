@@ -67,6 +67,7 @@ SQLite at `data/state.db`, and auth disabled.
 | `VECTOR_BACKEND` | `faiss` | Set to `qdrant` for hybrid retrieval |
 | `DATABASE_URL` | none | Postgres (Neon or Supabase). Falls back to SQLite when unset |
 | `NEON_AUTH_JWKS_URL` | none | Blank disables auth and serves a single `default` user |
+| `NEON_AUTH_BASE_URL` | none | Written by `neon env pull`; the token `iss` is its origin |
 | `SENTIENT_SECRET_KEY` | none | Fernet key enabling the per-user credential vault |
 
 Full reference, including retrieval tuning, Qdrant setup, the credential vault, auth, and
