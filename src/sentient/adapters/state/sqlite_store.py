@@ -73,25 +73,43 @@ class SQLiteStateStore:
                 CREATE TABLE IF NOT EXISTS chat_messages (
                   id TEXT PRIMARY KEY, thread_id TEXT NOT NULL, role TEXT NOT NULL,
                   content TEXT NOT NULL, created_at TEXT,
+                  model TEXT, prompt_tokens INTEGER, completion_tokens INTEGER,
+                  total_tokens INTEGER,
                   FOREIGN KEY(thread_id) REFERENCES chat_threads(id) ON DELETE CASCADE);
                 CREATE INDEX IF NOT EXISTS chat_messages_thread_idx
                   ON chat_messages(thread_id, created_at);
                 CREATE TABLE IF NOT EXISTS documents (
                   id TEXT PRIMARY KEY, project_id TEXT NOT NULL, filename TEXT NOT NULL,
                   chunk_count INTEGER DEFAULT 0, embedding_signature TEXT,
-                  status TEXT NOT NULL DEFAULT 'processing', created_at TEXT, updated_at TEXT,
+                  status TEXT NOT NULL DEFAULT 'processing', size_bytes INTEGER,
+                  created_at TEXT, updated_at TEXT,
                   UNIQUE(project_id, filename),
                   FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE);
                 """
             )
-            # sqlite has no `ADD COLUMN IF NOT EXISTS`, and CREATE TABLE IF NOT EXISTS
-            # above is a no-op on a database that already has chat_threads. Existing
-            # data/state.db files therefore need this explicitly.
-            columns = {
-                row["name"] for row in conn.execute("PRAGMA table_info(chat_threads)").fetchall()
-            }
-            if "prefix_hash" not in columns:
-                conn.execute("ALTER TABLE chat_threads ADD COLUMN prefix_hash TEXT")
+
+            def _ensure_columns(table: str, columns: dict[str, str]) -> None:
+                # sqlite has no `ADD COLUMN IF NOT EXISTS`, and CREATE TABLE IF NOT
+                # EXISTS above is a no-op on a database that already has the table.
+                # Existing data/state.db files therefore need this explicitly.
+                existing = {
+                    row["name"] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()
+                }
+                for name, ddl_type in columns.items():
+                    if name not in existing:
+                        conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {ddl_type}")
+
+            _ensure_columns("chat_threads", {"prefix_hash": "TEXT"})
+            _ensure_columns(
+                "chat_messages",
+                {
+                    "model": "TEXT",
+                    "prompt_tokens": "INTEGER",
+                    "completion_tokens": "INTEGER",
+                    "total_tokens": "INTEGER",
+                },
+            )
+            _ensure_columns("documents", {"size_bytes": "INTEGER"})
             # Indexed only here, after the column is guaranteed to exist: inside the
             # script above it would reference a column an older database lacks.
             conn.execute(
@@ -282,14 +300,19 @@ class SQLiteStateStore:
         chunk_count: int,
         embedding_signature: str,
         status: str,
+        size_bytes: int | None,
     ) -> dict[str, Any]:
         did = uuid4().hex
         with closing(self._connect()) as conn, conn:
             conn.execute(
                 "INSERT INTO documents (id, project_id, filename, chunk_count, embedding_signature, "
-                "status, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?) "
+                "status, size_bytes, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?) "
                 "ON CONFLICT(project_id, filename) DO UPDATE SET chunk_count=excluded.chunk_count, "
                 "embedding_signature=excluded.embedding_signature, status=excluded.status, "
+                # A re-register that reports no size keeps the size already on the row:
+                # the status flip from processing to ready carries no byte count, and
+                # nulling it there would silently drop the row out of the quota sum.
+                "size_bytes=COALESCE(excluded.size_bytes, documents.size_bytes), "
                 "updated_at=excluded.updated_at",
                 (
                     did,
@@ -298,6 +321,7 @@ class SQLiteStateStore:
                     chunk_count,
                     embedding_signature,
                     status,
+                    size_bytes,
                     _now(),
                     _now(),
                 ),
@@ -314,9 +338,17 @@ class SQLiteStateStore:
         chunk_count: int,
         embedding_signature: str,
         status: str = "ready",
+        *,
+        size_bytes: int | None = None,
     ) -> dict[str, Any]:
         return await asyncio.to_thread(
-            self._register_document, project_id, filename, chunk_count, embedding_signature, status
+            self._register_document,
+            project_id,
+            filename,
+            chunk_count,
+            embedding_signature,
+            status,
+            size_bytes,
         )
 
     def _set_document_status(self, project_id: str, filename: str, status: str) -> None:
@@ -490,13 +522,34 @@ class SQLiteStateStore:
     async def delete_thread(self, user_id: str, thread_id: str) -> bool:
         return await asyncio.to_thread(self._delete_thread, user_id, thread_id)
 
-    def _add_message(self, thread_id: str, role: str, content: str) -> dict[str, Any]:
+    def _add_message(
+        self,
+        thread_id: str,
+        role: str,
+        content: str,
+        model: str | None,
+        prompt_tokens: int | None,
+        completion_tokens: int | None,
+        total_tokens: int | None,
+    ) -> dict[str, Any]:
         message_id = uuid4().hex
         now = _now()
         with closing(self._connect()) as conn, conn:
             conn.execute(
-                "INSERT INTO chat_messages (id, thread_id, role, content, created_at) VALUES (?,?,?,?,?)",
-                (message_id, thread_id, role, content, now),
+                "INSERT INTO chat_messages "
+                "(id, thread_id, role, content, created_at, model, prompt_tokens, "
+                " completion_tokens, total_tokens) VALUES (?,?,?,?,?,?,?,?,?)",
+                (
+                    message_id,
+                    thread_id,
+                    role,
+                    content,
+                    now,
+                    model,
+                    prompt_tokens,
+                    completion_tokens,
+                    total_tokens,
+                ),
             )
             conn.execute("UPDATE chat_threads SET updated_at=? WHERE id=?", (now, thread_id))
         return {
@@ -505,10 +558,33 @@ class SQLiteStateStore:
             "role": role,
             "content": content,
             "created_at": now,
+            "model": model,
+            "prompt_tokens": prompt_tokens,
+            "completion_tokens": completion_tokens,
+            "total_tokens": total_tokens,
         }
 
-    async def add_message(self, thread_id: str, role: str, content: str) -> dict[str, Any]:
-        return await asyncio.to_thread(self._add_message, thread_id, role, content)
+    async def add_message(
+        self,
+        thread_id: str,
+        role: str,
+        content: str,
+        *,
+        model: str | None = None,
+        prompt_tokens: int | None = None,
+        completion_tokens: int | None = None,
+        total_tokens: int | None = None,
+    ) -> dict[str, Any]:
+        return await asyncio.to_thread(
+            self._add_message,
+            thread_id,
+            role,
+            content,
+            model,
+            prompt_tokens,
+            completion_tokens,
+            total_tokens,
+        )
 
     def _list_threads(self, project_id: str) -> list[dict[str, Any]]:
         with closing(self._connect()) as conn:
@@ -527,8 +603,10 @@ class SQLiteStateStore:
             # land on the same timestamp; it has to key BOTH sorts, or the newest-first
             # window and the chronological re-sort disagree and the turn order inverts.
             rows = conn.execute(
-                "SELECT id, thread_id, role, content, created_at FROM "
-                "(SELECT rowid AS seq, id, thread_id, role, content, created_at FROM chat_messages "
+                "SELECT id, thread_id, role, content, created_at, model, prompt_tokens, "
+                "completion_tokens, total_tokens FROM "
+                "(SELECT rowid AS seq, id, thread_id, role, content, created_at, model, "
+                "prompt_tokens, completion_tokens, total_tokens FROM chat_messages "
                 "WHERE thread_id=? ORDER BY created_at DESC, seq DESC LIMIT ?) "
                 "ORDER BY created_at ASC, seq ASC",
                 (thread_id, limit),

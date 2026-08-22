@@ -205,20 +205,28 @@ class PostgresStateStore:
         chunk_count: int,
         embedding_signature: str,
         status: str = "ready",
+        *,
+        size_bytes: int | None = None,
     ) -> dict[str, Any]:
         pool = await self._pool_()
         async with pool.acquire() as conn:
             row = await conn.fetchrow(
-                "INSERT INTO documents (project_id, filename, chunk_count, embedding_signature, status) "
-                "VALUES ($1,$2,$3,$4,$5) ON CONFLICT (project_id, filename) DO UPDATE SET "
+                "INSERT INTO documents "
+                "(project_id, filename, chunk_count, embedding_signature, status, size_bytes) "
+                "VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT (project_id, filename) DO UPDATE SET "
                 "chunk_count=excluded.chunk_count, embedding_signature=excluded.embedding_signature, "
-                "status=excluded.status, updated_at=now() "
-                "RETURNING id::text, filename, chunk_count, embedding_signature, status",
+                "status=excluded.status, updated_at=now(), "
+                # A re-register that reports no size keeps the size already on the row:
+                # the status flip from processing to ready carries no byte count, and
+                # nulling it there would silently drop the row out of the quota sum.
+                "size_bytes=COALESCE(excluded.size_bytes, documents.size_bytes) "
+                "RETURNING id::text, filename, chunk_count, embedding_signature, status, size_bytes",
                 project_id,
                 filename,
                 chunk_count,
                 embedding_signature,
                 status,
+                size_bytes,
             )
         return {**dict(row), "project_id": project_id}
 
@@ -367,15 +375,32 @@ class PostgresStateStore:
             )
         return res.endswith(" 1")
 
-    async def add_message(self, thread_id: str, role: str, content: str) -> dict[str, Any]:
+    async def add_message(
+        self,
+        thread_id: str,
+        role: str,
+        content: str,
+        *,
+        model: str | None = None,
+        prompt_tokens: int | None = None,
+        completion_tokens: int | None = None,
+        total_tokens: int | None = None,
+    ) -> dict[str, Any]:
         pool = await self._pool_()
         async with pool.acquire() as conn, conn.transaction():
             row = await conn.fetchrow(
-                "INSERT INTO chat_messages (thread_id, role, content) VALUES ($1,$2,$3) "
-                "RETURNING id::text, thread_id::text, role, content, created_at",
+                "INSERT INTO chat_messages "
+                "(thread_id, role, content, model, prompt_tokens, completion_tokens, total_tokens) "
+                "VALUES ($1,$2,$3,$4,$5,$6,$7) "
+                "RETURNING id::text, thread_id::text, role, content, created_at, model, "
+                "prompt_tokens, completion_tokens, total_tokens",
                 thread_id,
                 role,
                 content,
+                model,
+                prompt_tokens,
+                completion_tokens,
+                total_tokens,
             )
             await conn.execute("UPDATE chat_threads SET updated_at=now() WHERE id=$1", thread_id)
         return dict(row)
@@ -394,8 +419,10 @@ class PostgresStateStore:
         pool = await self._pool_()
         async with pool.acquire() as conn:
             rows = await conn.fetch(
-                "SELECT id::text, thread_id::text, role, content, created_at FROM "
-                "(SELECT id, thread_id, role, content, created_at FROM chat_messages WHERE thread_id=$1 "
+                "SELECT id::text, thread_id::text, role, content, created_at, model, "
+                "prompt_tokens, completion_tokens, total_tokens FROM "
+                "(SELECT id, thread_id, role, content, created_at, model, prompt_tokens, "
+                "completion_tokens, total_tokens FROM chat_messages WHERE thread_id=$1 "
                 "ORDER BY created_at DESC, id DESC LIMIT $2) tail ORDER BY created_at, id",
                 thread_id,
                 limit,

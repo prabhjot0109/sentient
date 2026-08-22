@@ -98,6 +98,43 @@ class SQLiteStateStoreTests(unittest.IsolatedAsyncioTestCase):
             (await self.store.get_thread_by_prefix(skyrim["id"], "hash-b"))["id"], thread["id"]
         )
 
+    async def test_add_message_persists_token_usage(self):
+        """H4 owns the counters a quota check needs, so they have to survive a read
+        back. The user row stays null: a user message has no usage to report."""
+        user = await self.store.ensure_user("usage-owner")
+        project = await self.store.create_project(user["id"], "Skyrim")
+        thread = await self.store.upsert_thread(project["id"], "sess-usage")
+
+        await self.store.add_message(thread["id"], "user", "Hello.")
+        await self.store.add_message(
+            thread["id"],
+            "assistant",
+            "Greetings.",
+            model="gemini-2.5-flash",
+            prompt_tokens=812,
+            completion_tokens=17,
+            total_tokens=829,
+        )
+
+        messages = await self.store.list_messages(thread["id"], limit=10)
+        self.assertEqual(len(messages), 2)
+
+        user_row, assistant_row = messages
+        self.assertIsNone(user_row["total_tokens"])
+        self.assertEqual(assistant_row["model"], "gemini-2.5-flash")
+        self.assertEqual(assistant_row["prompt_tokens"], 812)
+        self.assertEqual(assistant_row["completion_tokens"], 17)
+        self.assertEqual(assistant_row["total_tokens"], 829)
+
+    async def test_register_document_records_its_size(self):
+        """H6's per-user quota has nothing to sum unless the size lands on the row."""
+        user = await self.store.ensure_user("size-owner")
+        project = await self.store.create_project(user["id"], "P")
+        await self.store.register_document(project["id"], "lore.pdf", 42, "sig", size_bytes=2048)
+
+        docs = await self.store.list_documents(project["id"])
+        self.assertEqual(docs[0]["size_bytes"], 2048)
+
 
 class FreshCloneStartupTests(unittest.IsolatedAsyncioTestCase):
     """data_dir is gitignored, so a fresh clone has no data/ at all. The store is
