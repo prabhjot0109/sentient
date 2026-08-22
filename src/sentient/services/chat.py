@@ -17,6 +17,7 @@ arrive as arguments — `services/` may not import `api.deps`.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 from time import perf_counter
 from typing import Any
 
@@ -33,6 +34,51 @@ from sentient.adapters.llm.openai_wire import (
 from sentient.core.errors import ReindexInProgress
 from sentient.services.condense import condense_query
 from sentient.services.runtime import embedding_signature
+
+
+def _hash_pairs(pairs: list[tuple[str, str]]) -> str:
+    """One encoding, used by both hash functions so they cannot drift apart.
+
+    The 0x1f unit separator between role and content is not decoration: a plain
+    concatenation lets ("user", "ab") and ("user", "a") + ("", "b") collide, which
+    would silently merge two different conversations into one thread.
+    """
+    payload = "\n".join(f"{role}\x1f{content}" for role, content in pairs)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _transcript_pairs(messages: list[OpenAIMessage]) -> list[tuple[str, str]]:
+    """Non-system messages as (role, content). The system prompt is excluded on
+    purpose: it carries the persona, which the user may edit between turns, and a
+    persona edit must not fork an in-progress conversation."""
+    return [(m.role, m.content or "") for m in messages if m.role != "system"]
+
+
+def conversation_prefix_hash(messages: list[OpenAIMessage]) -> str | None:
+    """Hash the conversation as it stood BEFORE this turn's user line.
+
+    Mantella sends no session_id but re-sends the whole conversation every turn,
+    so the transcript already stored equals the incoming payload minus the system
+    message and minus the final user turn. Hashing that identifies the thread with
+    no client change.
+
+    Returns None when the slice is empty — a first turn. An empty prefix must NEVER
+    match an existing thread; that is what makes a turn-1 collision between two
+    different NPCs impossible.
+    """
+    pairs = _transcript_pairs(messages)
+    for i in range(len(pairs) - 1, -1, -1):
+        if pairs[i][0] == "user":
+            pairs = pairs[:i]
+            break
+    if not pairs:
+        return None
+    return _hash_pairs(pairs)
+
+
+def conversation_prefix_hash_after(messages: list[OpenAIMessage], reply: str) -> str:
+    """The hash the NEXT turn will arrive with: this payload plus the reply."""
+    return _hash_pairs([*_transcript_pairs(messages), ("assistant", reply)])
 
 
 async def run_project_turn(
