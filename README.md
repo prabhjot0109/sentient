@@ -101,10 +101,29 @@ credential and are now orphaned. There is no automatic migration. Delete `data/p
 re-upload your documents (FAISS), or drop and re-ingest the collection (Qdrant). Do this before
 accumulating real data, because the cost only grows.
 
+### Which credential each route accepts
+
+| Route | Bearer JWT | `X-API-Key` | Key in path | No credential |
+|---|---|---|---|---|
+| `/v1/projects*`, `/v1/threads*`, `/v1/keys*`, `/v1/credentials*` | yes | yes | — | 401 when auth is on |
+| `/v1/upload`, `/v1/sources`, `DELETE /v1/sources/{f}` | yes | yes | — | 401 when auth is on |
+| `/v1/chat`, `/v1/retrieve` | yes | yes | — | 401 when auth is on |
+| `/v1/{api_key}/{project_id}/chat/completions` | — | — | yes | 401 when auth is on |
+| `POST /v1/audio/transcriptions` | **provider** key, not a JWT | yes | — | see below |
+| `GET /v1/audio/transcriptions/recent` | yes | yes | — | 401 when auth is on |
+
+`POST /v1/audio/transcriptions` is the one route where `Authorization: Bearer` carries a
+*provider* credential rather than a Neon Auth JWT. Mantella has a single field for its Whisper key
+and forwards it there, so Sentient identity on that route comes from `X-API-Key` only. The
+console's voice input cannot reuse that convention.
+
+"Auth is on" means `NEON_AUTH_JWKS_URL` is set. With it unset, every route falls back to the
+shared `default` user, which is the single-user local-development mode.
+
 ## Development
 
 ```bash
-uv run python -m pytest tests/ -v                     # 209 tests
+uv run python -m pytest tests/ -v                     # the full suite
 uv run ruff check src tests
 uv run ruff format --check src tests
 uv run mypy src/sentient/core src/sentient/adapters

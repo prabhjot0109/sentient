@@ -123,5 +123,8 @@ in as reference wiring only — Sentient never reads it; Mantella reads
 Read `plans/order.md` first, then the specific plan file — each carries 🔶 DELTA banners that
 override its body text; the newest delta wins. Personas are per-project
 (`project_configs.persona_prompt`): do not reintroduce per-NPC persona tables or `npc_name`-keyed
-config resolution. `docs/` is deliberately local-only and **is** ignored by git (`.gitignore` has
-`/docs`), so `git add -A` is safe and plan files never enter a commit.
+config resolution. `docs/` is deliberately local-only and must stay **untracked**. Do not rely on it being
+gitignored: the committed `.gitignore` has a `/docs` rule, but it is routinely commented out in a
+working tree, and `git check-ignore -v docs/` is the only way to know which state you are in.
+**Never run `git add -A` or `git add .`** — list source and test paths explicitly in every commit,
+or plan files enter the history.
