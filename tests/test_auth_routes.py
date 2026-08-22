@@ -254,3 +254,34 @@ class RetrieveScopingTests(_AuthenticatedApp, unittest.IsolatedAsyncioTestCase):
             json={"query": "dragons", "project_id": theirs["id"]},
         )
         self.assertEqual(response.status_code, 404)
+
+
+class MantellaCompletionsAuthTests(_AuthenticatedApp, unittest.IsolatedAsyncioTestCase):
+    """The key-in-path routes are the reason resolve_caller takes provider_key.
+
+    Mantella pastes a Google/Groq key into the URL. `_as_provider_key` strips it,
+    so it supplies no Sentient identity -- but it is still a credential, and
+    turning the 401 on without that exemption would break the legacy wiring.
+    Nothing exercised that branch before.
+    """
+
+    BODY = {"messages": [{"role": "user", "content": "hello"}]}
+
+    async def test_env_default_completions_rejects_a_request_with_no_credential(self):
+        response = await self.client.post("/v1/chat/completions", json=self.BODY)
+        self.assertEqual(response.status_code, 401)
+
+    async def test_a_provider_key_in_the_path_is_accepted_as_a_credential(self):
+        ctx = await self.deps.completions_ctx("AIzaSyFakeProviderKey", None)
+        self.assertEqual(ctx.user_key, "default")
+
+    async def test_a_product_key_in_the_path_still_selects_its_owner(self):
+        ctx = await self.deps.completions_ctx(RAW_KEY, None)
+        self.assertEqual(ctx.user_id, self.owner["id"])
+
+    async def test_a_path_with_neither_kind_of_key_is_rejected(self):
+        from fastapi import HTTPException
+
+        with self.assertRaises(HTTPException) as raised:
+            await self.deps.completions_ctx(None, None)
+        self.assertEqual(raised.exception.status_code, 401)

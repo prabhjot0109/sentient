@@ -115,10 +115,9 @@ async def resolve_user(
     *,
     jwt_token: str | None = None,
     api_key: str | None = None,
-    header_key: str | None = None,
     cache: IdentityCache | None = None,
 ) -> tuple[str, str]:
-    key = api_key or header_key
+    key = api_key
 
     if jwt_token and auth_enabled(settings):
 
