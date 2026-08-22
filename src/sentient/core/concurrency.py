@@ -6,6 +6,10 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any
 
+from sentient.core.logging import get_logger
+
+log = get_logger(__name__)
+
 
 @dataclass(frozen=True)
 class IngestJob:
@@ -59,9 +63,9 @@ class IngestQueue:
                     return
                 try:
                     await self._handler(job)
-                except Exception as exc:
+                except Exception:
                     label = getattr(job, "filename", getattr(job, "project_id", "unknown"))
-                    print(f"[ingest] job {label} failed: {exc}")
+                    log.exception("ingest job failed", extra={"job": label})
             finally:
                 self._queue.task_done()
 
@@ -87,8 +91,8 @@ def defer(coro: Awaitable[Any], *, label: str = "task") -> None:
     async def _wrap() -> None:
         try:
             await coro
-        except Exception as exc:
-            print(f"[deferred:{label}] failed: {exc}")
+        except Exception:
+            log.exception("deferred task failed", extra={"label": label})
 
     asyncio.create_task(_wrap(), name=f"sentient-deferred-{label}")
 

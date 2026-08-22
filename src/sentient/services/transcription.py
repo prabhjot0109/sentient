@@ -18,6 +18,9 @@ from sentient.adapters.auth import AuthError, user_key_of
 from sentient.adapters.stt import client as stt
 from sentient.adapters.stt.diagnostics import analyse_wav, explain_empty_transcription
 from sentient.core.errors import InvalidRequest, Unauthenticated, UpstreamFailure
+from sentient.core.logging import get_logger
+
+log = get_logger(__name__)
 
 # Keyed by `user_key`, the same tenant id resolve_user hands every other route,
 # so a Mantella POST carrying X-API-Key and a console GET carrying a JWT reach one
@@ -109,30 +112,36 @@ async def transcribe(
         state_store, settings, authorization=authorization, user_id=user_id
     )
 
-    print("\n" + "=" * 65)
-    print(f"[STT] Mic input received at {timestamp}")
-    print(f"   File     : {filename} ({len(contents) / 1024:.1f} KB)")
+    # One buffered record rather than eighteen writes. The block is a single
+    # event a person reads top to bottom; emitted line by line, two concurrent
+    # spoken lines interleaved into unreadable soup. The measurements themselves
+    # are unchanged — they are fitted to real captures.
+    block = [
+        "=" * 65,
+        f"[STT] Mic input received at {timestamp}",
+        f"   File     : {filename} ({len(contents) / 1024:.1f} KB)",
+    ]
     if report.sample_rate:
-        print(
+        block.append(
             f"   Audio    : {report.duration_s:.2f}s  {report.sample_rate} Hz  "
             f"{report.channels}ch  {report.sample_width * 8}-bit"
         )
-        print(
+        block.append(
             f"   Level    : [{report.level_bar()}] RMS {report.rms * 100:5.2f}%  "
             f"peak {report.peak * 100:5.1f}%"
         )
-    print(f"   Verdict  : {report.verdict} - {report.detail}")
-    for warning in report.warnings:
-        print(f"   ! {warning}")
+    block.append(f"   Verdict  : {report.verdict} - {report.detail}")
+    block.extend(f"   ! {warning}" for warning in report.warnings)
 
     if provider is None:
-        print(f"   [ERROR] {_NO_CREDENTIAL}")
-        print("=" * 65 + "\n")
+        block.append(f"   [ERROR] {_NO_CREDENTIAL}")
+        block.append("=" * 65)
+        log.error("\n".join(block))
         raise InvalidRequest(_NO_CREDENTIAL)
 
     stt_model = stt.upstream_model(provider, model)
     # The key itself is never logged, only where it came from.
-    print(f"   Upstream : {provider} / {stt_model}  (key from {key_source})")
+    block.append(f"   Upstream : {provider} / {stt_model}  (key from {key_source})")
 
     # The SDKs serialise an explicit None, so optional fields are only sent when set.
     options: dict[str, Any] = {
@@ -153,8 +162,9 @@ async def transcribe(
         client = stt.stt_client(provider, api_key)
         response = await asyncio.to_thread(client.audio.transcriptions.create, **options)
     except Exception as e:
-        print(f"   [ERROR] {provider} transcription failed: {e}")
-        print("=" * 65 + "\n")
+        block.append(f"   [ERROR] {provider} transcription failed: {e}")
+        block.append("=" * 65)
+        log.error("\n".join(block), exc_info=True)
         record_history(
             history_bucket(user_id),
             {
@@ -177,17 +187,18 @@ async def transcribe(
         # The waveform holds no speech, so this text was invented by the model.
         # Dropping it makes Mantella report "could not detect speech" and replay the
         # cue, instead of the NPC answering a line the player never spoke.
-        print(f'   DISCARDED: "{text}" - hallucinated from {report.verdict.lower()} audio')
-        print(f"   [WHY] {report.detail}")
+        block.append(f'   DISCARDED: "{text}" - hallucinated from {report.verdict.lower()} audio')
+        block.append(f"   [WHY] {report.detail}")
         text = ""
 
     if text:
-        print(f'   HEARD    : "{text}"   ({elapsed:.2f}s)')
+        block.append(f'   HEARD    : "{text}"   ({elapsed:.2f}s)')
     else:
-        print(f"   HEARD    : <nothing>   ({elapsed:.2f}s)")
+        block.append(f"   HEARD    : <nothing>   ({elapsed:.2f}s)")
         if not discarded:
-            print(f"   [WHY] {explain_empty_transcription(report)}")
-    print("=" * 65 + "\n")
+            block.append(f"   [WHY] {explain_empty_transcription(report)}")
+    block.append("=" * 65)
+    log.info("\n".join(block))
 
     record_history(
         history_bucket(user_id),

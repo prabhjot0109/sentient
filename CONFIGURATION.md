@@ -254,6 +254,26 @@ Mantella replays its own "could not detect speech" cue instead of making the NPC
 player never spoke. Healthy audio is never discarded, and an unparseable payload degrades to
 `UNREADABLE`, so diagnostics never cost you a transcription.
 
+## Logging
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `LOG_LEVEL` | `INFO` | Any stdlib level name: `DEBUG`, `INFO`, `WARNING`, `ERROR` |
+| `LOG_FORMAT` | `text` | `json` emits one JSON object per line. Anything else is text |
+
+Every record carries the request's `user_key`, and `project_id` and `thread_id` once they are
+known, bound once per request in `deps.resolve_caller` and carried by a `ContextVar`. Deferred
+post-turn work inherits those fields, because an asyncio task copies the context it was created
+in, so the transcript write logs under the turn that scheduled it.
+
+`user_key` is an opaque hash of the user id, which is exactly why it is the field that identifies
+a tenant in the logs. No provider key, `sk-sent-` key or JWT is ever logged, and the STT path logs
+only *where* a credential came from.
+
+The server contains no `print()` calls, and `tests/test_logging.py` fails the suite if one
+reappears. `cli.py` is the deliberate exception: a console script's stdout is its user interface,
+not a log.
+
 ## Performance notes
 
 Measured against a live Skyrim session, in descending order of impact. The first item outweighs

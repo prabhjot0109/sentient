@@ -69,6 +69,7 @@ SQLite at `data/state.db`, and auth disabled.
 | `NEON_AUTH_JWKS_URL` | none | Blank disables auth and serves a single `default` user |
 | `NEON_AUTH_BASE_URL` | none | Written by `neon env pull`; the token `iss` is its origin |
 | `SENTIENT_SECRET_KEY` | none | Fernet key enabling the per-user credential vault |
+| `LOG_LEVEL` / `LOG_FORMAT` | `INFO` / `text` | `LOG_FORMAT=json` emits one JSON object per line for a log shipper |
 
 Full reference, including retrieval tuning, Qdrant setup, the credential vault, auth, and
 performance measurements: **[CONFIGURATION.md](CONFIGURATION.md)**.

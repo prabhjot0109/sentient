@@ -33,9 +33,12 @@ from sentient.adapters.llm.openai_wire import (
     to_langchain,
 )
 from sentient.core.errors import ReindexInProgress
+from sentient.core.logging import get_logger
 from sentient.services.condense import condense_query
 from sentient.services.runtime import embedding_signature
 from sentient.services.usage import TokenUsage, usage_of
+
+log = get_logger(__name__)
 
 
 def _hash_pairs(pairs: list[tuple[str, str]]) -> str:
@@ -108,10 +111,10 @@ async def run_project_turn(
                 project_id=ctx.project_id,
                 embedding_signature=embedding_signature(ctx.rag_settings),
             )
-        except Exception as exc:
+        except Exception:
             # Grounding is best-effort: a retrieval failure degrades the answer,
             # it does not fail the turn.
-            print(f"Lore retrieval failed (answering without grounding): {exc}")
+            log.warning("retrieval failed; answering ungrounded", exc_info=True)
             return []
 
     llm, chunks = await asyncio.gather(get_llm(ctx), _retrieve())
@@ -180,9 +183,14 @@ async def prepare_completion(
 
     model_name = ctx.llm_settings["model"]
     query = last_user_text(request.messages)
-    print(
-        f"[Mantella:{ctx.user_key}] >> {ctx.llm_settings['provider']}/{model_name} "
-        f"(stream={request.stream}) | project={ctx.project_id} | query: {query.strip()!r}"
+    log.info(
+        "turn started",
+        extra={
+            "provider": ctx.llm_settings["provider"],
+            "model": model_name,
+            "stream": request.stream,
+            "query": query.strip(),
+        },
     )
 
     async def _retrieve(retrieval_query: str, archives=None) -> list:
@@ -200,8 +208,8 @@ async def prepare_completion(
                 project_id=ctx.project_id,
                 embedding_signature=embedding_signature(ctx.rag_settings),
             )
-        except Exception as e:
-            print(f"Lore retrieval failed (answering without grounding): {e}")
+        except Exception:
+            log.warning("retrieval failed; answering ungrounded", exc_info=True)
             return []
 
     ground_started = perf_counter()
@@ -209,23 +217,27 @@ async def prepare_completion(
         llm, archives = await asyncio.gather(get_llm(ctx), get_archives(ctx))
         retrieval_query = await condense_query(llm, to_history(request.messages), query)
         if retrieval_query != query:
-            print(
-                f"[Mantella:{ctx.user_key}]   condensed: {query.strip()!r} "
-                f"-> {retrieval_query.strip()!r}"
+            log.info(
+                "query condensed",
+                extra={"query": query.strip(), "condensed": retrieval_query.strip()},
             )
         chunks = await _retrieve(retrieval_query, archives)
     else:
         llm, chunks = await asyncio.gather(get_llm(ctx), _retrieve(query))
     ground_ms = (perf_counter() - ground_started) * 1000
 
-    print(f"[Mantella:{ctx.user_key}]   retrieved {len(chunks)} lore chunk(s)")
+    log.info("lore retrieved", extra={"chunks": len(chunks)})
     prompt_started = perf_counter()
     messages = inject_persona(to_langchain(request.messages), ctx.system_prompt)
     messages = inject_lore(messages, format_lore(chunks))
     prompt_ms = (perf_counter() - prompt_started) * 1000
-    print(
-        f"[turn:{ctx.user_key}] ctx={context_ms:.1f}ms "
-        f"ground={ground_ms:.1f}ms prompt={prompt_ms:.1f}ms"
+    log.info(
+        "prompt built",
+        extra={
+            "context_ms": round(context_ms, 1),
+            "ground_ms": round(ground_ms, 1),
+            "prompt_ms": round(prompt_ms, 1),
+        },
     )
     return llm, messages, model_name
 

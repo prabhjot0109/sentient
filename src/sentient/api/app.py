@@ -26,6 +26,9 @@ from sentient.api.routers import (
     projects,
     threads,
 )
+from sentient.core.logging import configure_logging, get_logger
+
+log = get_logger(__name__)
 
 
 async def _warm_grounding_path() -> None:
@@ -45,12 +48,15 @@ async def _warm_grounding_path() -> None:
     await deps.get_default_archives().retrieve(
         "warmup", k=1, search_type="similarity", min_score=0.0
     )
-    print(f"[WARMUP] Lore path ready in {perf_counter() - started:.1f}s")
+    log.info("warmup complete", extra={"seconds": round(perf_counter() - started, 1)})
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Start process-local workers and drain accepted work during shutdown."""
+    # First statement: everything below is entitled to log, and until this runs
+    # the "sentient" logger has no handler and its records vanish.
+    configure_logging(deps._settings)
     await deps.ingest_queue.start()
     await deps.reindex_queue.start()
     try:
@@ -62,9 +68,9 @@ async def lifespan(app: FastAPI):
                 # never blocks the event loop. No global brain — clients resolve per turn.
                 await deps.get_default_archives().ensure_index()
             else:
-                print("No default API key found. Clients will initialize per-request.")
-        except Exception as e:
-            print(f"Startup initialization failed: {e}")
+                log.info("no default provider key; clients initialize per request")
+        except Exception:
+            log.exception("startup index build failed")
 
         # Deliberately awaited, not deferred: uvicorn should not report the server
         # ready while a request would still race the model load. A failure here is
@@ -75,14 +81,14 @@ async def lifespan(app: FastAPI):
         if have_provider_key:
             try:
                 await _warm_grounding_path()
-            except Exception as e:
-                print(f"[WARMUP] Lore path warmup skipped ({e}); first request will be slower.")
+            except Exception:
+                log.warning("warmup skipped; the first request will be slower", exc_info=True)
 
         yield
     finally:
         await deps.reindex_queue.stop()
         await deps.ingest_queue.stop()
-        print("Shutting down...")
+        log.info("shutdown complete")
 
 
 app = FastAPI(title="Sentient AI API", lifespan=lifespan)

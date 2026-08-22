@@ -30,9 +30,11 @@ from sentient.api import deps
 from sentient.core.concurrency import defer
 from sentient.core.config import load_rag_settings
 from sentient.core.errors import ReindexInProgress
+from sentient.core.logging import get_logger
 from sentient.services import chat as service
 from sentient.services.usage import TokenUsage, usage_of
 
+log = get_logger(__name__)
 router = APIRouter()
 
 
@@ -86,7 +88,7 @@ async def _run_completions(
         raise HTTPException(status_code=409, detail=str(e)) from e
 
     if request.stream:
-        print(f"[Mantella:{ctx.user_key}]   << streaming reply")
+        log.info("streaming reply")
         return StreamingResponse(
             _stream_with_deferred_turn_work(llm, messages, model_name, ctx, request),
             media_type="text/event-stream",
@@ -94,7 +96,7 @@ async def _run_completions(
 
     result = await llm.ainvoke(messages)
     reply = str(result.content)
-    print(f"[Mantella:{ctx.user_key}]   << reply ({len(reply)} chars): {reply!r}")
+    log.info("reply", extra={"chars": len(reply), "reply": reply})
     _schedule_deferred_turn_work(ctx, request, reply, usage_of(result, model_name))
     return build_completion_response(reply, model_name)
 
@@ -113,7 +115,7 @@ async def openai_chat_completions(
     except HTTPException:
         raise
     except Exception as e:
-        print(f"Chat Completions Error: {e}")
+        log.exception("chat completions failed")
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 

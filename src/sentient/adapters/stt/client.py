@@ -16,6 +16,9 @@ from typing import Any
 
 from sentient.adapters.state.base import StateStore
 from sentient.core.config import RAGSettings
+from sentient.core.logging import get_logger
+
+log = get_logger(__name__)
 
 GROQ_DEFAULT_MODEL = "whisper-large-v3-turbo"
 OPENAI_DEFAULT_MODEL = "whisper-1"
@@ -68,7 +71,10 @@ async def _stored_key(
             return None
         return decrypt_key(row["encrypted_key"], secret)
     except Exception as exc:  # no key material in the message
-        print(f"[stt] stored credential for {provider} unusable ({type(exc).__name__}); using env")
+        log.warning(
+            "stored STT credential unusable; falling back to env",
+            extra={"provider": provider, "reason": type(exc).__name__},
+        )
         return None
 
 

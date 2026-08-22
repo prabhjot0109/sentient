@@ -250,6 +250,8 @@ class RAGSettings:
     # Deployed browser origins allowed to call the API. A tuple, not a list, so
     # RAGSettings stays hashable/frozen like every other field here.
     cors_allow_origins: tuple[str, ...]
+    log_level: str
+    log_format: str
 
 
 def load_rag_settings(api_key: str | None = None) -> RAGSettings:
@@ -363,4 +365,8 @@ def load_rag_settings(api_key: str | None = None) -> RAGSettings:
             for origin in (os.getenv("CORS_ALLOW_ORIGINS") or "").split(",")
             if origin.strip()
         ),
+        log_level=(os.getenv("LOG_LEVEL") or "INFO").upper(),
+        # Anything that is not exactly "json" is text. A typo should degrade to a
+        # readable console, never to a format no log shipper can parse.
+        log_format="json" if (os.getenv("LOG_FORMAT") or "text").lower() == "json" else "text",
     )

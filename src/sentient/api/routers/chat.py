@@ -24,9 +24,11 @@ from sentient.api.schemas.chat import (
 )
 from sentient.core.concurrency import defer
 from sentient.core.errors import ReindexInProgress
+from sentient.core.logging import bind, get_logger
 from sentient.services import chat as service
 from sentient.services.runtime import embedding_signature
 
+log = get_logger(__name__)
 router = APIRouter()
 
 
@@ -52,6 +54,7 @@ async def chat_endpoint(
             if project is None:
                 raise HTTPException(status_code=404, detail="project not found")
 
+            bind(project_id=payload.project_id)
             if payload.thread_id:
                 thread = await deps.state_store.get_thread(user_id, payload.thread_id)
                 if thread is None or thread["project_id"] != payload.project_id:
@@ -75,6 +78,7 @@ async def chat_endpoint(
             history_window = (
                 await deps.state_store.get_project_config(payload.project_id) or {}
             ).get("history_window") or 20
+            bind(thread_id=thread["id"])
             history = await deps.state_store.list_messages(thread["id"], limit=history_window)
             result = await service.run_project_turn(
                 ctx,
@@ -134,7 +138,7 @@ async def chat_endpoint(
     except HTTPException:
         raise  # ownership/validation statuses must survive the catch-all below
     except Exception as e:
-        print(f"Chat Endpoint Error: {e}")
+        log.exception("chat endpoint failed")
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 

@@ -22,6 +22,10 @@ from typing import Any
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
 from pydantic import BaseModel
 
+from sentient.core.logging import get_logger
+
+log = get_logger(__name__)
+
 _ROLE_TO_MESSAGE = {
     "system": SystemMessage,
     "user": HumanMessage,
@@ -183,7 +187,7 @@ async def astream_completion(
             text = str(content)
             if not first_token_logged:
                 elapsed_ms = round((time.perf_counter() - started) * 1000, 1)
-                print(f"[Mantella]   first token in {elapsed_ms}ms")
+                log.info("first token", extra={"ms": elapsed_ms, "model": model})
                 first_token_logged = True
             parts.append(text)
             yield chunk({"content": text})
@@ -191,6 +195,6 @@ async def astream_completion(
     yield chunk({}, finish_reason="stop")
     yield "data: [DONE]\n\n"
     reply = "".join(parts)
-    print(f"[Mantella]   << reply ({len(reply)} chars): {reply!r}")
+    log.info("streamed reply", extra={"chars": len(reply), "reply": reply})
     if on_reply is not None:
         on_reply(reply, usage_chunk if usage_chunk is not None else last_chunk)

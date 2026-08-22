@@ -46,6 +46,7 @@ from sentient.adapters.state import get_state_store
 from sentient.core.cache import ObjectRegistry
 from sentient.core.concurrency import IngestJob, IngestQueue, ReindexJob, SessionLocks
 from sentient.core.config import load_rag_settings, provider_base_url
+from sentient.core.logging import bind
 from sentient.services import ingestion
 from sentient.services.rag import NPCBrain
 from sentient.services.runtime import (
@@ -239,7 +240,7 @@ async def resolve_caller(
     if auth_enabled(_settings) and not (jwt_token or api_key or provider_key):
         raise HTTPException(status_code=401, detail="authentication required")
     try:
-        return await resolve_user(
+        user_id, user_key = await resolve_user(
             state_store,
             _settings,
             jwt_token=jwt_token,
@@ -248,6 +249,12 @@ async def resolve_caller(
         )
     except AuthError as e:
         raise HTTPException(status_code=401, detail=str(e)) from e
+
+    # The one funnel every authenticated route passes through, so binding here
+    # puts the tenant on every log line the rest of the request emits. user_key
+    # is an opaque hash of the user id, never a credential.
+    bind(user_key=user_key, project_id=None, thread_id=None)
+    return user_id, user_key
 
 
 async def current_user(
@@ -335,6 +342,7 @@ async def completions_ctx(
         project = await state_store.get_project(user_id, project_id)
         if project is None:
             raise HTTPException(status_code=403, detail="project not found for this key")
+        bind(project_id=project_id)
 
     return await runtime_cache.resolve(
         state_store,

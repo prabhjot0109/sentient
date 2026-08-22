@@ -18,6 +18,9 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from sentient.adapters.llm.models import build_chat_model
 from sentient.adapters.llm.persona import GENERIC_PERSONA, infer_persona_descriptor
 from sentient.core.config import RAGSettings, load_rag_settings
+from sentient.core.logging import get_logger
+
+log = get_logger(__name__)
 
 # OCR is optional: scanned/image-only PDFs need it, but text PDFs don't, and the
 # Tesseract binary may not be installed. Import lazily so ingestion never hard-fails.
@@ -155,10 +158,10 @@ class ArchivesIngestion:
             return
 
         if pymupdf is None or pytesseract is None or Image is None:
-            print(
-                f"OCR skipped for '{path.name}': OCR dependencies unavailable "
-                f"({_OCR_IMPORT_ERROR}). Install pymupdf, pytesseract and the "
-                "Tesseract binary to read scanned PDFs."
+            log.warning(
+                "OCR skipped: dependencies unavailable. Install pymupdf, pytesseract "
+                "and the Tesseract binary to read scanned PDFs.",
+                extra={"file": path.name, "reason": str(_OCR_IMPORT_ERROR)},
             )
             return
 
@@ -168,8 +171,12 @@ class ArchivesIngestion:
 
         try:
             pdf = pymupdf.open(str(path))
-        except Exception as exc:
-            print(f"OCR skipped for '{path.name}': could not open for rendering ({exc}).")
+        except Exception:
+            log.warning(
+                "OCR skipped: could not open the PDF for rendering",
+                extra={"file": path.name},
+                exc_info=True,
+            )
             return
 
         try:
@@ -181,8 +188,12 @@ class ArchivesIngestion:
                     pixmap = pdf[page_index].get_pixmap(dpi=200)
                     image = Image.open(io.BytesIO(pixmap.tobytes("png")))
                     text = pytesseract.image_to_string(image)
-                except Exception as exc:
-                    print(f"OCR failed on page {page_index + 1} of '{path.name}': {exc}")
+                except Exception:
+                    log.warning(
+                        "OCR failed on a page",
+                        extra={"file": path.name, "page": page_index + 1},
+                        exc_info=True,
+                    )
                     continue
                 if text.strip():
                     document.page_content = text
@@ -238,8 +249,8 @@ class ArchivesIngestion:
                 self.settings.request_timeout,
             )
             return infer_persona_descriptor(llm, sample)
-        except Exception as exc:
-            print(f"Persona inference failed, using generic persona: {exc}")
+        except Exception:
+            log.warning("persona inference failed; using the generic persona", exc_info=True)
             return GENERIC_PERSONA
 
     def invalidate_cache(self) -> None:
