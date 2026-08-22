@@ -272,6 +272,18 @@ Mantella replays its own "could not detect speech" cue instead of making the NPC
 player never spoke. Healthy audio is never discarded, and an unparseable payload degrades to
 `UNREADABLE`, so diagnostics never cost you a transcription.
 
+## CORS
+
+Any `http://localhost:<port>` or `http://127.0.0.1:<port>` origin is allowed by a regex in
+`api/app.py`, so a Vite dev server works on whatever port it lands on and no configuration is
+needed for local development. `tests/test_cors.py` pins that through a real preflight.
+
+Deployed origins go in `CORS_ALLOW_ORIGINS` (comma-separated) **and** in Neon Auth's
+trusted-domain list (`neon neon-auth domain add <origin>`). Both are required, and the second is
+easy to miss because the failure surfaces as `invalid domain` from Neon rather than as a CORS
+error in the browser. FastAPI honours the explicit list and the regex together, so adding a
+production origin does not cost the dev-port coverage.
+
 ## Logging
 
 | Variable | Default | Purpose |

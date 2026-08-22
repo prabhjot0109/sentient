@@ -72,6 +72,11 @@ SQLite at `data/state.db`, and auth disabled.
 | `LOG_LEVEL` / `LOG_FORMAT` | `INFO` / `text` | `LOG_FORMAT=json` emits one JSON object per line for a log shipper |
 | `UPLOAD_MAX_BYTES` / `UPLOAD_USER_QUOTA_BYTES` | 25 MiB / 500 MiB | Per-file cap and per-user storage total |
 
+Any `http://localhost:<port>` or `http://127.0.0.1:<port>` origin is allowed by regex, so a Vite
+dev server needs no CORS configuration at all. Deployed origins go in `CORS_ALLOW_ORIGINS` **and**
+in Neon Auth's trusted-domain list; both are required, and the second is easy to miss because it
+fails as `invalid domain` from Neon rather than as a CORS error.
+
 Full reference, including retrieval tuning, Qdrant setup, the credential vault, auth, and
 performance measurements: **[CONFIGURATION.md](CONFIGURATION.md)**.
 
