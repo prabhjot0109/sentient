@@ -120,6 +120,36 @@ console's voice input cannot reuse that convention.
 "Auth is on" means `NEON_AUTH_JWKS_URL` is set. With it unset, every route falls back to the
 shared `default` user, which is the single-user local-development mode.
 
+### How in-game conversations become threads
+
+Mantella is a stock OpenAI client: it sends no `session_id`, and it keeps its own
+conversation memory in `Documents/My Games/Mantella/data/game/conversations/`. It does
+re-send the whole conversation on every turn, so Sentient identifies a thread by hashing
+the payload minus the system message and minus the final user turn — the slice that is
+exactly what it already stored. Both messages are then appended and the hash advances.
+
+Consequences worth knowing:
+
+- **A summarised conversation starts a new thread.** Once Mantella compacts a long
+  exchange into a summary and sends that instead of the transcript, the prefix no longer
+  matches. The console shows two threads for what the player experienced as one. This is
+  the honest reflection of what happened — the model's context genuinely restarted.
+- **A retried turn also starts a new thread**, for the same reason: the previous attempt
+  already advanced the stored hash past the prefix the retry arrives with. The alternative
+  — letting an empty prefix match an existing thread — would merge two NPCs' opening
+  lines, which is the worse failure.
+- **Threads are titled from the NPC name when the client sends one**, otherwise from the
+  first player line.
+- **A client that does send `session_id` gets deterministic identity** and skips the hash
+  entirely.
+- **All of it runs after the response**, inside `defer()`. It costs nothing on
+  time-to-first-token, and it is in-process rather than crash-durable: a process killed
+  between the reply and the write loses that turn's transcript, not the reply.
+
+The game path writes this transcript but never reads it back. Mantella carries the
+conversation in its own payload; injecting a server-side copy would duplicate the context
+and cost tokens on every turn. The transcript is written for the **console** to read.
+
 ## Development
 
 ```bash
