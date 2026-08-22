@@ -173,21 +173,11 @@ class UploadRouteRejectionTests(unittest.IsolatedAsyncioTestCase):
 
         # ASGITransport does not run the app lifespan, so the queue the 202 path
         # enqueues onto would still be stopped and every accepted upload would
-        # answer 503. A *fresh* queue, not the module singleton: asyncio.Queue
-        # binds to the first event loop that touches it, and IsolatedAsyncioTestCase
-        # builds a new loop per test, so reusing it makes the second test's worker
-        # die on "bound to a different event loop".
-        from sentient.core.concurrency import IngestQueue
-
-        original_queue = deps.ingest_queue
-        deps.ingest_queue = IngestQueue(deps._ingest_handler)
+        # answer 503. Restarting the module singleton is safe because start()
+        # builds a queue bound to the current loop; see
+        # test_workers.QueueAcrossEventLoopsTests.
         await deps.ingest_queue.start()
-
-        async def _restore_queue():
-            await deps.ingest_queue.stop()
-            deps.ingest_queue = original_queue
-
-        self.addAsyncCleanup(_restore_queue)
+        self.addAsyncCleanup(deps.ingest_queue.stop)
 
         response = await self.client.post("/v1/projects", json={"name": "Skyrim"})
         self.assertEqual(response.status_code, 200)

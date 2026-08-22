@@ -46,12 +46,21 @@ class IngestQueue:
         maxsize: int = 64,
     ) -> None:
         self._handler = handler
+        self._maxsize = maxsize
         self._queue: asyncio.Queue[Any | None] = asyncio.Queue(maxsize=maxsize)
         self._task: asyncio.Task[None] | None = None
         self._accepting = False
 
     async def start(self) -> None:
         if self._task is None:
+            # A fresh queue per start, not the one built in __init__. asyncio.Queue
+            # binds to the first event loop that touches it and never unbinds, and
+            # these instances are module-level singletons in api/deps.py that
+            # outlive any one loop. A second lifespan -- a uvicorn reload worker,
+            # or the next test -- would otherwise inherit a queue welded to a dead
+            # loop and its worker would die on the first get(). Nothing can be in
+            # flight here: enqueue() refuses while _task is None.
+            self._queue = asyncio.Queue(maxsize=self._maxsize)
             self._accepting = True
             self._task = asyncio.create_task(self._run(), name="sentient-ingest-worker")
 

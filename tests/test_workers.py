@@ -79,6 +79,32 @@ class IngestQueueTests(unittest.IsolatedAsyncioTestCase):
         await queue.stop()
 
 
+class QueueAcrossEventLoopsTests(unittest.TestCase):
+    def test_a_queue_can_serve_a_second_event_loop(self):
+        """asyncio.Queue binds to the first loop that touches it and never
+        unbinds. The queues in deps.py are module-level singletons built at
+        import time, so they outlive any one loop: a second lifespan -- a uvicorn
+        reload worker, or the next test -- must not inherit a dead queue."""
+        from sentient.core.concurrency import IngestJob, IngestQueue
+
+        processed = []
+
+        async def handler(job):
+            processed.append(job.filename)
+
+        queue = IngestQueue(handler)
+
+        async def cycle(filename):
+            await queue.start()
+            await queue.enqueue(IngestJob("p", "uk", None, "/x", filename, "sig"))
+            await queue.stop()
+
+        asyncio.run(cycle("first.pdf"))
+        asyncio.run(cycle("second.pdf"))
+
+        self.assertEqual(processed, ["first.pdf", "second.pdf"])
+
+
 class IngestHandlerTests(unittest.IsolatedAsyncioTestCase):
     async def test_ingest_handler_awaits_add_and_marks_project_ready(self):
         from sentient.api import deps
