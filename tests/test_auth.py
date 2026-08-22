@@ -101,6 +101,42 @@ class JwtVerificationTests(unittest.TestCase):
             with self.assertRaises(AuthError):
                 verify_jwt(token, settings)
 
+    def test_a_none_issuer_accepts_any_issuer(self):
+        """Pins the fail-open this project shipped with, so the config-side fix has a
+        reason a reader can check. `test_verify_rejects_bad_issuer` above sets the
+        issuer explicitly, so it passed even while nothing in production ever set one.
+
+        PyJWT's _validate_iss returns early when `issuer` is None: no error, no log
+        line, and a token minted by anyone whose key the JWKS endpoint serves is
+        accepted. `_resolve_neon_auth_issuer` is what keeps this path unreachable.
+        """
+        from unittest.mock import patch
+
+        import jwt
+        from cryptography.hazmat.primitives.asymmetric import rsa
+
+        from sentient.adapters.auth import verify_jwt
+
+        priv = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        token = jwt.encode(
+            {"sub": "u", "iss": "https://attacker.example"},
+            priv,
+            algorithm="RS256",
+            headers={"kid": "k1"},
+        )
+        settings = self._settings(
+            neon_auth_jwks_url="https://neon.example/jwks",
+            neon_auth_issuer=None,
+            neon_auth_algorithms=["RS256"],
+        )
+
+        class _FakeSigningKey:
+            key = priv.public_key()
+
+        with patch("sentient.adapters.auth.jwt.PyJWKClient") as MockClient:
+            MockClient.return_value.get_signing_key_from_jwt.return_value = _FakeSigningKey()
+            self.assertEqual(verify_jwt(token, settings)["sub"], "u")
+
 
 class ResolveUserTests(unittest.IsolatedAsyncioTestCase):
     def _settings(self, **over):

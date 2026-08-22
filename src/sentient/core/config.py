@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from typing import Literal, cast
+from urllib.parse import urlsplit
 
 Provider = Literal["google", "openai", "huggingface", "groq", "cerebras", "openrouter"]
 
@@ -52,6 +53,31 @@ def _env_bool(name: str, default: bool) -> bool:
     if raw is None:
         return default
     return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _resolve_neon_auth_issuer() -> str | None:
+    """The `iss` claim tokens are compared against, or None to skip the check.
+
+    `neon env pull` writes NEON_AUTH_BASE_URL; this function used to read only
+    NEON_AUTH_ISSUER, which nothing set. PyJWT's _validate_iss returns early when
+    issuer is None, so issuer verification was silently off while authentication
+    was on -- no error, no log line.
+
+    Origin-only is measured, not inherited from a doc. Better Auth documents the
+    JWT issuer as defaulting to the full base URL, but a real token from the
+    dev-console branch carries the origin with no /neondb/auth path. Since
+    jwt.decode(issuer=...) is an exact string compare, taking Better Auth at its
+    word here would have rejected every valid token. An explicit NEON_AUTH_ISSUER
+    still wins, because the value is branch-specific and a future Neon change
+    must be overridable without a release.
+    """
+    explicit = os.getenv("NEON_AUTH_ISSUER")
+    if explicit:
+        return explicit
+    parts = urlsplit(os.getenv("NEON_AUTH_BASE_URL") or "")
+    if not parts.scheme or not parts.netloc:
+        return None
+    return f"{parts.scheme}://{parts.netloc}"
 
 
 def _resolve_db_backend() -> str:
@@ -325,7 +351,7 @@ def load_rag_settings(api_key: str | None = None) -> RAGSettings:
         condense_queries=condense_queries,
         hybrid=hybrid,
         neon_auth_jwks_url=os.getenv("NEON_AUTH_JWKS_URL"),
-        neon_auth_issuer=os.getenv("NEON_AUTH_ISSUER"),
+        neon_auth_issuer=_resolve_neon_auth_issuer(),
         neon_auth_algorithms=[
             a.strip()
             for a in os.getenv("NEON_AUTH_ALGORITHMS", "EdDSA,RS256").split(",")

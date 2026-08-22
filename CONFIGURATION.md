@@ -22,8 +22,9 @@ RAG_MMR_LAMBDA=0.65
 RAG_SCORE_THRESHOLD=0.0
 RAG_CHUNK_SIZE=900
 RAG_CHUNK_OVERLAP=150
+NEON_AUTH_BASE_URL=
 NEON_AUTH_JWKS_URL=
-NEON_AUTH_ISSUER=
+# NEON_AUTH_ISSUER=   optional; derived from NEON_AUTH_BASE_URL's origin
 NEON_AUTH_ALGORITHMS=EdDSA,RS256
 ```
 
@@ -216,7 +217,13 @@ is why a local SQLite clone needs no auth configuration.
 A warm `IdentityCache`, keyed by token or key hash with a TTL, memoizes the resolved
 `(user_id, user_key)`. A live session touches the database at most once per key per TTL window, and
 steady-state turns cost a hash and a dict lookup, which keeps auth off the model-call critical path.
-Configure with `NEON_AUTH_JWKS_URL`, `NEON_AUTH_ISSUER`, and `NEON_AUTH_ALGORITHMS`.
+Configure with `NEON_AUTH_BASE_URL`, `NEON_AUTH_JWKS_URL` and `NEON_AUTH_ALGORITHMS`; both URLs
+come from `neon env pull` and are branch-specific. The `iss` claim tokens are checked against is
+derived from `NEON_AUTH_BASE_URL`'s **origin** (scheme and host, no path). That is measured, not
+assumed: Better Auth documents the issuer as defaulting to the full base URL, but Neon's tokens
+carry the origin alone, and `jwt.decode` compares `iss` as an exact string, so the difference is
+the difference between every token verifying and every token being rejected. Set
+`NEON_AUTH_ISSUER` only to override a measured mismatch.
 
 ## Speech-to-text proxy
 
