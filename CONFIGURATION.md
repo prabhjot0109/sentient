@@ -78,6 +78,24 @@ poll through `StateStore.list_documents(project_id)`. That worker is in-process 
 crash-durable, so a restart can lose accepted but unfinished jobs. The HTTP layer goes through an
 `enqueue_ingest(job)` seam, so a durable queue can replace it without touching callers.
 
+Every upload is validated before a byte reaches the archive, in `services/ingestion.py` rather
+than in the route, so every caller of `stage_and_enqueue` is covered:
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `UPLOAD_MAX_BYTES` | `26214400` (25 MiB) | Per-file cap, enforced while the file is written |
+| `UPLOAD_USER_QUOTA_BYTES` | `524288000` (500 MiB) | Per-user total, summed from `documents.size_bytes` |
+
+The filename is reduced to a bare name with both separators stripped regardless of the host OS.
+`os.path.basename` alone is not enough: on POSIX it treats a backslash as an ordinary character,
+so `..\..\evil.txt` used to pass straight through. Only `.pdf` and `.txt` are accepted, and the
+first kibibyte is checked against the claimed extension, because the extension is a claim and not
+evidence. The size cap is applied chunk by chunk as the file is staged: `Content-Length` is also
+a claim, and a caller that lies about it must not be able to fill the disk before anyone notices.
+
+All four rejections answer `400`. An upload rejected at any point leaves nothing behind in the
+staging directory.
+
 ### Reindexing
 
 Each project stores an embedding signature derived from its provider, model, and optional MRL vector

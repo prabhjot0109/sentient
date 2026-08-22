@@ -382,6 +382,19 @@ class SQLiteStateStore:
     async def list_documents(self, project_id: str) -> list[dict[str, Any]]:
         return await asyncio.to_thread(self._list_documents, project_id)
 
+    def _user_storage_bytes(self, user_id: str) -> int:
+        with closing(self._connect()) as conn:
+            row = conn.execute(
+                "SELECT COALESCE(SUM(d.size_bytes), 0) AS total FROM documents d "
+                "JOIN projects p ON p.id = d.project_id WHERE p.user_id = ?",
+                (user_id,),
+            ).fetchone()
+        return int(row["total"] or 0)
+
+    async def user_storage_bytes(self, user_id: str) -> int:
+        """Bytes this user has stored across every project they own."""
+        return await asyncio.to_thread(self._user_storage_bytes, user_id)
+
     # ---- provider credentials ----
     def _upsert_credential(
         self, user_id: str, provider: str, encrypted_key: str, hint: str

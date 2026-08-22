@@ -70,6 +70,7 @@ SQLite at `data/state.db`, and auth disabled.
 | `NEON_AUTH_BASE_URL` | none | Written by `neon env pull`; the token `iss` is its origin |
 | `SENTIENT_SECRET_KEY` | none | Fernet key enabling the per-user credential vault |
 | `LOG_LEVEL` / `LOG_FORMAT` | `INFO` / `text` | `LOG_FORMAT=json` emits one JSON object per line for a log shipper |
+| `UPLOAD_MAX_BYTES` / `UPLOAD_USER_QUOTA_BYTES` | 25 MiB / 500 MiB | Per-file cap and per-user storage total |
 
 Full reference, including retrieval tuning, Qdrant setup, the credential vault, auth, and
 performance measurements: **[CONFIGURATION.md](CONFIGURATION.md)**.

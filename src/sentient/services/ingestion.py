@@ -14,14 +14,78 @@ out-of-process worker without a route handler in the picture.
 from __future__ import annotations
 
 import asyncio
+import codecs
 import os
-import shutil
 import tempfile
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 
 from sentient.core.concurrency import IngestJob, ReindexJob
 from sentient.core.errors import InvalidRequest, NotFound, QueueFull
 from sentient.services.runtime import embedding_signature
+
+_ALLOWED_SUFFIXES = (".pdf", ".txt")
+_PDF_MAGIC = b"%PDF-"
+# One mebibyte per read. Large enough that a 25 MB upload is 25 reads, small
+# enough that an oversized one is stopped long before it fills the disk.
+_CHUNK_BYTES = 1024 * 1024
+# The window sniffed for magic bytes. Every signature we check lives in the
+# first few bytes; the rest is slack so a truncated UTF-8 character at the
+# boundary is a rounding error rather than a false rejection.
+_SNIFF_BYTES = 1024
+
+
+def bare_filename(raw: str | None) -> str:
+    """Strip every directory component a client may have sent, on either OS.
+
+    `os.path.basename` alone is not enough: on POSIX it treats a backslash as an
+    ordinary character, so `..\\..\\evil.txt` passed through untouched. Both
+    separators are stripped here regardless of the host OS, because the server
+    runs on both, and a name that reaches the filesystem must not be able to
+    address anything outside the tenant's own partition.
+    """
+    if not raw:
+        raise InvalidRequest("Filename is required")
+    if "\x00" in raw:
+        raise InvalidRequest("Filename contains a null byte")
+
+    name = PurePosixPath(PureWindowsPath(raw).name).name.strip()
+    if not name or name in {".", ".."}:
+        raise InvalidRequest("Filename is required")
+    return name
+
+
+def safe_filename(raw: str | None) -> str:
+    """A bare filename that also carries a supported extension."""
+    name = bare_filename(raw)
+    if not name.lower().endswith(_ALLOWED_SUFFIXES):
+        raise InvalidRequest("Only PDF and TXT files are supported")
+    return name
+
+
+def sniff_content_type(head: bytes, suffix: str) -> str:
+    """Confirm the bytes agree with the extension. The extension is a claim."""
+    lowered = suffix.lower()
+    if lowered == ".pdf":
+        if not head.startswith(_PDF_MAGIC):
+            raise InvalidRequest("File does not look like a PDF")
+        return "application/pdf"
+
+    if lowered == ".txt":
+        if head.startswith(_PDF_MAGIC) or b"\x00" in head:
+            raise InvalidRequest("File does not look like plain text")
+        try:
+            # Incremental, with final=False: the head is a fixed-size window that
+            # routinely lands mid-character in any non-ASCII file, and a truncated
+            # trailing sequence is not evidence of binary. This decoder tolerates
+            # exactly that while still rejecting invalid bytes. Trimming a fixed
+            # number of tail bytes instead does not work — the trim can land
+            # mid-sequence too.
+            codecs.getincrementaldecoder("utf-8")().decode(head, final=False)
+        except UnicodeDecodeError:
+            raise InvalidRequest("File does not look like plain text") from None
+        return "text/plain"
+
+    raise InvalidRequest("Only PDF and TXT files are supported")
 
 
 async def run_ingest_job(job: IngestJob, *, state_store, archives) -> None:
@@ -105,6 +169,7 @@ async def stage_and_enqueue(
     archives,
     ctx,
     project_id: str | None,
+    settings,
 ) -> str:
     """Validate, stage to a temp file, register the row, and enqueue the job.
 
@@ -112,37 +177,65 @@ async def stage_and_enqueue(
     perform inline, which is why only its own route could invoke it (spec
     section 2, defect 2).
 
+    Validation lives here rather than in the route for the same reason: every
+    caller gets the size cap, the magic-byte check and the quota, including
+    callers that do not exist yet.
+
     **Cleanup is owned here, not by the caller.** Pre-R9 the route cleaned the
     staged file on two separate `except` branches; folding that into this
     function means every failure after staging removes the temp file, including
     failures a future caller has not thought of. On success the file is left
     alone deliberately -- `run_ingest_job` moves it into the archive.
     """
-    if not filename:
-        raise InvalidRequest("Filename is required")
-
-    safe_name = os.path.basename(filename)
-    if not safe_name.lower().endswith((".pdf", ".txt")):
-        raise InvalidRequest("Only PDF and TXT files are supported")
-
+    safe_name = safe_filename(filename)
+    suffix = Path(safe_name).suffix
+    max_bytes = settings.upload_max_bytes
     staging_dir = archives.data_dir / ".ingest"
 
-    def _stage_upload() -> str:
+    def _stage_upload() -> tuple[str, int]:
         staging_dir.mkdir(parents=True, exist_ok=True)
-        fd, path = tempfile.mkstemp(
-            prefix="upload-", suffix=Path(safe_name).suffix, dir=staging_dir
-        )
-        with os.fdopen(fd, "wb") as buffer:
-            shutil.copyfileobj(file_obj, buffer)
-        return path
+        fd, path = tempfile.mkstemp(prefix="upload-", suffix=suffix, dir=staging_dir)
+        written = 0
+        sniffed = False
+        try:
+            with os.fdopen(fd, "wb") as buffer:
+                while chunk := file_obj.read(_CHUNK_BYTES):
+                    if not sniffed:
+                        sniff_content_type(chunk[:_SNIFF_BYTES], suffix)
+                        sniffed = True
+                    if written + len(chunk) > max_bytes:
+                        # Rejected before the bytes land. Content-Length is a
+                        # client's claim, so a caller that lies about it must not
+                        # be able to fill the disk before anyone notices.
+                        raise InvalidRequest(
+                            f"File exceeds the {max_bytes // (1024 * 1024)} MB upload limit"
+                        )
+                    buffer.write(chunk)
+                    written += len(chunk)
+        except BaseException:
+            Path(path).unlink(missing_ok=True)
+            raise
+        if not written:
+            Path(path).unlink(missing_ok=True)
+            raise InvalidRequest("File is empty")
+        return path, written
 
-    staged_path = await asyncio.to_thread(_stage_upload)
+    staged_path, size_bytes = await asyncio.to_thread(_stage_upload)
     try:
+        if ctx.user_id is not None:
+            used = await state_store.user_storage_bytes(ctx.user_id)
+            if used + size_bytes > settings.upload_user_quota_bytes:
+                raise InvalidRequest(
+                    "Storage quota exceeded: "
+                    f"{(used + size_bytes) // (1024 * 1024)} MB requested, "
+                    f"{settings.upload_user_quota_bytes // (1024 * 1024)} MB allowed"
+                )
+
         signature = ""
         if project_id is not None:
             signature = embedding_signature(ctx.rag_settings)
             await state_store.register_document(
-                project_id, safe_name, 0, signature, status="processing"
+                project_id, safe_name, 0, signature, status="processing", size_bytes=size_bytes
             )
 
         job = IngestJob(
@@ -169,8 +262,14 @@ async def stage_and_enqueue(
 
 
 async def delete_source(state_store, archives, *, filename: str, project_id: str | None):
-    """Remove a source file from the partition, the index, and the registry."""
-    safe_name = os.path.basename(filename)
+    """Remove a source file from the partition, the index, and the registry.
+
+    `bare_filename`, not `safe_filename`: this must delete rows that predate the
+    extension allow-list, and answering 400 for a name that simply is not there
+    would change a public error string. The traversal strip is the part that
+    matters here, because this call reaches `os.remove`.
+    """
+    safe_name = bare_filename(filename)
     file_path = archives.data_dir / safe_name
 
     if not await asyncio.to_thread(file_path.exists):

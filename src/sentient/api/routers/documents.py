@@ -60,6 +60,7 @@ async def upload_file(
             archives=archives,
             ctx=ctx,
             project_id=project_id,
+            settings=deps._settings,
         )
         return {"status": "processing", "filename": safe_name}
     except InvalidRequest as e:

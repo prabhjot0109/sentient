@@ -252,6 +252,8 @@ class RAGSettings:
     cors_allow_origins: tuple[str, ...]
     log_level: str
     log_format: str
+    upload_max_bytes: int
+    upload_user_quota_bytes: int
 
 
 def load_rag_settings(api_key: str | None = None) -> RAGSettings:
@@ -369,4 +371,9 @@ def load_rag_settings(api_key: str | None = None) -> RAGSettings:
         # Anything that is not exactly "json" is text. A typo should degrade to a
         # readable console, never to a format no log shipper can parse.
         log_format="json" if (os.getenv("LOG_FORMAT") or "text").lower() == "json" else "text",
+        # 25 MiB per file, 500 MiB per user. Both are enforced in
+        # services/ingestion.py, where staging already lives, so every caller
+        # of stage_and_enqueue gets them rather than only the upload route.
+        upload_max_bytes=_env_int("UPLOAD_MAX_BYTES", 26_214_400),
+        upload_user_quota_bytes=_env_int("UPLOAD_USER_QUOTA_BYTES", 524_288_000),
     )

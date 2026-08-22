@@ -247,6 +247,17 @@ class PostgresStateStore:
             rows = await conn.fetch("SELECT * FROM documents WHERE project_id=$1", project_id)
         return [dict(r) for r in rows]
 
+    async def user_storage_bytes(self, user_id: str) -> int:
+        """Bytes this user has stored across every project they own."""
+        pool = await self._pool_()
+        async with pool.acquire() as conn:
+            total = await conn.fetchval(
+                "SELECT COALESCE(SUM(d.size_bytes), 0) FROM documents d "
+                "JOIN projects p ON p.id = d.project_id WHERE p.user_id = $1",
+                user_id,
+            )
+        return int(total or 0)
+
     async def delete_document(self, project_id: str, filename: str) -> bool:
         pool = await self._pool_()
         async with pool.acquire() as conn:
