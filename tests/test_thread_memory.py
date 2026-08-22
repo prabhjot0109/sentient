@@ -10,6 +10,7 @@ from unittest.mock import AsyncMock, patch
 
 import httpx
 from cryptography.fernet import Fernet
+from tests.conftest import drain_deferred
 
 from sentient.adapters.auth import IdentityCache
 from sentient.adapters.state.sqlite_store import SQLiteStateStore
@@ -213,7 +214,7 @@ class ThreadMemoryEndpointTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(answered.json()["thread_id"])
         self.assertEqual(await self.store.list_threads(self.project["id"]), [])
 
-    async def test_game_route_records_the_session_without_reading_memory(self):
+    async def test_game_route_persists_the_turn_without_reading_memory(self):
         from sentient.adapters.auth import hash_key
 
         await self.store.create_api_key(self.owner["id"], hash_key("sk-sent-game"))
@@ -229,14 +230,19 @@ class ThreadMemoryEndpointTests(unittest.IsolatedAsyncioTestCase):
                 },
             )
         self.assertEqual(answered.status_code, 200)
-        await asyncio.sleep(0.05)  # the sidebar upsert is deferred past the reply
+        await drain_deferred()  # the transcript write is deferred past the reply
 
         threads = await self.store.list_threads(self.project["id"])
         self.assertEqual(
             [(t["session_id"], t["npc_name"]) for t in threads], [("mantella-session-1", "Lydia")]
         )
-        # Write-only: the game path never persists turns as server-side memory.
-        self.assertEqual(await self.store.list_messages(threads[0]["id"]), [])
+        # G4 persists both sides so the console can replay the conversation. The
+        # game path still never *reads* it back: Mantella carries the history in
+        # its own payload, and injecting a second copy would duplicate context.
+        self.assertEqual(
+            [(m["role"], m["content"]) for m in await self.store.list_messages(threads[0]["id"])],
+            [("user", "hail"), ("assistant", "reply")],
+        )
 
     def _become_another_user(self):
         async def other_user():

@@ -161,16 +161,19 @@ class DeferredTurnTests(unittest.IsolatedAsyncioTestCase):
                 yield SimpleNamespace(content="Done.")
 
         ctx = SimpleNamespace()
+        request = SimpleNamespace(messages=[])
         with patch.object(completions_router, "_schedule_deferred_turn_work") as schedule:
             events = [
                 event
                 async for event in completions_router._stream_with_deferred_turn_work(
-                    _LLM(), [], "test-model", ctx
+                    _LLM(), [], "test-model", ctx, request
                 )
             ]
 
         self.assertTrue(events[-1].endswith("[DONE]\n\n"))
-        schedule.assert_called_once_with(ctx)
+        # G4: the streamed reply reaches the scheduler, which is what lets the
+        # deferred writer persist the assistant side of a streamed turn.
+        schedule.assert_called_once_with(ctx, request, "Done.")
 
 
 class SessionLockEvictionTests(unittest.IsolatedAsyncioTestCase):

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import os
 
 import pytest
@@ -83,3 +84,24 @@ def _isolate_config_env(monkeypatch):
     monkeypatch.setenv("PYTHON_DOTENV_DISABLED", "1")
     for name in _CONFIG_ENV_VARS:
         monkeypatch.delenv(name, raising=False)
+
+
+async def drain_deferred() -> None:
+    """Await every task `defer()` currently has in flight.
+
+    G4's turn writer runs *after* the response, so a test that asserts on what it
+    wrote — or that deletes the database directory in teardown — has to wait for
+    it. Sleeping is the alternative and it is a race: on Windows the tempdir
+    cleanup raises WinError 32 while the deferred write still holds state.db open.
+    Loops because a drained task may itself have deferred more work.
+    """
+    while True:
+        pending = [
+            task
+            for task in asyncio.all_tasks()
+            if task is not asyncio.current_task()
+            and task.get_name().startswith("sentient-deferred-")
+        ]
+        if not pending:
+            return
+        await asyncio.gather(*pending, return_exceptions=True)

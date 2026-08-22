@@ -7,6 +7,7 @@ import unittest
 from unittest.mock import AsyncMock, patch
 
 import httpx
+from tests.conftest import drain_deferred
 
 from sentient.adapters.llm.openai_wire import ChatCompletionRequest
 from sentient.api.routers import completions as completions_router
@@ -43,6 +44,9 @@ class RuntimeCompletionsTests(unittest.IsolatedAsyncioTestCase):
         deps.get_default_archives.cache_clear()
 
     async def asyncTearDown(self) -> None:
+        # The completions routes now defer a transcript write; it still holds
+        # state.db open when cleanup() runs, which is WinError 32 on Windows.
+        await drain_deferred()
         self.env.stop()
         self.tmp.cleanup()
 

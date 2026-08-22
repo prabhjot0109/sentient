@@ -20,6 +20,7 @@ import asyncio
 import hashlib
 from time import perf_counter
 from typing import Any
+from uuid import uuid4
 
 from sentient.adapters.llm.openai_wire import (
     OpenAIMessage,
@@ -238,9 +239,65 @@ async def stream_completion(llm, messages, model_name: str, *, on_complete):
         on_complete("".join(captured))
 
 
-async def record_game_turn(ctx, *, state_store, session_locks) -> None:
-    """Surface game sessions in the sidebar. Write-only: the game path never reads
-    server-side memory — Mantella carries the conversation in its own payload."""
-    assert ctx.session_id is not None
-    async with session_locks.lock(ctx.session_id):
-        await state_store.upsert_thread(ctx.project_id, ctx.session_id, npc_name=ctx.npc_name)
+async def record_game_turn(
+    ctx,
+    messages: list[OpenAIMessage],
+    reply: str,
+    *,
+    state_store,
+    session_locks,
+) -> None:
+    """Persist both sides of an in-game turn so the console can replay it.
+
+    Runs entirely inside `defer()`, after the response has been rendered — nothing
+    here is on the time-to-first-token path.
+
+    Thread identity comes from `ctx.session_id` when the client sends one, and
+    otherwise from the conversation prefix (see `conversation_prefix_hash`).
+    Accepted limitations, stated rather than hidden:
+
+    - Mantella summarises long conversations into its own local files and then
+      sends a shortened history. The prefix stops matching and a new thread
+      begins. That is the correct outcome — the model's context genuinely
+      restarted — but the console shows two threads for what the player
+      experienced as one.
+    - A retried turn arrives with a prefix the previous attempt already advanced
+      past, so it opens a new thread rather than appending. Deduplicating instead
+      would mean an empty prefix could match an existing thread, which would merge
+      two NPCs' opening lines — the worse of the two failures.
+    - `npc_name` is only available when the client sends it, so threads are
+      otherwise titled from the first player line.
+    """
+    if not ctx.project_id or not reply.strip():
+        return
+
+    user_text = last_user_text(messages)
+    if not user_text.strip():
+        return
+
+    incoming = conversation_prefix_hash(messages)
+    outgoing = conversation_prefix_hash_after(messages, reply)
+
+    # Lock on the conversation, not the project: two concurrent turns of the SAME
+    # conversation arrive with the same incoming hash and must not fork it, while
+    # two different NPCs' turns are independent and must not serialise.
+    async with session_locks.lock(f"{ctx.project_id}:{incoming or 'new'}"):
+        thread = None
+        if ctx.session_id:
+            thread = await state_store.upsert_thread(
+                ctx.project_id, ctx.session_id, npc_name=ctx.npc_name
+            )
+        elif incoming:
+            thread = await state_store.get_thread_by_prefix(ctx.project_id, incoming)
+
+        if thread is None:
+            thread = await state_store.upsert_thread(
+                ctx.project_id,
+                uuid4().hex,
+                npc_name=ctx.npc_name,
+                title=(ctx.npc_name or user_text.strip())[:60] or "In-game conversation",
+            )
+
+        await state_store.add_message(thread["id"], "user", user_text)
+        await state_store.add_message(thread["id"], "assistant", reply)
+        await state_store.set_thread_prefix(thread["id"], outgoing)

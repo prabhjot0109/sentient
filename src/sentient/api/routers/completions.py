@@ -35,23 +35,31 @@ from sentient.services import chat as service
 router = APIRouter()
 
 
-def _schedule_deferred_turn_work(ctx) -> None:
-    if ctx.session_id and ctx.project_id:
-        defer(
-            service.record_game_turn(
-                ctx, state_store=deps.state_store, session_locks=deps.session_locks
-            ),
-            label="session-turn",
-        )
+def _schedule_deferred_turn_work(ctx, request, reply: str) -> None:
+    """Queue the transcript write. Requires only a project — B2's session_id
+    requirement is gone, because Mantella never sent one and the thread is now
+    identified from the payload itself."""
+    if not ctx.project_id:
+        return
+    defer(
+        service.record_game_turn(
+            ctx,
+            request.messages,
+            reply,
+            state_store=deps.state_store,
+            session_locks=deps.session_locks,
+        ),
+        label="game-turn",
+    )
 
 
-async def _stream_with_deferred_turn_work(llm, messages, model_name, ctx):
+async def _stream_with_deferred_turn_work(llm, messages, model_name, ctx, request):
     """Keep the response path lock-free; queue post-turn work after streaming ends."""
     async for event in service.stream_completion(
         llm,
         messages,
         model_name,
-        on_complete=lambda _reply: _schedule_deferred_turn_work(ctx),
+        on_complete=lambda reply: _schedule_deferred_turn_work(ctx, request, reply),
     ):
         yield event
 
@@ -78,14 +86,14 @@ async def _run_completions(
     if request.stream:
         print(f"[Mantella:{ctx.user_key}]   << streaming reply")
         return StreamingResponse(
-            _stream_with_deferred_turn_work(llm, messages, model_name, ctx),
+            _stream_with_deferred_turn_work(llm, messages, model_name, ctx, request),
             media_type="text/event-stream",
         )
 
     result = await llm.ainvoke(messages)
     reply = str(result.content)
     print(f"[Mantella:{ctx.user_key}]   << reply ({len(reply)} chars): {reply!r}")
-    _schedule_deferred_turn_work(ctx)
+    _schedule_deferred_turn_work(ctx, request, reply)
     return build_completion_response(reply, model_name)
 
 
@@ -126,7 +134,7 @@ async def openai_chat_completions_project(
 ):
     context_started = perf_counter()
     ctx = await deps.completions_ctx(api_key, project_id)
-    if request.session_id:
+    if request.session_id or request.npc_name:
         ctx = replace(ctx, session_id=request.session_id, npc_name=request.npc_name)
     context_ms = (perf_counter() - context_started) * 1000
     return await _run_completions(request, ctx, context_ms=context_ms)
