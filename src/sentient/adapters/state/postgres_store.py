@@ -17,6 +17,17 @@ class PostgresStateStore:
 
     async def _pool_(self) -> asyncpg.Pool:
         if self._pool is None:
+            # No statement_cache_size=0 here, deliberately. asyncpg keeps server-side
+            # prepared statements by default, and the received wisdom is that a
+            # pgbouncer transaction-mode pooler cannot hold them -- which would raise
+            # DuplicatePreparedStatementError under concurrency against Neon's POOLED
+            # host, the one DATABASE_URL points at. Measured on 2026-08-22 and it does
+            # not happen: pgbouncer 1.22 rewrites protocol-level prepared statements
+            # into its own per-backend namespace, visible as PGBOUNCER_N rows in
+            # pg_prepared_statements. 12k statements at 40-way concurrency, zero
+            # errors. Setting the cache to 0 would buy nothing and cost a re-parse and
+            # re-plan on every query. See
+            # docs/superpowers/verification/2026-08-22-H3-pooler.md.
             self._pool = await asyncpg.create_pool(self._dsn, min_size=1, max_size=10)
             await self._ensure_schema()
         return self._pool
