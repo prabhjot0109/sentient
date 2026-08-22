@@ -56,6 +56,16 @@ def verify_jwt(token: str, settings: RAGSettings) -> dict[str, Any]:
             signing_key.key,
             algorithms=settings.neon_auth_algorithms,
             issuer=settings.neon_auth_issuer,
+            # Neon's auth host and this one are different machines, so their clocks
+            # never agree exactly. Measured 2026-08-22: Neon ran 2-3s ahead, and 14 of
+            # 14 freshly minted tokens carried an `iat` up to 1.5s in the future.
+            # PyJWT treats that as ImmatureSignatureError, so with no leeway EVERY
+            # sign-in failed with "The token is not yet valid (iat)" -- a message that
+            # names neither auth nor clocks. 60s absorbs ordinary NTP drift in either
+            # direction. It also extends `exp` by the same 60s, which is the accepted
+            # cost of the knob: PyJWT has no per-claim leeway, and 60s against a
+            # 900s token is a smaller risk than an API nobody can sign in to.
+            leeway=60,
             # Neon Auth tokens may omit aud; the issuer is the trust anchor.
             options={"verify_aud": False},
         )

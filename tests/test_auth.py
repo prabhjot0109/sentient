@@ -101,6 +101,84 @@ class JwtVerificationTests(unittest.TestCase):
             with self.assertRaises(AuthError):
                 verify_jwt(token, settings)
 
+    def test_a_token_minted_a_moment_in_the_future_is_accepted(self):
+        """Neon's auth host clock leads the API host's. Measured 2026-08-22 against
+        the dev-console branch: the auth server ran 2-3s ahead, and 14 of 14 freshly
+        minted tokens carried an `iat` 0.7-1.5s in the future. PyJWT rejects those
+        with ImmatureSignatureError unless given leeway, so every sign-in 401'd on a
+        message that names neither auth nor clocks.
+
+        Two independent hosts are never exactly in step, so this is a property of the
+        deployment rather than a glitch to wait out. See
+        docs/superpowers/verification/2026-08-22-H1-V2-results.md.
+        """
+        import time
+        from unittest.mock import patch
+
+        import jwt
+        from cryptography.hazmat.primitives.asymmetric import rsa
+
+        from sentient.adapters.auth import verify_jwt
+
+        priv = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        now = int(time.time())
+        token = jwt.encode(
+            {
+                "sub": "u",
+                "iss": "https://neon.example",
+                "iat": now + 5,
+                "exp": now + 900,
+            },
+            priv,
+            algorithm="RS256",
+            headers={"kid": "k1"},
+        )
+        settings = self._settings(
+            neon_auth_jwks_url="https://neon.example/jwks",
+            neon_auth_issuer="https://neon.example",
+            neon_auth_algorithms=["RS256"],
+        )
+
+        class _FakeSigningKey:
+            key = priv.public_key()
+
+        with patch("sentient.adapters.auth.jwt.PyJWKClient") as MockClient:
+            MockClient.return_value.get_signing_key_from_jwt.return_value = _FakeSigningKey()
+            self.assertEqual(verify_jwt(token, settings)["sub"], "u")
+
+    def test_a_long_expired_token_is_still_rejected(self):
+        """The leeway above must not become an open door: it tolerates seconds of
+        clock skew, not an expired session."""
+        import time
+        from unittest.mock import patch
+
+        import jwt
+        from cryptography.hazmat.primitives.asymmetric import rsa
+
+        from sentient.adapters.auth import AuthError, verify_jwt
+
+        priv = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        now = int(time.time())
+        token = jwt.encode(
+            {"sub": "u", "iss": "https://neon.example", "iat": now - 3600, "exp": now - 600},
+            priv,
+            algorithm="RS256",
+            headers={"kid": "k1"},
+        )
+        settings = self._settings(
+            neon_auth_jwks_url="https://neon.example/jwks",
+            neon_auth_issuer="https://neon.example",
+            neon_auth_algorithms=["RS256"],
+        )
+
+        class _FakeSigningKey:
+            key = priv.public_key()
+
+        with patch("sentient.adapters.auth.jwt.PyJWKClient") as MockClient:
+            MockClient.return_value.get_signing_key_from_jwt.return_value = _FakeSigningKey()
+            with self.assertRaises(AuthError):
+                verify_jwt(token, settings)
+
     def test_a_none_issuer_accepts_any_issuer(self):
         """Pins the fail-open this project shipped with, so the config-side fix has a
         reason a reader can check. `test_verify_rejects_bad_issuer` above sets the
