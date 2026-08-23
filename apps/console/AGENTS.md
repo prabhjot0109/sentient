@@ -51,6 +51,59 @@ is how a modular tree quietly becomes a graph.
 - **Data fetching lives in `hooks.ts`, never in a component body.** Components receive data
   and callbacks, which is what makes them renderable in isolation.
 
+## The reference feature
+
+`features/projects` is the worked example of the anatomy above: `api.ts` holds the
+query-key factory and the mutations, `hooks.ts` exposes the verbs, `components/` are
+presentational and receive data plus callbacks, and `index.ts` is the only export
+surface. Copy its shape; `features/keys` already does.
+
+Query keys live in a factory (`projectKeys`) rather than as inline arrays, so no two
+call sites can invalidate slightly different keys. That bug presents as "the sidebar
+didn't update" and takes an hour to find.
+
+Three shape rules the layer lint cannot express, each learned from a concrete failure:
+
+- **A dialog that two places open owns its own trigger and its own state.**
+  `NewProjectDialog` renders its button and its modal together, so the rail and the
+  first-run screen each drop it in with nothing threaded through the sidebar or the
+  route. The alternative -- lifting `isCreateOpen` to a common ancestor -- makes the
+  sidebar know what a project is, and `components/shell/` must not.
+- **State a route would otherwise hold moves into a feature-level screen component.**
+  `KeysScreen` exists because the raw API key has to reach both the reveal dialog and
+  the Mantella card, and `routes/` may not hold domain state.
+- **A store quirk is normalised in `lib/api/`, never in a component.** See the two
+  below.
+
+## Two shapes the two state stores disagree on
+
+Measured against the live Neon branch and the SQLite DDL on 2026-08-23, not inferred.
+Both cost a plan revision. **Check the store, not the schema file, before typing a
+backend shape.**
+
+1. **`created_at` is not reliably on a project.** `PostgresStateStore.list_projects`
+   selects `id, name, base_preset, status` and only ORDERS BY `created_at`; neither
+   store returns it from `create_project`; SQLite's `SELECT *` does return it. So it is
+   optional in `types/projects.ts` and nothing renders it -- a created date would work
+   on SQLite and silently vanish on Neon.
+2. **`revoked` is `INTEGER DEFAULT 0` in SQLite's `api_keys` and `boolean` in
+   Postgres.** Normalised once in `lib/api/keys.ts`. `!revoked` happens to work on both,
+   which is what makes this dangerous: `revoked === true` silently never fires on
+   SQLite, and a demo on Neon will not show it.
+
+## Modals
+
+`components/ui/Modal.tsx` wraps the native `<dialog>`. `showModal()` gives the focus
+trap, Escape, inert background and top-layer stacking for free, and the hand-rolled
+overlay that replaces it is both longer and usually wrong.
+
+Two guards in it are load-bearing, so do not "simplify" them away:
+
+- `showModal()` **throws** on an already-open dialog, hence the `dialog.open` checks.
+- `onClose` is required. Escape closes the element without React knowing, and the stale
+  `open` state then makes the next open a no-op -- the dialog never comes back. Nothing
+  in the type system catches this; you find it by pressing Escape twice.
+
 ## The fetch seam
 
 `lib/api/client.ts` is the **only** place that attaches `Authorization`, refreshes an
