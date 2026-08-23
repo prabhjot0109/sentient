@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 
+import { DocumentsScreen } from "@/features/documents";
 import { useProject } from "@/features/projects";
 import { NotFoundError } from "@/lib/api/errors";
 
@@ -38,8 +39,10 @@ function ProjectHome() {
         </p>
       </section>
 
+      <DocumentsScreen projectId={pid} />
+
       <p className="text-sm text-muted-foreground">
-        Documents, settings and conversations land here as F3, F5 and F6 ship.
+        Settings and conversations land here as F3 and F5 ship.
       </p>
     </div>
   );
