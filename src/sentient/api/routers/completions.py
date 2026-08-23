@@ -5,12 +5,20 @@ Three shapes exist because Mantella cannot send headers: it puts the key, and
 optionally the project, in the URL. The env-default shape is kept for older
 clients.
 
-Error translation, preserved exactly from the pre-R9 route bodies:
+Error translation, on all three shapes:
 
-    ReindexInProgress -> 409 "project is reindexing; retrieval temporarily unavailable"
+    ReindexInProgress    -> 409 "project is reindexing; retrieval temporarily unavailable"
+    a provider raising   -> 502 with an OpenAI-shaped `error_body`
+    anything else        -> 500 {"detail": ...}
 
 Identity failures (401) and project-ownership failures (403) are raised by
 `deps.completions_ctx`, which still speaks HTTP directly.
+
+The 502 is B4. The two Mantella-shaped routes previously had no handler at all,
+so a dead provider escaped to Starlette's `ServerErrorMiddleware` and rendered a
+bare text/plain `Internal Server Error` — measured 2026-08-23. The status is not
+a pass-through of the upstream's: forwarding a provider's 402 verbatim would
+claim that Sentient requires payment.
 """
 
 from __future__ import annotations
@@ -20,11 +28,12 @@ from dataclasses import replace
 from time import perf_counter
 
 from fastapi import APIRouter, Header, HTTPException
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 
 from sentient.adapters.llm.openai_wire import (
     ChatCompletionRequest,
     build_completion_response,
+    error_body,
 )
 from sentient.api import deps
 from sentient.core.concurrency import defer
@@ -94,7 +103,21 @@ async def _run_completions(
             media_type="text/event-stream",
         )
 
-    result = await llm.ainvoke(messages)
+    try:
+        result = await llm.ainvoke(messages)
+    except Exception as exc:
+        # The streaming path has ended the stream with an OpenAI-shaped `error`
+        # frame since 134741e. This is its non-streaming sibling: before it, a
+        # dead provider reached Mantella as a bare 500 with an empty body and the
+        # player could not tell an outage from an NPC with nothing to say.
+        #
+        # 502, not a pass-through of the upstream's status: a 402 forwarded
+        # verbatim claims that SENTIENT wants payment, which is a different and
+        # wrong statement. `core/errors.UpstreamFailure` already documents 502
+        # for exactly this.
+        log.exception("provider call failed")
+        return JSONResponse(status_code=502, content=error_body(exc))
+
     reply = str(result.content)
     log.info("reply", extra={"chars": len(reply), "reply": reply})
     _schedule_deferred_turn_work(ctx, request, reply, usage_of(result, model_name))
@@ -124,10 +147,16 @@ async def openai_chat_completions_key(
     api_key: str,
     request: ChatCompletionRequest,
 ):
-    context_started = perf_counter()
-    ctx = await deps.completions_ctx(api_key, None)
-    context_ms = (perf_counter() - context_started) * 1000
-    return await _run_completions(request, ctx, context_ms=context_ms)
+    try:
+        context_started = perf_counter()
+        ctx = await deps.completions_ctx(api_key, None)
+        context_ms = (perf_counter() - context_started) * 1000
+        return await _run_completions(request, ctx, context_ms=context_ms)
+    except HTTPException:
+        raise
+    except Exception as e:
+        log.exception("chat completions failed")
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @router.post("/v1/{api_key}/{project_id}/chat/completions")
@@ -136,12 +165,18 @@ async def openai_chat_completions_project(
     project_id: str,
     request: ChatCompletionRequest,
 ):
-    context_started = perf_counter()
-    ctx = await deps.completions_ctx(api_key, project_id)
-    if request.session_id or request.npc_name:
-        ctx = replace(ctx, session_id=request.session_id, npc_name=request.npc_name)
-    context_ms = (perf_counter() - context_started) * 1000
-    return await _run_completions(request, ctx, context_ms=context_ms)
+    try:
+        context_started = perf_counter()
+        ctx = await deps.completions_ctx(api_key, project_id)
+        if request.session_id or request.npc_name:
+            ctx = replace(ctx, session_id=request.session_id, npc_name=request.npc_name)
+        context_ms = (perf_counter() - context_started) * 1000
+        return await _run_completions(request, ctx, context_ms=context_ms)
+    except HTTPException:
+        raise
+    except Exception as e:
+        log.exception("chat completions failed")
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @router.get("/v1/models")
