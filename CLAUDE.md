@@ -18,16 +18,46 @@ Plans 01–03, R1–R7, R8, V1 and **R9 (the modular-monolith refactor) are all 
 replaced the 1,727-line `api.py` with a four-layer package under `src/sentient/`, deleted the
 legacy chat-session system, and added ruff, mypy, import-linter and CI.
 
+**Since then, also done (2026-08-22/23):** phase **G** (identity, access, game-turn
+persistence), **H1–H7** (the live gates and backend hardening), **B1–B3** (the console's
+backend surface), and the first four console screens — **F1** (auth shell), **F2**
+(projects), **F7** (API keys and the Mantella card) and **F6** (the document manager).
+**V2 and V4 PASSED.** The frontend lives in `apps/console`; F3 and F5 are planned but
+unbuilt, so a stranger can sign in, create a project, point Mantella at it and upload lore,
+but cannot yet see the conversation or change the model.
+
+**F6 carries the async state-machine shape F5 and F3 copy** — a 202 with no document id, a
+status reached only by polling `GET /v1/projects/{id}/documents`, and a project-wide reindex
+layered on top. Two things it settled that both of those inherit: the poll **backs off
+rather than stopping** (1.5 s / 5 s / 15 s off TanStack's own `dataUpdateCount`, never a
+deadline computed from `updated_at`, which would compare the server's clock to the
+browser's), and **nothing refetches `projectKeys.detail(id)` on a timer** — `useProjectQuery`
+sets no `refetchInterval` and `main.tsx` builds a bare `new QueryClient()`, so any UI keyed
+on `projects.status` alone updates only on a window refocus. F6 reads the reindex window off
+the polled document rows instead.
+
 **DEV-2: R9 ran after V1 only. V2 and V3 are still unrun** — `adapters/state/postgres_store.py`
 and the Qdrant payload filters remain fake-only today, and both gates stay BLOCKER-grade before
 any Phase F task starts. When running a gate, print the config the harness resolved (provider,
 model, threshold, paths) before reporting any number — V1 produced one false positive from a
 harness that silently resolved a different embedding provider than the server.
 
-**Plan documents have drifted from the code.** Several quote 125 or 200 tests; the suite collects
-**209** as of 2026-08-15. Each plan file also carries 🔶 DELTA banners that override its body text,
-newest delta wins. Never copy a test count, file list, or "state at time of writing" line out of a
-plan — regenerate it, and confirm a referenced file exists before relying on it.
+**Plan documents have drifted from the code.** Several quote 125, 200 or 209 tests; the suite
+collects **345** as of 2026-08-23 (`uv run python -m pytest tests/ --collect-only -q | tail -1`).
+Each plan file also carries 🔶 DELTA banners that override its body text, newest delta wins.
+Never copy a test count, file list, or "state at time of writing" line out of a plan —
+regenerate it, and confirm a referenced file exists before relying on it.
+
+**Verify a backend shape against the running server before writing a type against it.** The
+two state stores disagree in ways no gate catches, and three such divergences have now cost a
+plan revision each: `projects.created_at` and `projects.user_id` are returned by SQLite and
+not by Postgres, `api_keys.revoked` is `INTEGER` on one and `boolean` on the other, and
+`chat_threads.prefix_hash` is returned by SQLite only. Ten minutes of `curl` against a live
+project turns each of those from a bug into a non-event. `deps.current_user` accepts an
+`X-API-Key` as readily as a Bearer JWT, so the whole console surface can be driven from a
+throwaway probe identity with no browser. `documents` and `chat_messages` were checked this
+way on 2026-08-23 and **agree** on both stores — record the negatives too, or the next reader
+re-measures them.
 
 ## Commands
 
@@ -76,13 +106,23 @@ it; a violation is an architectural regression, so move the code rather than wea
   module-level singleton. `routers/` holds the nine routers (none over 250 lines) and `schemas/`
   the Pydantic bodies.
 
-`apps/` holds the two Node apps, both outside every backend gate (ruff/mypy/import-linter/
-pytest are path-scoped to `src/` and `tests/`, so nothing there can turn CI red): `apps/web/`
-is the frozen pre-refactor test UI (D4 — its chat-history sidebar is *expected* to be broken
-since B0; F5 rebuilds it on threads), and `apps/landing/` is the marketing site, deliberately
-unwired — its Launch CTA is a plain link and auth happens in `apps/web`, which is what lets
-the two stay separate builds with no cross-origin token handoff. Each has its own
-`AGENTS.md`, `package.json` and npm lockfile; there is no workspace tool (D5).
+`apps/` holds **three** Node apps, all outside every backend gate (ruff/mypy/import-linter/
+pytest are path-scoped to `src/` and `tests/`, so nothing there can turn CI red):
+
+- **`apps/console/`** — the real console, added 2026-08-23 (F1). Vite 8 + TanStack Router +
+  Query + Tailwind 4. Layers are `routes → features → lib → types`, enforced by ESLint along
+  with a ban on any `fetch` outside `lib/api/client.ts`. **Read `apps/console/AGENTS.md`
+  before touching it** — it carries the measured Neon Auth SDK surface (two traps the F1 plan
+  had wrong), the store divergences, and the `localhost`-vs-`127.0.0.1` rule. Its four gates
+  (`npm run lint` / `test` / `build` / `npx prettier --check .`) are run by hand; wiring them
+  into CI is F10.
+- **`apps/web/`** — the frozen pre-refactor test UI, reference only (its chat-history sidebar
+  is *expected* to be broken since B0). F12 retires it.
+- **`apps/landing/`** — the marketing site. Its Launch CTA is a plain cross-origin link to the
+  console's `/auth/sign-in`, which is what lets the two stay separate builds with no
+  cross-origin token handoff.
+
+Each has its own `AGENTS.md`, `package.json` and npm lockfile; there is no workspace tool (D5).
 
 `cli.py` is the `sentient` console script. `migrations/` holds the `.sql` files
 `PostgresStateStore` applies on first connect. `config/config.ini` is **Mantella's** config, checked
@@ -124,7 +164,11 @@ in as reference wiring only — Sentient never reads it; Mantella reads
 Read `plans/order.md` first, then the specific plan file — each carries 🔶 DELTA banners that
 override its body text; the newest delta wins. Personas are per-project
 (`project_configs.persona_prompt`): do not reintroduce per-NPC persona tables or `npc_name`-keyed
-config resolution. `docs/` is deliberately local-only and must stay **untracked**. Do not rely on it being
+config resolution. **The stored persona and the resolved persona are different values** — a
+project whose `persona_prompt` is NULL still speaks in character from its preset, which H1's
+Finding 4 measured and F7 confirmed through the game path. `GET /v1/projects/{id}` reports the
+resolved one with a `persona_source` of `custom` / `preset` / `generic`; anything that reads
+the stored column alone will render a blank over a live voice and overwrite it on save. `docs/` is deliberately local-only and must stay **untracked**. Do not rely on it being
 gitignored: the committed `.gitignore` has a `/docs` rule, but it is routinely commented out in a
 working tree, and `git check-ignore -v docs/` is the only way to know which state you are in.
 **Never run `git add -A` or `git add .`** — list source and test paths explicitly in every commit,

@@ -10,7 +10,7 @@ to this app's `/auth/sign-in`.
 npm run dev     # http://localhost:5175 -- NOT 127.0.0.1, see below
 npm run build   # vite build, then tsc --noEmit
 npm run lint    # the layer rules; this app's only gate
-npm run test    # vitest: the fetch seam and the SSE parser, nothing else
+npm run test    # vitest: the fetch seam, the SSE parser, and features/documents' pure logic
 ```
 
 `build` runs `vite build` **before** `tsc --noEmit`, not the other way round:
@@ -90,6 +90,45 @@ backend shape.**
    Postgres.** Normalised once in `lib/api/keys.ts`. `!revoked` happens to work on both,
    which is what makes this dangerous: `revoked === true` silently never fires on
    SQLite, and a demo on Neon will not show it.
+
+**And one they agree on, recorded so nobody adds a layer against a divergence that is not
+there.** `documents` returns the same nine fields from both stores (`id`, `project_id`,
+`filename`, `chunk_count`, `embedding_signature`, `status`, `size_bytes`, `created_at`,
+`updated_at`), re-measured on 2026-08-23 while building F6. Only JSON key order differs
+(`size_bytes` last on Postgres, because migration 0004 added it there) and the `id` format
+(dashed UUID vs bare 32-char hex). Both ids are strings; never parse one. `types/documents.ts`
+has **no normalisation** and should not grow any.
+
+## Nothing refetches a project's detail on a timer
+
+`useProjectQuery` sets no `refetchInterval` and `main.tsx` builds a bare `new QueryClient()`
+with no defaults. So a `projects.detail(id)` query updates on mount, on a mutation that
+invalidates it, and on a window refocus -- **never on its own while the page sits open.**
+
+This matters for anything rendering `projects.status`. F6's first cut keyed the reindex
+banner on `status === REINDEXING`, which would have appeared only after a refocus and then
+never cleared. It reads the window off the polled document rows instead:
+`run_reindex_job` walks every document to `reindexing` before it touches the project, that
+status is non-terminal, so `features/documents`' own query is already polling across the
+whole window and both edges land by themselves. See `features/documents/polling.ts`.
+
+**F3 inherits this**, since its reindex warning has the same shape. Either derive the state
+from something that already polls, or give the project query its own interval -- but do not
+assume the cached project row moves.
+
+## Polling an async backend state
+
+`features/documents/polling.ts` is the reference. Two rules it settled, both worth copying:
+
+- **Back off, do not stop.** 1.5 s for ~30 s, then 5 s, then a 15 s heartbeat, driven off
+  TanStack's own `query.state.dataUpdateCount` so there is no counter to keep and a remount
+  behaves correctly. TanStack pauses interval refetching while the tab is hidden
+  (`refetchIntervalInBackground` defaults to `false`), which is what makes "never stop"
+  affordable.
+- **Never compute a deadline from a server timestamp.** That compares the server's clock to
+  the browser's. H1 measured Neon's auth host running 2-3 s ahead of the API host and it
+  401'd every sign-in until `leeway=60` landed. A browser clock a few minutes fast would
+  mark every fresh upload stuck on sight.
 
 ## Modals
 
