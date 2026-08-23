@@ -22,6 +22,9 @@ class ChatInput(BaseModel):
     top_k: int | None = Field(default=None, ge=1, le=20)
     project_id: str | None = None
     thread_id: str | None = None
+    # Absent or False renders the ChatResponse body below, byte for byte.
+    # True renders SSE through the same encoder as /v1/chat/completions.
+    stream: bool = False
 
 
 class ChatResponse(BaseModel):

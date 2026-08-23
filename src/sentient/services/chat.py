@@ -18,6 +18,8 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import json
+from collections.abc import AsyncIterator
 from time import perf_counter
 from typing import Any
 from uuid import uuid4
@@ -86,7 +88,7 @@ def conversation_prefix_hash_after(messages: list[OpenAIMessage], reply: str) ->
     return _hash_pairs([*_transcript_pairs(messages), ("assistant", reply)])
 
 
-async def run_project_turn(
+async def _ground_project_turn(
     ctx,
     history,
     message: str,
@@ -94,8 +96,13 @@ async def run_project_turn(
     *,
     get_archives,
     get_llm,
-) -> dict[str, Any]:
-    """Generate a project web turn with bounded durable history before the new turn."""
+) -> tuple[Any, list, list[dict[str, Any]]]:
+    """Everything both renderers of a web turn need: model, prompt, sources.
+
+    Factored out rather than duplicated. F8 existed as a backlog item precisely
+    because the two chat surfaces each re-implemented this once before, and one
+    of them then got streaming while the other did not.
+    """
     if ctx.status == "reindexing_required":
         raise ReindexInProgress("project is reindexing; retrieval temporarily unavailable")
 
@@ -122,7 +129,6 @@ async def run_project_turn(
     turn_messages.append(OpenAIMessage(role="user", content=message))
     messages = inject_persona(to_langchain(turn_messages), ctx.system_prompt)
     messages = inject_lore(messages, format_lore(chunks))
-    result = await llm.ainvoke(messages)
     sources = [
         {
             "content": document.page_content,
@@ -134,12 +140,76 @@ async def run_project_turn(
         }
         for document, score in chunks
     ]
+    return llm, messages, sources
+
+
+async def run_project_turn(
+    ctx,
+    history,
+    message: str,
+    top_k: int | None,
+    *,
+    get_archives,
+    get_llm,
+) -> dict[str, Any]:
+    """Generate a project web turn with bounded durable history before the new turn."""
+    llm, messages, sources = await _ground_project_turn(
+        ctx, history, message, top_k, get_archives=get_archives, get_llm=get_llm
+    )
+    result = await llm.ainvoke(messages)
     return {
         "answer": str(result.content),
         "sources": sources,
         "top_k": top_k or ctx.rag_settings["top_k"],
         "usage": usage_of(result, ctx.llm_settings["model"]),
     }
+
+
+async def stream_project_turn(
+    ctx,
+    history,
+    message: str,
+    top_k: int | None,
+    thread_id: str,
+    *,
+    get_archives,
+    get_llm,
+    on_complete,
+) -> AsyncIterator[str]:
+    """Render a web turn as SSE.
+
+    Grounding is awaited HERE rather than inside the returned generator, so a
+    `ReindexInProgress` still reaches the router as a 409. Raised from inside the
+    generator it would arrive after the response had started and the client would
+    see a broken stream instead of a status code.
+
+    The first frame is a `sentient.chat.meta` object carrying the thread id and
+    the retrieved sources — the two things `ChatResponse` returns that cannot be
+    appended after the stream, because the client renders as it reads. Consumers
+    dispatch on `object`, so any frame that is not a `chat.completion.chunk` is
+    skipped, which is also what makes the error frame and future metadata frames
+    free to add.
+    """
+    llm, messages, sources = await _ground_project_turn(
+        ctx, history, message, top_k, get_archives=get_archives, get_llm=get_llm
+    )
+    meta = json.dumps(
+        {
+            "object": "sentient.chat.meta",
+            "thread_id": thread_id,
+            "sources": sources,
+            "top_k": top_k or ctx.rag_settings["top_k"],
+        }
+    )
+
+    async def _frames() -> AsyncIterator[str]:
+        yield f"data: {meta}\n\n"
+        async for event in stream_completion(
+            llm, messages, ctx.llm_settings["model"], on_complete=on_complete
+        ):
+            yield event
+
+    return _frames()
 
 
 async def store_thread_turn(

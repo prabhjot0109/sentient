@@ -13,6 +13,7 @@ from time import perf_counter
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import StreamingResponse
 
 from sentient.api import deps
 from sentient.api.schemas.chat import (
@@ -48,6 +49,10 @@ async def chat_endpoint(
         user_id, user_key = user
         if payload.thread_id and not payload.project_id:
             raise HTTPException(status_code=400, detail="thread_id requires project_id")
+        if payload.stream and not payload.project_id:
+            # The projectless path answers through NPCBrain.ask_with_context, which
+            # has no streaming twin. A fake single-chunk stream would hide that.
+            raise HTTPException(status_code=400, detail="stream requires project_id")
 
         if payload.project_id:
             project = await deps.state_store.get_project(user_id, payload.project_id)
@@ -80,6 +85,39 @@ async def chat_endpoint(
             ).get("history_window") or 20
             bind(thread_id=thread["id"])
             history = await deps.state_store.list_messages(thread["id"], limit=history_window)
+
+            def _persist(reply: str, usage) -> None:
+                # An empty reply means the client disconnected before a token
+                # arrived, or the provider died first. Neither is a turn.
+                if not reply.strip():
+                    return
+                defer(
+                    service.store_thread_turn(
+                        deps.state_store,
+                        deps.session_locks,
+                        thread["id"],
+                        payload.message,
+                        reply,
+                        usage,
+                    ),
+                    label="thread-memory",
+                )
+
+            if payload.stream:
+                return StreamingResponse(
+                    await service.stream_project_turn(
+                        ctx,
+                        history,
+                        payload.message,
+                        payload.top_k,
+                        thread["id"],
+                        get_archives=deps.get_archives_for_context,
+                        get_llm=deps.get_llm,
+                        on_complete=_persist,
+                    ),
+                    media_type="text/event-stream",
+                )
+
             result = await service.run_project_turn(
                 ctx,
                 history,
@@ -88,17 +126,7 @@ async def chat_endpoint(
                 get_archives=deps.get_archives_for_context,
                 get_llm=deps.get_llm,
             )
-            defer(
-                service.store_thread_turn(
-                    deps.state_store,
-                    deps.session_locks,
-                    thread["id"],
-                    payload.message,
-                    result["answer"],
-                    result["usage"],
-                ),
-                label="thread-memory",
-            )
+            _persist(result["answer"], result["usage"])
             elapsed_ms = round((perf_counter() - started_at) * 1000, 2)
             return ChatResponse(
                 response=result["answer"],

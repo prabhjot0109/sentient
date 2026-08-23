@@ -158,6 +158,27 @@ The game path writes this transcript but never reads it back. Mantella carries t
 conversation in its own payload; injecting a server-side copy would duplicate the context
 and cost tokens on every turn. The transcript is written for the **console** to read.
 
+### Streaming on `POST /v1/chat`
+
+`{"stream": true}` renders the turn as SSE instead of JSON. Omitting the flag returns
+exactly the body it always did. The frames are:
+
+1. one `{"object":"sentient.chat.meta","thread_id":"…","sources":[…],"top_k":4}` — the
+   `ChatResponse` fields that cannot be appended after the stream, because the client
+   renders as it reads,
+2. then standard OpenAI `chat.completion.chunk` frames,
+3. then `data: [DONE]`.
+
+**Consumers dispatch on `object` and skip anything that is not a `chat.completion.chunk`**,
+which is what makes future metadata frames free to add. Check for a top-level `error` key
+first, before that filter — see the next section. Read the stream with `fetch` and a
+`ReadableStream` reader, not `EventSource`: `EventSource` cannot issue a POST and cannot
+set an `Authorization` header.
+
+`stream` requires `project_id`. The projectless path answers through
+`NPCBrain.ask_with_context`, which has no streaming twin. Retrieval is awaited before the
+response starts, so a reindexing project still answers 409 rather than a broken stream.
+
 ### When a provider fails mid-stream
 
 A streamed turn commits HTTP 200 the moment its first frame flushes, so a provider that
