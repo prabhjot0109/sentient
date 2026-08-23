@@ -2,7 +2,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { useEffect, useState } from "react";
 import { Github, Menu, X } from "lucide-react";
 import { Logo } from "./Logo";
-import { GITHUB_REPO_URL } from "@/lib/site";
+import { CONSOLE_URL, GITHUB_REPO_URL } from "@/lib/site";
 
 const links = [
   { label: "Architecture", href: "#architecture" },
@@ -121,7 +121,7 @@ export function Nav() {
                 <Github className="h-[18px] w-[18px]" />
               </a>
 
-              <a href="#docs" className="hidden sm:inline-flex btn-primary">
+              <a href={CONSOLE_URL} className="hidden sm:inline-flex btn-primary">
                 Get Started
               </a>
 
@@ -197,7 +197,7 @@ export function Nav() {
                   <Github className="h-4 w-4" />
                 </a>
 
-                <a href="#docs" className="btn-primary">
+                <a href={CONSOLE_URL} className="btn-primary">
                   Get Started
                 </a>
 
@@ -274,7 +274,7 @@ export function Nav() {
               })}
 
               <motion.a
-                href="#docs"
+                href={CONSOLE_URL}
                 onClick={() => setMobileMenuOpen(false)}
                 initial={{ opacity: 0, y: 12 }}
                 animate={{ opacity: 1, y: 0 }}

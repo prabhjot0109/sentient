@@ -1,5 +1,5 @@
 import { motion } from "framer-motion";
-import { GITHUB_REPO_URL } from "@/lib/site";
+import { CONSOLE_URL, GITHUB_REPO_URL } from "@/lib/site";
 
 export function Vision() {
   return (
@@ -44,7 +44,7 @@ export function Vision() {
             transition={{ delay: 0.2 }}
             className="mt-10 flex flex-col items-center justify-center gap-3 sm:flex-row"
           >
-            <a href="#docs" className="btn-primary">
+            <a href={CONSOLE_URL} className="btn-primary">
               Get Started
             </a>
             <a
