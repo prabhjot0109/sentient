@@ -127,6 +127,27 @@ def _completion_id() -> str:
 _ERROR_MESSAGE_LIMIT = 500
 
 
+def error_body(exc: Exception) -> dict[str, Any]:
+    """The OpenAI-shaped error payload, unframed.
+
+    The SDK checks any payload for a top-level `error` key and raises on it, so
+    the same shape works as a response body (B4, non-streaming) and as an SSE
+    frame (H1 Finding 2, streaming). One shape means Mantella needs one
+    behaviour, and a player sees the same sentence whichever path they were on.
+
+    `object` is set too, so a consumer that dispatches on `object` — the rule the
+    web chat's meta frame introduces — cannot silently drop this one.
+    """
+    return {
+        "object": "error",
+        "error": {
+            "message": str(exc)[:_ERROR_MESSAGE_LIMIT] or exc.__class__.__name__,
+            "type": "provider_error",
+            "code": exc.__class__.__name__,
+        },
+    }
+
+
 def error_event(exc: Exception) -> str:
     """An SSE frame reporting a failure that happened after HTTP 200 was sent.
 
@@ -136,19 +157,8 @@ def error_event(exc: Exception) -> str:
     `APIError`. Mantella therefore reports an outage with no client change, which
     is the whole point — before this, a dead provider was indistinguishable from
     an NPC with nothing to say.
-
-    `object` is set too, so a consumer that dispatches on `object` (the rule the
-    web chat's meta frame introduces) cannot silently drop this one.
     """
-    payload = {
-        "object": "error",
-        "error": {
-            "message": str(exc)[:_ERROR_MESSAGE_LIMIT] or exc.__class__.__name__,
-            "type": "provider_error",
-            "code": exc.__class__.__name__,
-        },
-    }
-    return f"data: {json.dumps(payload)}\n\n"
+    return f"data: {json.dumps(error_body(exc))}\n\n"
 
 
 def build_completion_response(text: str, model: str) -> dict[str, Any]:
