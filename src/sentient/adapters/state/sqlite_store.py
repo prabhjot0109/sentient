@@ -550,6 +550,26 @@ class SQLiteStateStore:
     async def delete_thread(self, user_id: str, thread_id: str) -> bool:
         return await asyncio.to_thread(self._delete_thread, user_id, thread_id)
 
+    def _rename_thread(self, user_id: str, thread_id: str, title: str) -> dict[str, Any] | None:
+        with closing(self._connect()) as conn, conn:
+            # Ownership rides through the thread's project, as it does for delete.
+            # A plain assignment, not upsert_thread's COALESCE: this must be able to
+            # replace a title, not only fill an absent one.
+            cursor = conn.execute(
+                "UPDATE chat_threads SET title=?, updated_at=? WHERE id=? AND project_id IN "
+                "(SELECT id FROM projects WHERE user_id=?)",
+                (title, _now(), thread_id, user_id),
+            )
+            if cursor.rowcount == 0:
+                return None
+            row = conn.execute("SELECT * FROM chat_threads WHERE id=?", (thread_id,)).fetchone()
+        return dict(row) if row else None
+
+    async def rename_thread(
+        self, user_id: str, thread_id: str, title: str
+    ) -> dict[str, Any] | None:
+        return await asyncio.to_thread(self._rename_thread, user_id, thread_id, title)
+
     def _add_message(
         self,
         thread_id: str,

@@ -398,6 +398,25 @@ class PostgresStateStore:
             )
         return res.endswith(" 1")
 
+    async def rename_thread(
+        self, user_id: str, thread_id: str, title: str
+    ) -> dict[str, Any] | None:
+        # One statement checks ownership and returns the row: RETURNING yields
+        # nothing when the WHERE excluded it, so a stranger and a missing thread
+        # are indistinguishable here, which is what the 404 needs.
+        pool = await self._pool_()
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                "UPDATE chat_threads SET title=$3, updated_at=now() WHERE id=$1 "
+                "AND project_id IN (SELECT id FROM projects WHERE user_id=$2) "
+                "RETURNING id::text, project_id::text, npc_name, session_id, title, "
+                "prefix_hash, created_at, updated_at",
+                thread_id,
+                user_id,
+                title,
+            )
+        return dict(row) if row else None
+
     async def add_message(
         self,
         thread_id: str,

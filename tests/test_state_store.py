@@ -135,6 +135,25 @@ class SQLiteStateStoreTests(unittest.IsolatedAsyncioTestCase):
         docs = await self.store.list_documents(project["id"])
         self.assertEqual(docs[0]["size_bytes"], 2048)
 
+    async def test_rename_thread_is_ownership_checked(self):
+        """Ownership rides through the thread's project, exactly as delete_thread
+        does. upsert_thread cannot serve this: it keys on session_id, COALESCEs the
+        title so it can only ever set one, and takes no user_id at all."""
+        owner = await self.store.ensure_user("thread-owner")
+        stranger = await self.store.ensure_user("thread-stranger")
+        project = await self.store.create_project(owner["id"], "Skyrim")
+        thread = await self.store.upsert_thread(project["id"], "sess-rename", title="New chat")
+
+        renamed = await self.store.rename_thread(owner["id"], thread["id"], "Talking to Lydia")
+        self.assertIsNotNone(renamed)
+        self.assertEqual(renamed["title"], "Talking to Lydia")
+
+        self.assertIsNone(await self.store.rename_thread(stranger["id"], thread["id"], "hijack"))
+        self.assertIsNone(await self.store.rename_thread(owner["id"], "no-such-thread", "x"))
+
+        still = await self.store.get_thread(owner["id"], thread["id"])
+        self.assertEqual(still["title"], "Talking to Lydia")
+
 
 class FreshCloneStartupTests(unittest.IsolatedAsyncioTestCase):
     """data_dir is gitignored, so a fresh clone has no data/ at all. The store is
@@ -284,6 +303,7 @@ class PostgresStoreSurfaceTests(unittest.TestCase):
             "delete_project",
             "rename_project",
             "delete_thread",
+            "rename_thread",
             "delete_document",
             "get_thread_by_prefix",
             "set_thread_prefix",

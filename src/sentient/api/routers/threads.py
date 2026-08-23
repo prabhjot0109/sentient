@@ -10,6 +10,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException
 
 from sentient.api import deps
+from sentient.api.schemas.threads import ThreadRenameInput
 
 router = APIRouter()
 
@@ -34,6 +35,20 @@ async def delete_thread_endpoint(
     if not await deps.state_store.delete_thread(user_id, thread_id):
         raise HTTPException(status_code=404, detail="thread not found")
     return {"deleted": True}
+
+
+@router.patch("/v1/threads/{thread_id}")
+async def rename_thread_endpoint(
+    thread_id: str,
+    payload: ThreadRenameInput,
+    user: tuple[str, str] = Depends(deps.current_user),
+):
+    """Rename a thread. Same ownership check as DELETE: through the project."""
+    user_id, _ = user
+    thread = await deps.state_store.rename_thread(user_id, thread_id, payload.title)
+    if thread is None:
+        raise HTTPException(status_code=404, detail="thread not found")
+    return thread
 
 
 @router.get("/v1/threads/{thread_id}/messages")
