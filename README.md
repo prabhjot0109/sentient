@@ -34,11 +34,19 @@ Interactive API docs are then at `http://127.0.0.1:8000/docs`.
 Use `127.0.0.1`, never `localhost`. On Windows that one choice costs 208 ms per request; see
 [performance notes](CONFIGURATION.md#performance-notes).
 
-The web UI is a separate Vite app:
+The console is a separate Vite app:
 
 ```bash
-cd apps/web && npm install && npm run dev    # http://127.0.0.1:5173
+cd apps/console && npm install && npm run dev    # http://localhost:5175
 ```
+
+**`localhost` here, `127.0.0.1` for the backend, and the two do not conflict** — they are
+different hops. Neon Auth trusts the hostname `localhost` and rejects
+`http://127.0.0.1:<port>` with `INVALID_ORIGIN` before it validates anything, so the console
+is browsed at `localhost` while its `VITE_API_BASE_URL` stays `127.0.0.1:8000`.
+
+`apps/web` is the frozen pre-refactor test UI, kept for reference only; `apps/landing` is the
+marketing site. Neither is the console.
 
 ## Usage
 
@@ -95,7 +103,11 @@ src/sentient/
 
 `core/config.py` is the only place environment variables are read. `adapters/state/` and
 `adapters/retrieval/` are Protocol seams with swappable implementations (SQLite/Postgres,
-FAISS/Qdrant). `apps/web` and `apps/landing` are separate Node builds outside the backend gates.
+FAISS/Qdrant). `apps/console`, `apps/web` and `apps/landing` are separate Node builds outside
+the backend gates — `ruff`, `mypy`, `import-linter` and `pytest` are path-scoped to `src/` and
+`tests/`, so nothing under `apps/` can turn the Python CI red, and nothing there is covered by
+it either. `apps/console` carries its own `lint` / `test` / `build` / `prettier` gates that no
+CI job runs yet.
 
 ### Tenant partitions
 
@@ -209,6 +221,15 @@ uv run lint-imports                                   # layer contract
 
 CI runs all five on every push and pull request. Add dependencies with `uv add`; never hand-edit
 `uv.lock`.
+
+The console has its own four, run from `apps/console` and **not** wired into CI yet:
+
+```bash
+npm run lint            # the layer contract and the fetch-seam ban
+npm run test            # vitest
+npm run build           # vite build, THEN tsc --noEmit -- routeTree.gen.ts is generated
+npx prettier --check .
+```
 
 ## Deployment
 
