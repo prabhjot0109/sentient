@@ -49,6 +49,20 @@ async def list_projects(user: tuple[str, str] = Depends(deps.current_user)):
     return {"projects": await deps.state_store.list_projects(user_id)}
 
 
+@router.get("/v1/projects/{project_id}")
+async def get_project_endpoint(
+    project_id: str,
+    user: tuple[str, str] = Depends(deps.current_user),
+):
+    user_id, _ = user
+    try:
+        return await service.get_project_detail(
+            deps.state_store, user_id=user_id, project_id=project_id
+        )
+    except NotFound as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+
+
 @router.patch("/v1/projects/{project_id}")
 async def rename_project_endpoint(
     project_id: str,

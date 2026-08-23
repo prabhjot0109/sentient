@@ -16,8 +16,10 @@ from __future__ import annotations
 
 from typing import Any
 
+from sentient.adapters.state.schema import _CONFIG_COLUMNS
 from sentient.core.concurrency import ReindexJob
 from sentient.core.errors import NotFound
+from sentient.core.presets import get_preset
 from sentient.services.runtime import embedding_signature, resolve_runtime_context
 
 
@@ -42,6 +44,46 @@ async def create_project(
         project["id"], embedding_signature=embedding_signature(ctx.rag_settings)
     )
     return project
+
+
+# Everything the settings pane can write, read back. persona_prompt is reported
+# separately because it resolves through the preset fallback and the others do not.
+# Derived rather than listed: a hand-maintained copy drifts the moment a knob is
+# added, and the symptom is a pane that silently cannot see it.
+_READABLE_CONFIG_FIELDS = tuple(c for c in _CONFIG_COLUMNS if c != "persona_prompt")
+
+
+async def get_project_detail(state_store, *, user_id: str, project_id: str) -> dict[str, Any]:
+    """The project, its stored config, and the persona the NPC actually speaks with.
+
+    Every config field is reported **as stored**: `null` means "unset", not "the
+    default happens to be this". F3 has to tell those apart, because rendering a
+    resolved default into an input and saving it pins a value the user never chose.
+
+    The persona is the opposite case and reported **as resolved**. H1's Finding 4
+    measured a project whose `persona_prompt` was NULL while the NPC visibly had a
+    persona from its preset, so an editor reading the stored value would render a
+    blank field over a live persona and overwrite it on the first save.
+    `persona_source` is what lets the pane show which of the two it is looking at.
+    """
+    project = await state_store.get_project(user_id, project_id)
+    if project is None:
+        raise NotFound("project not found")
+
+    stored = await state_store.get_project_config(project_id) or {}
+    persona = stored.get("persona_prompt")
+    if persona:
+        persona_source = "custom"
+    else:
+        persona = get_preset(project.get("base_preset") or "")
+        persona_source = "preset" if persona else "generic"
+
+    return {
+        **project,
+        "config": {field: stored.get(field) for field in _READABLE_CONFIG_FIELDS},
+        "persona_prompt": persona,
+        "persona_source": persona_source,
+    }
 
 
 async def rename_project(state_store, *, user_id: str, project_id: str, name: str):
