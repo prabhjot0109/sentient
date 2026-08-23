@@ -27,8 +27,8 @@ export function AuthProbe() {
 
       {data && (
         <p className="text-sm">
-          <code>GET /v1/projects</code> returned 200 with {data.projects.length} project
-          {data.projects.length === 1 ? "" : "s"}. The token was minted by Neon Auth, verified
+          <code>GET /v1/projects</code> returned 200 with {data.length} project
+          {data.length === 1 ? "" : "s"}. The token was minted by Neon Auth, verified
           against its JWKS, and resolved to a mirrored <code>users</code> row.
         </p>
       )}
