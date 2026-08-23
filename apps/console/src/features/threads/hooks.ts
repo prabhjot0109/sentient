@@ -2,7 +2,7 @@ import { useCallback, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 
 import { streamChat } from "@/lib/api/chat";
-import { ApiError } from "@/lib/api/errors";
+import { ApiError, ReindexInProgressError } from "@/lib/api/errors";
 import type { RetrievedChunk } from "@/types/threads";
 
 import {
@@ -26,6 +26,13 @@ export type TurnState = {
   isStreaming: boolean;
   error: string | null;
   /**
+   * The 409 gets its own flag rather than being read back out of the message,
+   * because it is not a failure: the project's lore is re-embedding and the turn
+   * is worth retrying in a moment. Retrieval is awaited BEFORE the response
+   * starts, so this arrives as a clean status code rather than a broken stream.
+   */
+  isReindexing: boolean;
+  /**
    * The thread the meta frame named. On a new conversation this is the FIRST
    * thing the stream reports, before any token, which is what lets the screen
    * select the thread while the reply is still arriving rather than after it.
@@ -38,6 +45,7 @@ const EMPTY: TurnState = {
   sources: [],
   isStreaming: false,
   error: null,
+  isReindexing: false,
   threadId: null,
 };
 
@@ -81,6 +89,7 @@ export const useChatTurn = (projectId: string) => {
         setState((s) => ({
           ...s,
           error: error instanceof ApiError ? error.detail : "The turn failed.",
+          isReindexing: error instanceof ReindexInProgressError,
         }));
       } finally {
         setState((s) => ({ ...s, isStreaming: false }));
