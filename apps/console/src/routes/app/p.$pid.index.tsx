@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 
 import { DocumentsScreen } from "@/features/documents";
 import { useProject } from "@/features/projects";
@@ -24,12 +24,21 @@ function ProjectHome() {
 
   return (
     <div className="space-y-6 p-8">
-      <header className="space-y-1">
-        <h1 className="text-xl font-semibold">{project.name}</h1>
-        <p className="text-sm text-muted-foreground">
-          Preset <code>{project.base_preset}</code> · persona from{" "}
-          <strong>{project.persona_source}</strong>
-        </p>
+      <header className="flex items-start justify-between gap-4">
+        <div className="space-y-1">
+          <h1 className="text-xl font-semibold">{project.name}</h1>
+          <p className="text-sm text-muted-foreground">
+            Preset <code>{project.base_preset}</code> · persona from{" "}
+            <strong>{project.persona_source}</strong>
+          </p>
+        </div>
+        <Link
+          to="/app/p/$pid/chat"
+          params={{ pid }}
+          className="shrink-0 text-sm underline underline-offset-4"
+        >
+          Conversations →
+        </Link>
       </header>
 
       <section className="space-y-1">
@@ -41,11 +50,9 @@ function ProjectHome() {
 
       <DocumentsScreen projectId={pid} />
 
-      <p className="text-sm text-muted-foreground">
-        Settings and conversations land here as F3 and F5 ship.
-      </p>
+      <p className="text-sm text-muted-foreground">Settings land here as F3 ships.</p>
     </div>
   );
 }
 
-export const Route = createFileRoute("/app/p/$pid")({ component: ProjectHome });
+export const Route = createFileRoute("/app/p/$pid/")({ component: ProjectHome });
