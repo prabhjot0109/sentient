@@ -7,7 +7,7 @@ to this app's `/auth/sign-in`.
 ## Commands
 
 ```bash
-npm run dev     # 127.0.0.1:5175 -- NOT localhost, see below
+npm run dev     # http://localhost:5175 -- NOT 127.0.0.1, see below
 npm run build   # vite build, then tsc --noEmit
 npm run lint    # the layer rules; this app's only gate
 npm run test    # vitest: the fetch seam and the SSE parser, nothing else
@@ -115,13 +115,43 @@ So `lib/auth.ts` exports two things from one `createInternalNeonAuth` call:
 config type, and Better Auth's own client config already sets `credentials: "include"`
 whenever the browser supports it.
 
-## Two things that will bite you
+## Three things that will bite you
 
-1. **`127.0.0.1`, never `localhost`.** Uvicorn binds IPv4 only; Windows resolves
-   `localhost` to `::1` first. Measured: 208 ms wasted per request, invisible in the
-   server's logs. This applies to `VITE_API_BASE_URL` and to the Mantella URL this app
-   tells users to paste.
-2. **Never hardcode a Neon Auth URL.** Every Neon branch gets its **own** auth environment,
+1. **`127.0.0.1`, never `localhost` — for the BACKEND.** Uvicorn binds IPv4 only; Windows
+   resolves `localhost` to `::1` first. Measured: 208 ms wasted per request, invisible in
+   the server's logs. This applies to `VITE_API_BASE_URL` and to the Mantella URL this app
+   tells users to paste. Do not "fix" `.env.local` to say `localhost`.
+
+2. **`localhost`, never `127.0.0.1` — for THIS APP'S OWN ORIGIN.** The opposite rule, and
+   the two do not conflict because they are different hops.
+
+   **Neon Auth trusts the literal hostname `localhost` and rejects `http://127.0.0.1:<port>`
+   with `INVALID_ORIGIN` on every state-changing route.** Sign-up and sign-in fail outright,
+   before the password is even checked, when the page is served from the IP literal. It is
+   not a CORS problem: the CORS preflight allows `127.0.0.1:5175` with
+   `allow-credentials: true`, so the browser sees a normal 400 and the form just says the
+   sign-up was invalid. Measured against the live branch 2026-08-23:
+
+   | `Origin`                | `POST /sign-up/email`                     |
+   | ----------------------- | ----------------------------------------- |
+   | `http://localhost:5175` | reaches validation (`PASSWORD_TOO_SHORT`) |
+   | `http://localhost:3000` | reaches validation                        |
+   | `http://localhost:5173` | reaches validation                        |
+   | `http://127.0.0.1:5175` | **`INVALID_ORIGIN`**                      |
+   | `http://127.0.0.1:3000` | **`INVALID_ORIGIN`**                      |
+
+   `neon neon-auth domain list` returns nothing for this branch; the blanket
+   `neon neon-auth domain allow-localhost` setting is what permits the first three, and it
+   means the hostname, not the loopback address. To trust the IP literal, or any deployed
+   origin, add it with `neon neon-auth domain add <origin>` — F10 has to do that for
+   production regardless.
+
+   `vite.config.ts` therefore sets `server.host: true` so the dev server listens on **both**
+   `::1` and `127.0.0.1`. Binding `127.0.0.1` alone still serves `localhost` through the
+   browser's fallback, but pays the 208 ms on every dev module request (measured: 216 ms
+   vs 9 ms; 3-8 ms after the change).
+
+3. **Never hardcode a Neon Auth URL.** Every Neon branch gets its **own** auth environment,
    so a literal URL is correct for exactly one branch. Get it from `neon env pull` and read
    it from `VITE_NEON_AUTH_URL`.
 

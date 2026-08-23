@@ -14,7 +14,9 @@ export const GITHUB_REPO_URL = "https://github.com/prabhjot0109/sentient";
  * separate origin with no cross-origin token handoff, which is what lets the two
  * ship independently -- do not "improve" this into a shared session.
  *
- * 127.0.0.1, never localhost: uvicorn binds IPv4 only and Windows resolves
- * localhost to ::1 first (208ms wasted per request, invisible server-side).
+ * localhost, NOT 127.0.0.1, and that is not a slip. The repo-wide "127.0.0.1,
+ * never localhost" rule is about the browser-to-uvicorn hop. Neon Auth rejects
+ * http://127.0.0.1:<port> as an untrusted origin, so a console served from the IP
+ * literal fails every sign-up. See apps/console/AGENTS.md.
  */
-export const CONSOLE_URL = import.meta.env.VITE_CONSOLE_URL ?? "http://127.0.0.1:5175/auth/sign-in";
+export const CONSOLE_URL = import.meta.env.VITE_CONSOLE_URL ?? "http://localhost:5175/auth/sign-in";
