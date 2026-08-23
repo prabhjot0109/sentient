@@ -191,7 +191,29 @@ set an `Authorization` header.
 `NPCBrain.ask_with_context`, which has no streaming twin. Retrieval is awaited before the
 response starts, so a reindexing project still answers 409 rather than a broken stream.
 
-### When a provider fails mid-stream
+### When the provider fails
+
+A provider outage reaches the client as the same OpenAI-shaped payload on both paths, so
+one client-side behaviour covers both and a player sees the same sentence either way:
+
+- **Non-streaming** — `502 Bad Gateway` with that payload as the response body.
+- **Streaming** — the stream ends with that payload as an SSE frame (below).
+
+```json
+{"object":"error","error":{"message":"…","type":"provider_error","code":"…"}}
+```
+
+The status is **502, not the upstream's**. Forwarding a provider's `402` verbatim would
+claim that *Sentient* requires payment, which is a different and wrong statement; 502 says
+"the thing I proxy to failed" and the message carries the upstream's own words. The OpenAI
+SDK maps any non-2xx carrying an `error` body to `APIStatusError`, whose `.message` is the
+string the player's log shows.
+
+All three `/v1/chat/completions` path shapes behave this way. Before this, the two
+Mantella-facing shapes had no exception handling at all, so a dead provider escaped to
+Starlette and rendered a bare `text/plain` `Internal Server Error` with nothing in it.
+
+#### Mid-stream, specifically
 
 A streamed turn commits HTTP 200 the moment its first frame flushes, so a provider that
 dies after that cannot be reported with a status code. Sentient reports it in-band, as the
@@ -208,6 +230,30 @@ Mantella surfaces the outage without a client change. A failed stream never emit
 `finish_reason: "stop"` chunk — claiming a truncated reply ended normally is what made an
 outage indistinguishable from an NPC with nothing to say. Whatever tokens did arrive are
 kept and persisted; the message is capped at 500 characters.
+
+### When the project is reindexing
+
+Changing a setting that alters the embedding space — `embedding_provider`,
+`embedding_model_name` or `mrl_vector_size` — rebuilds the index under a new
+`embedding_signature`. While that runs, `/v1/chat`, `/v1/chat/completions` and
+`/v1/retrieve` all answer:
+
+```
+409 {"detail":"project is reindexing; retrieval temporarily unavailable"}
+```
+
+`/v1/retrieve` used to answer `200` with an empty `chunks` list, which is indistinguishable
+from a project with no lore in it. The vectors are not missing during the window; every one
+of them is written under a signature that did not exist a second earlier, so the filter
+matches nothing.
+
+**The 409 window is bounded by the runtime-context cache, not by the job.** Onset is
+immediate — a config write invalidates `RuntimeCache`, so the next turn sees the new status.
+Clearing is not: the reindex job flips the project back to `active` without invalidating,
+so the 409 can outlive the rebuild by up to the cache TTL (60 s). Measured 2026-08-23: a
+one-chunk project rebuilt in ~2 s and kept answering 409 for ~60 s. This predates the guard
+on `/v1/retrieve` and applies equally to the two chat paths, which have guarded on the same
+cached status since R7.
 
 ## Development
 
