@@ -158,6 +158,24 @@ The game path writes this transcript but never reads it back. Mantella carries t
 conversation in its own payload; injecting a server-side copy would duplicate the context
 and cost tokens on every turn. The transcript is written for the **console** to read.
 
+### When a provider fails mid-stream
+
+A streamed turn commits HTTP 200 the moment its first frame flushes, so a provider that
+dies after that cannot be reported with a status code. Sentient reports it in-band, as the
+last frame before `[DONE]`:
+
+```
+data: {"object":"error","error":{"message":"Error code: 402 - payment_required","type":"provider_error","code":"BadRequestError"}}
+
+data: [DONE]
+```
+
+The top-level `error` key is the shape the OpenAI SDK already raises `APIError` on, so
+Mantella surfaces the outage without a client change. A failed stream never emits a
+`finish_reason: "stop"` chunk — claiming a truncated reply ended normally is what made an
+outage indistinguishable from an NPC with nothing to say. Whatever tokens did arrive are
+kept and persisted; the message is capped at 500 characters.
+
 ## Development
 
 ```bash

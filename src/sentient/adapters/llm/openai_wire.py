@@ -122,6 +122,35 @@ def _completion_id() -> str:
     return f"chatcmpl-{uuid.uuid4().hex}"
 
 
+# Provider errors can carry a whole HTML error page. The client needs enough to
+# tell an outage from a refusal, not the page.
+_ERROR_MESSAGE_LIMIT = 500
+
+
+def error_event(exc: Exception) -> str:
+    """An SSE frame reporting a failure that happened after HTTP 200 was sent.
+
+    Once the first chunk flushes, no status code can carry the error, so it has
+    to travel in-band. The shape is the one the OpenAI SDK already raises on: it
+    checks each payload for a top-level `error` key and turns it into an
+    `APIError`. Mantella therefore reports an outage with no client change, which
+    is the whole point — before this, a dead provider was indistinguishable from
+    an NPC with nothing to say.
+
+    `object` is set too, so a consumer that dispatches on `object` (the rule the
+    web chat's meta frame introduces) cannot silently drop this one.
+    """
+    payload = {
+        "object": "error",
+        "error": {
+            "message": str(exc)[:_ERROR_MESSAGE_LIMIT] or exc.__class__.__name__,
+            "type": "provider_error",
+            "code": exc.__class__.__name__,
+        },
+    }
+    return f"data: {json.dumps(payload)}\n\n"
+
+
 def build_completion_response(text: str, model: str) -> dict[str, Any]:
     return {
         "id": _completion_id(),
@@ -155,6 +184,10 @@ async def astream_completion(
 
     Both values already exist here, so this costs nothing per token, which is the
     only reason it is done here rather than by re-parsing the SSE frames.
+
+    A provider failure mid-stream ends the stream with `error_event` instead of a
+    `finish_reason: "stop"` chunk, then `[DONE]` as usual. `on_reply` still fires,
+    with whatever text did arrive.
     """
     completion_id = _completion_id()
     created = int(time.time())
@@ -175,26 +208,44 @@ async def astream_completion(
     parts: list[str] = []
     last_chunk: Any = None
     usage_chunk: Any = None
-    async for piece in llm.astream(messages):
-        last_chunk = piece
-        # Not simply the last chunk: several providers report usage mid-stream and
-        # then send a final empty chunk carrying only the finish reason, which
-        # would overwrite the counters with nothing. One getattr per chunk.
-        if getattr(piece, "usage_metadata", None):
-            usage_chunk = piece
-        content = piece.content
-        if content:
-            text = str(content)
-            if not first_token_logged:
-                elapsed_ms = round((time.perf_counter() - started) * 1000, 1)
-                log.info("first token", extra={"ms": elapsed_ms, "model": model})
-                first_token_logged = True
-            parts.append(text)
-            yield chunk({"content": text})
+    failure: Exception | None = None
+    try:
+        async for piece in llm.astream(messages):
+            last_chunk = piece
+            # Not simply the last chunk: several providers report usage mid-stream and
+            # then send a final empty chunk carrying only the finish reason, which
+            # would overwrite the counters with nothing. One getattr per chunk.
+            if getattr(piece, "usage_metadata", None):
+                usage_chunk = piece
+            content = piece.content
+            if content:
+                text = str(content)
+                if not first_token_logged:
+                    elapsed_ms = round((time.perf_counter() - started) * 1000, 1)
+                    log.info("first token", extra={"ms": elapsed_ms, "model": model})
+                    first_token_logged = True
+                parts.append(text)
+                yield chunk({"content": text})
+    except Exception as exc:
+        # Swallowed on purpose. Re-raising aborts the response mid-frame, which is
+        # exactly the silence this catch exists to end; the error travels as a
+        # frame instead. Not a `finally`: a client disconnect arrives as
+        # GeneratorExit, and yielding after that is illegal.
+        failure = exc
 
-    yield chunk({}, finish_reason="stop")
-    yield "data: [DONE]\n\n"
     reply = "".join(parts)
-    log.info("streamed reply", extra={"chars": len(reply), "reply": reply})
+    if failure is not None:
+        log.error(
+            "provider stream failed",
+            exc_info=failure,
+            extra={"model": model, "chars": len(reply)},
+        )
+        yield error_event(failure)
+    else:
+        yield chunk({}, finish_reason="stop")
+        log.info("streamed reply", extra={"chars": len(reply), "reply": reply})
+    yield "data: [DONE]\n\n"
     if on_reply is not None:
+        # Partial text is still a real reply: the player heard those tokens, so
+        # the transcript keeps them rather than recording the turn as silence.
         on_reply(reply, usage_chunk if usage_chunk is not None else last_chunk)
