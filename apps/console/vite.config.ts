@@ -1,0 +1,25 @@
+import { tanstackRouter } from "@tanstack/router-plugin/vite";
+import tailwindcss from "@tailwindcss/vite";
+import react from "@vitejs/plugin-react";
+import { defineConfig } from "vite";
+
+export default defineConfig({
+  plugins: [
+    // Must run before the react plugin: it generates routeTree.gen.ts, which
+    // main.tsx imports.
+    tanstackRouter({ target: "react", autoCodeSplitting: true }),
+    react(),
+    tailwindcss(),
+  ],
+  // Resolves the "@/*" paths entry in tsconfig.json. Native since Vite 8, which
+  // warns that the vite-tsconfig-paths plugin apps/landing still carries is now
+  // redundant.
+  resolve: { tsconfigPaths: true },
+  server: {
+    // 127.0.0.1, never localhost: uvicorn binds IPv4 only and Windows resolves
+    // localhost to ::1 first -- 208ms of wasted connect time per request,
+    // invisible in the server's own logs.
+    host: "127.0.0.1",
+    port: 5175,
+  },
+});
