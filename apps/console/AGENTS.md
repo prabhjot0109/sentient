@@ -59,8 +59,19 @@ expired token, and maps HTTP status onto typed errors. Features import a resourc
 counterpart to the backend's "routers import the `deps` module, never names out of it".
 
 The lint rule is `no-restricted-globals` on `fetch`, which catches a bare `fetch(...)`.
-`window.fetch(...)` is closed separately by a `no-restricted-properties` entry. Neither
-can see a `fetch` reached through an alias; that one is on you.
+`window.fetch(...)` and `globalThis.fetch(...)` are closed separately by
+`no-restricted-properties`. The ban is written once, as `src/**` minus `src/lib/api/**`,
+rather than re-listed per layer, so a layer added later is covered without anyone
+remembering to extend it.
+
+**Two gaps, both measured against deliberate violations rather than assumed:**
+
+1. `no-restricted-imports` inspects static `import` declarations only. A dynamic
+   `import("@/features/projects/api")` is **not** caught. Verified.
+2. Neither rule sees a `fetch` reached through an alias (`const f = fetch`). Verified.
+
+Both are on you. If either starts happening in practice, close it with a rule rather
+than another paragraph here.
 
 ## Two things that will bite you
 
