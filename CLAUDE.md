@@ -59,8 +59,9 @@ config the harness resolved (provider, model, threshold, paths) before reporting
 number — V1 produced one false positive from a harness that silently resolved a different
 embedding provider than the server.
 
-**Plan documents have drifted from the code.** Several quote 125, 200 or 209 tests; the suite
-collects **345** as of 2026-08-23 (`uv run python -m pytest tests/ --collect-only -q | tail -1`).
+**Plan documents have drifted from the code.** Several quote 125, 200, 209 or 345 tests; the
+suite collects **356** as of 2026-08-23
+(`uv run python -m pytest tests/ --collect-only -q | tail -1`).
 Each plan file also carries 🔶 DELTA banners that override its body text, newest delta wins.
 Never copy a test count, file list, or "state at time of writing" line out of a plan —
 regenerate it, and confirm a referenced file exists before relying on it.
