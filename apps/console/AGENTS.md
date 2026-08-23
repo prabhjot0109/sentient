@@ -73,6 +73,37 @@ remembering to extend it.
 Both are on you. If either starts happening in practice, close it with a rule rather
 than another paragraph here.
 
+## Neon Auth — what the SDK actually does
+
+Measured against `@neondatabase/neon-js@0.7.0-beta`, which re-exports
+`@neondatabase/auth@0.5.0-beta`. Neon's docs and the F1 plan were each wrong on one
+point; these were settled by reading the installed `.d.mts` and by a `tsc` probe, not
+by trusting either source. **Re-verify on any version bump.**
+
+| Question                                       | Answer                                                                                                                                                                                                                                                                |
+| ---------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| How do you get the backend JWT?                | **`createInternalNeonAuth(url, cfg).getJWTToken()`**. Not `token()`, and not on `createAuthClient`'s result.                                                                                                                                                          |
+| Which factory?                                 | **`createInternalNeonAuth`**, despite the name. Both are exported from the public entry and share one JSDoc block.                                                                                                                                                    |
+| Where does `BetterAuthReactAdapter` come from? | `@neondatabase/neon-js/auth/react/adapters`, not the main entry. Adapters are factory functions: call them with `()`.                                                                                                                                                 |
+| Which package has the prebuilt UI?             | `@neondatabase/neon-js/auth/react/ui`. `@neondatabase/auth-ui` is the same code standalone and arrives as a transitive dep; do not install it directly.                                                                                                               |
+| Peer dependencies?                             | None to install. `@neondatabase/auth-ui` bundles `@daveyplate/better-auth-ui` and its Radix / react-hook-form / zod / sonner tree transitively. The `react-auth-external-ui` example's long `npm install` list is for using better-auth-ui directly, which we do not. |
+| CSS                                            | `@import "@neondatabase/neon-js/ui/tailwind";` in `globals.css`, after `@import "tailwindcss";`. The `ui/css` variant is the prebuilt bundle for non-Tailwind apps.                                                                                                   |
+
+**The trap.** `createAuthClient(url, cfg)` is literally
+`createInternalNeonAuth(url, cfg).adapter`. It returns the Better Auth React client and
+**discards `getJWTToken`**. Building on it means `authClient.getJWTToken` is `undefined`
+at runtime — every backend call goes out unauthenticated and 401s, with nothing in the
+browser to explain why. `tsc` catches it as TS2339, which is the only reason it is cheap
+to find.
+
+So `lib/auth.ts` exports two things from one `createInternalNeonAuth` call:
+`authClient` (the `.adapter`: `useSession`, `signIn`, `signUp`, `signOut`, and what
+`NeonAuthUIProvider` wants) and `getAccessToken()` (the `.getJWTToken`).
+
+**Do not pass `fetchOptions: { credentials: "include" }`.** It is not on the public
+config type, and Better Auth's own client config already sets `credentials: "include"`
+whenever the browser supports it.
+
 ## Two things that will bite you
 
 1. **`127.0.0.1`, never `localhost`.** Uvicorn binds IPv4 only; Windows resolves
