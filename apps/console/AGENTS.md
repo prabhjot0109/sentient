@@ -10,7 +10,7 @@ to this app's `/auth/sign-in`.
 npm run dev     # http://localhost:5175 -- NOT 127.0.0.1, see below
 npm run build   # vite build, then tsc --noEmit
 npm run lint    # the layer rules; this app's only gate
-npm run test    # vitest: the fetch seam, the SSE parser, and features/documents' pure logic
+npm run test    # vitest: the fetch seam, the SSE parser, and the pure logic in features/
 ```
 
 `build` runs `vite build` **before** `tsc --noEmit`, not the other way round:
@@ -91,6 +91,16 @@ backend shape.**
    which is what makes this dangerous: `revoked === true` silently never fires on
    SQLite, and a demo on Neon will not show it.
 
+3. **`chat_threads.prefix_hash` disagrees PER METHOD, not per store.** Measured 2026-08-23
+   while building F5. `list_threads` omits it on Postgres and returns it on SQLite — but
+   `rename_thread` returns it on **both**, because every Postgres method names its columns
+   and they simply disagree with each other (`upsert_thread` no, `list_threads` no,
+   `rename_thread` yes, `get_thread_by_prefix` yes). So the same conceptual row arrives with
+   the field `undefined`, `null`, or a 64-char hash depending purely on which call produced
+   it. `types/threads.ts` **omits it entirely** rather than making it optional: it is G4's
+   internal thread-identity mechanism, it means nothing to a reader, and an optional field
+   invites someone to render or branch on it. Do not add it back.
+
 **And one they agree on, recorded so nobody adds a layer against a divergence that is not
 there.** `documents` returns the same nine fields from both stores (`id`, `project_id`,
 `filename`, `chunk_count`, `embedding_signature`, `status`, `size_bytes`, `created_at`,
@@ -129,6 +139,44 @@ assume the cached project row moves.
   the browser's. H1 measured Neon's auth host running 2-3 s ahead of the API host and it
   401'd every sign-in until `leeway=60` landed. A browser clock a few minutes fast would
   mark every fresh upload stuck on sight.
+
+## A deferred write is not there when the response ends
+
+`features/threads/transcript.ts` is the second reference, and the reason it exists is worth
+carrying to anything else that writes through `defer()`.
+
+`POST /v1/chat` persists the user line and the reply **after** the response body closes.
+Measured 2026-08-23 against the live Neon branch, three trials, polling from the instant
+`[DONE]` was read: at the earliest observable moment — **406 ms** — the transcript returned
+**zero messages**, and the assistant row did not land until **1.3-1.7 s** after the stream
+closed. A single `invalidateQueries` on `[DONE]`, which is the obvious thing and what the F5
+plan specified, therefore refetches an empty list on essentially every turn and blanks the
+reply the user just watched arrive.
+
+So the streamed draft is provisional UI that is **handed off**, not dropped:
+
+- **Hold it until the real row appears**, then stop rendering it — otherwise the same
+  sentence renders twice, once from the server and once locally.
+- **Decide "has it appeared?" exactly.** `openai_wire.astream_completion` persists
+  `"".join(parts)` built from the very strings it yielded as `delta.content`, with no strip
+  and no post-processing, so draft and row are byte-identical. Verified over the wire, not
+  inferred: 109 chars streamed, 109 stored, equal.
+- **Not by count, and not by clock.** A message count is stale across turns. A `created_at`
+  comparison puts the server's clock against the browser's, which is the mistake this file
+  already warns about twice.
+- **"Does the transcript end with an assistant message?" is also wrong**, and it is the
+  tempting one. On turn 2 of a thread, the stale transcript still ends with turn 1's reply,
+  so it reads as landed and blanks turn 2. There is a test pinning exactly that.
+
+## Routes: a sibling file turns its neighbour into a layout
+
+Flat file routing means `p.$pid.chat.tsx` makes `p.$pid.tsx` the **parent** of `/chat`. A
+parent that does not render an `<Outlet/>` renders itself and **silently drops the child** —
+no error, no warning, no missing route. The project home is therefore `p.$pid.index.tsx`,
+and it and `p.$pid.chat.tsx` are two sibling leaves with no layout between them;
+`/app/p/$pid` still resolves to the index. Anything adding a third project screen (F3's
+settings) does the same. `src/routeTree.gen.ts` is generated during `vite build` and is
+gitignored — never hand-edit it, and read it after adding a route to confirm the nesting.
 
 ## Modals
 
@@ -251,4 +299,23 @@ whenever the browser supports it.
 
 Read SSE with `fetch` + a `ReadableStream` reader, **not `EventSource`** — `EventSource`
 cannot issue a POST and cannot set an `Authorization` header. It is the obvious API and the
-wrong one here.
+wrong one here. `lib/api/client.ts` exposes `apiStream` for exactly this: same auth, same
+401 refresh, same typed errors, but it hands back the raw `Response` so the caller can read
+`body`.
+
+`lib/api/sse.ts` is the only frame parser and it has its own tests, because a reader gives
+you arbitrary **byte** chunks, not frames. Two failures live there and neither is visible
+from the UI:
+
+- A frame terminator lands mid-chunk routinely, so `decode(value).split("\n\n")` drops
+  whatever straddles it — tokens go missing under load.
+- A multi-byte UTF-8 character splits across chunks, so decoding each chunk independently
+  turns it into a replacement character. Hence `decode(value, { stream: true })`.
+
+`lib/api/chat.ts` dispatches the frames, and the order of its two checks is load-bearing:
+**the top-level `error` key is checked BEFORE filtering on `object`.** A provider that dies
+mid-stream reports in-band — HTTP 200 was already committed when the first frame flushed —
+and filtering on `object` first drops the one frame that exists to end the silence.
+Confirmed live: a bad model gives `http=200` with the provider's own `model_not_found`
+sentence as the last frame before `[DONE]`. The first `chat.completion.chunk` carries
+`delta: {"role": "assistant"}` and no content, so guard on the text, never on the index.

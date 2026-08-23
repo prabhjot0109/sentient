@@ -20,11 +20,13 @@ legacy chat-session system, and added ruff, mypy, import-linter and CI.
 
 **Since then, also done (2026-08-22/23):** phase **G** (identity, access, game-turn
 persistence), **H1–H7** (the live gates and backend hardening), **B1–B3** (the console's
-backend surface), and the first four console screens — **F1** (auth shell), **F2**
-(projects), **F7** (API keys and the Mantella card) and **F6** (the document manager).
-**V2 and V4 PASSED.** The frontend lives in `apps/console`; F3 and F5 are planned but
-unbuilt, so a stranger can sign in, create a project, point Mantella at it and upload lore,
-but cannot yet see the conversation or change the model.
+backend surface), **B4–B5** (error surfacing), and the console screens — **F1** (auth
+shell), **F2** (projects), **F7** (API keys and the Mantella card), **F6** (the document
+manager) and **F5+F8** (the thread sidebar, the transcript and streamed chat).
+**V2 and V4 PASSED, and V3's thread family closed** with F5. The frontend lives in
+`apps/console`; **F3+F4 is the last planned F item left unbuilt**, so a stranger can sign
+in, create a project, point Mantella at it, upload lore and read or hold the conversation,
+but cannot yet change the model or supply their own provider key.
 
 **F6 carries the async state-machine shape F5 and F3 copy** — a 202 with no document id, a
 status reached only by polling `GET /v1/projects/{id}/documents`, and a project-wide reindex
@@ -36,11 +38,26 @@ sets no `refetchInterval` and `main.tsx` builds a bare `new QueryClient()`, so a
 on `projects.status` alone updates only on a window refocus. F6 reads the reindex window off
 the polled document rows instead.
 
-**DEV-2: R9 ran after V1 only. V2 and V3 are still unrun** — `adapters/state/postgres_store.py`
-and the Qdrant payload filters remain fake-only today, and both gates stay BLOCKER-grade before
-any Phase F task starts. When running a gate, print the config the harness resolved (provider,
-model, threshold, paths) before reporting any number — V1 produced one false positive from a
-harness that silently resolved a different embedding provider than the server.
+**F5 found the same lesson on a shorter timescale, and F3 inherits it too: post-turn work
+in `defer()` is not there when the response ends.** `POST /v1/chat` writes both messages
+after the body closes — measured 2026-08-23, three trials, the transcript read **zero
+messages** 406 ms after `[DONE]` and the assistant row landed 1.3–1.7 s later. A refetch
+fired on `[DONE]` therefore blanks the reply the user just watched arrive.
+`apps/console/src/features/threads/transcript.ts` holds the streamed draft until the
+identical row appears, which is exact rather than a heuristic because `openai_wire`
+persists `"".join(parts)` built from the strings it streamed — verified byte-for-byte over
+the wire. Not a count (stale across turns), not a clock, and **not** "does the transcript
+end with an assistant message?" (wrong on turn 2).
+
+**DEV-2: V2 PASSED 2026-08-22. V3 is still open but much smaller than it was** — as of
+2026-08-23 `PostgresStateStore` has been driven against real Neon for users, api keys,
+projects, configs, documents and the whole thread family; **only the credential vault
+remains**, and F3+F4's Task 0 covers it. **The Qdrant payload filters are still entirely
+unexecuted** (`VECTOR_BACKEND` is `faiss`) and no planned F item will close that by
+accident, so it stays BLOCKER-grade and needs its own run. When running a gate, print the
+config the harness resolved (provider, model, threshold, paths) before reporting any
+number — V1 produced one false positive from a harness that silently resolved a different
+embedding provider than the server.
 
 **Plan documents have drifted from the code.** Several quote 125, 200 or 209 tests; the suite
 collects **345** as of 2026-08-23 (`uv run python -m pytest tests/ --collect-only -q | tail -1`).
@@ -121,6 +138,11 @@ pytest are path-scoped to `src/` and `tests/`, so nothing there can turn CI red)
 - **`apps/landing/`** — the marketing site. Its Launch CTA is a plain cross-origin link to the
   console's `/auth/sign-in`, which is what lets the two stay separate builds with no
   cross-origin token handoff.
+
+Console routing has one trap worth knowing before adding a screen: flat file routes mean a
+sibling file turns its neighbour into a **layout**, and a layout with no `<Outlet/>` renders
+the parent and silently drops the child. The project home is `routes/app/p.$pid.index.tsx`
+for that reason; `p.$pid.chat.tsx` sits beside it as a second leaf.
 
 Each has its own `AGENTS.md`, `package.json` and npm lockfile; there is no workspace tool (D5).
 
