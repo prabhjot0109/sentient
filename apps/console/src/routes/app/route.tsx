@@ -1,4 +1,4 @@
-import { createFileRoute, Outlet, useParams } from "@tanstack/react-router";
+import { createFileRoute, Link, Outlet, useParams } from "@tanstack/react-router";
 
 import { Sidebar } from "@/components/shell/Sidebar";
 import { RequireSession, useSignOut } from "@/features/auth";
@@ -15,9 +15,14 @@ function AppShell() {
       <div className="flex min-h-screen bg-background text-foreground">
         <Sidebar
           footer={
-            <button className="text-sm text-muted-foreground hover:underline" onClick={signOut}>
-              Sign out
-            </button>
+            <div className="flex items-center justify-between">
+              <Link to="/app/keys" className="text-sm text-muted-foreground hover:underline">
+                API keys
+              </Link>
+              <button className="text-sm text-muted-foreground hover:underline" onClick={signOut}>
+                Sign out
+              </button>
+            </div>
           }
         >
           <ProjectList activeProjectId={pid} />
