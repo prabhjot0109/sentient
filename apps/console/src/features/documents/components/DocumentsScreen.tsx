@@ -6,6 +6,7 @@ import type { SourceDocument } from "@/types/documents";
 import { REINDEXING } from "@/types/projects";
 
 import { useDeleteDocument, useDocuments, useUploadDocument } from "../hooks";
+import { hasReindexingDocument } from "../polling";
 import { DeleteDocumentDialog } from "./DeleteDocumentDialog";
 import { DocumentList } from "./DocumentList";
 import { DocumentsEmptyState } from "./DocumentsEmptyState";
@@ -36,7 +37,13 @@ export function DocumentsScreen({ projectId }: { projectId: string }) {
         </p>
       </header>
 
-      {project?.status === REINDEXING && <ReindexBanner />}
+      {/*
+        Two sources, because neither alone covers the window. The rows are the
+        live one and carry both edges; the project status is what a project with
+        no documents at all has to fall back on, and what is already true at
+        mount.
+      */}
+      {(project?.status === REINDEXING || hasReindexingDocument(documents)) && <ReindexBanner />}
 
       <UploadDropzone
         onUpload={(file) => upload.mutate(file)}

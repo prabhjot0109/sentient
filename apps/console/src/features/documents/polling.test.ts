@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { SourceDocument } from "@/types/documents";
 
-import { pollIntervalMs, shouldPoll } from "./polling";
+import { hasReindexingDocument, pollIntervalMs, shouldPoll } from "./polling";
 
 const doc = (status: SourceDocument["status"]): SourceDocument => ({
   id: "d1",
@@ -39,6 +39,24 @@ describe("shouldPoll", () => {
 
   it("keeps polling if even one row is unsettled", () => {
     expect(shouldPoll([doc("ready"), doc("processing")])).toBe(true);
+  });
+});
+
+describe("hasReindexingDocument", () => {
+  it("is false before the first response", () => {
+    expect(hasReindexingDocument(undefined)).toBe(false);
+  });
+
+  it("is false for a settled project", () => {
+    expect(hasReindexingDocument([doc("ready"), doc("failed")])).toBe(false);
+  });
+
+  it("does not confuse a first-time ingest with a re-embed", () => {
+    expect(hasReindexingDocument([doc("processing")])).toBe(false);
+  });
+
+  it("is true while any row is being re-embedded", () => {
+    expect(hasReindexingDocument([doc("ready"), doc("reindexing")])).toBe(true);
   });
 });
 

@@ -16,6 +16,25 @@ import { TERMINAL_STATUSES } from "@/types/documents";
 export const shouldPoll = (docs: SourceDocument[] | undefined): boolean =>
   (docs ?? []).some((d) => !TERMINAL_STATUSES.includes(d.status));
 
+/**
+ * Whether a project-wide re-embed is in flight, read off the rows rather than
+ * off `projects.status`.
+ *
+ * Both report it, and only this one is live. Nothing refetches
+ * `projectKeys.detail(id)` on a timer -- `useProjectQuery` sets no
+ * `refetchInterval` and `main.tsx` builds a bare `new QueryClient()` -- so a
+ * banner keyed on the project status alone appears only after a window refocus
+ * and never clears itself. `run_reindex_job` walks every row to `reindexing`
+ * before it touches the project, and `shouldPoll` treats that as unsettled, so
+ * this query is already polling for the whole window and both edges land on
+ * their own.
+ *
+ * `processing` is deliberately excluded: that is a first-time ingest, which is
+ * not a re-embed and must not raise the "NPCs answer 409" banner.
+ */
+export const hasReindexingDocument = (docs: SourceDocument[] | undefined): boolean =>
+  (docs ?? []).some((d) => d.status === "reindexing");
+
 const FAST_MS = 1_500;
 const FAST_UNTIL = 20; // ~30s
 const MEDIUM_MS = 5_000;
