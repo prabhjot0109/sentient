@@ -33,9 +33,14 @@ export function DeleteProjectDialog({
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
-    await remove.mutateAsync(project.id);
-    close();
-    onDeleted();
+    try {
+      await remove.mutateAsync(project.id);
+      close();
+      onDeleted();
+    } catch {
+      // The mutation's own error state renders below. Rethrowing here would
+      // only surface as an unhandled rejection.
+    }
   };
 
   return (

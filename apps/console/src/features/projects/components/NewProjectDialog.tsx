@@ -27,9 +27,14 @@ export function NewProjectDialog({ label = "New project", className = "" }) {
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
-    const project = await create.mutateAsync({ name: name.trim(), basePreset });
-    close();
-    navigate({ to: "/app/p/$pid", params: { pid: project.id } });
+    try {
+      const project = await create.mutateAsync({ name: name.trim(), basePreset });
+      close();
+      navigate({ to: "/app/p/$pid", params: { pid: project.id } });
+    } catch {
+      // The mutation's own error state renders below. Rethrowing here would
+      // only surface as an unhandled rejection.
+    }
   };
 
   return (

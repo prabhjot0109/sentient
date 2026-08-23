@@ -24,7 +24,11 @@ export function MantellaSetupCard({ created }: { created: CreatedApiKey | null }
   const { data: projects } = useProjects();
   const [pickedId, setPickedId] = useState<string | null>(null);
 
-  const projectId = pickedId ?? projects?.[0]?.id ?? null;
+  // Resolved against the live list, not trusted from state: a project deleted in
+  // another tab would otherwise leave the picker blank and the URL pointing at a
+  // project that no longer exists.
+  const projectId =
+    projects?.find((project) => project.id === pickedId)?.id ?? projects?.[0]?.id ?? null;
   const key = created?.api_key ?? null;
 
   // What goes on screen and what goes on the clipboard differ ON PURPOSE. The

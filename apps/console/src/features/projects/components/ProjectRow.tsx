@@ -63,7 +63,9 @@ export function ProjectRow({ project, isActive }: { project: Project; isActive: 
         onClose={() => setDialog("none")}
         // Only when the deleted project is the one on screen. Navigating away from
         // a project the user is not looking at would yank them out of their work.
-        onDeleted={() => isActive && navigate({ to: "/app" })}
+        onDeleted={() => {
+          if (isActive) navigate({ to: "/app" });
+        }}
       />
     </div>
   );

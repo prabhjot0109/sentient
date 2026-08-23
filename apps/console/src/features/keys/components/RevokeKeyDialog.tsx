@@ -15,9 +15,14 @@ export function RevokeKeyDialog({
   const revoke = useRevokeKey();
 
   const submit = async () => {
-    await revoke.mutateAsync(apiKey.id);
-    revoke.reset();
-    onClose();
+    try {
+      await revoke.mutateAsync(apiKey.id);
+      revoke.reset();
+      onClose();
+    } catch {
+      // The mutation's own error state renders below. Rethrowing here would
+      // only surface as an unhandled rejection.
+    }
   };
 
   return (

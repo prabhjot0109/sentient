@@ -23,9 +23,14 @@ export function NewKeyDialog({ onCreated }: { onCreated: (key: CreatedApiKey) =>
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
-    const key = await create.mutateAsync(label.trim() || null);
-    close();
-    onCreated(key);
+    try {
+      const key = await create.mutateAsync(label.trim() || null);
+      close();
+      onCreated(key);
+    } catch {
+      // The mutation's own error state renders below. Rethrowing here would
+      // only surface as an unhandled rejection.
+    }
   };
 
   return (

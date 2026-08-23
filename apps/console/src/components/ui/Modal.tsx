@@ -30,6 +30,16 @@ export function Modal({
     if (!open && dialog.open) dialog.close();
   }, [open]);
 
+  // Unmounting an OPEN dialog removes it from the DOM without closing it, which
+  // can strand the top-layer and backdrop state. KeysScreen unmounts the reveal
+  // rather than toggling it, so this is reached in practice.
+  useEffect(() => {
+    const dialog = ref.current;
+    return () => {
+      if (dialog?.open) dialog.close();
+    };
+  }, []);
+
   return (
     <dialog
       ref={ref}
