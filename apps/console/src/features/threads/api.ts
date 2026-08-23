@@ -32,11 +32,7 @@ export const useThreadsQuery = (projectId: string) =>
  * `transcript.ts` for the measurement. It stops on its own the moment the row
  * appears; there is no timer to cancel and no deadline computed from a clock.
  */
-export const useMessagesQuery = (
-  threadId: string | null,
-  pendingDraft = "",
-  isStreaming = false,
-) =>
+export const useMessagesQuery = (threadId: string | null, pendingDraft = "", isStreaming = false) =>
   useQuery({
     queryKey: threadKeys.messages(threadId ?? "none"),
     queryFn: () => api.listMessages(threadId as string),
