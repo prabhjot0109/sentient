@@ -1,10 +1,15 @@
 """The web chat surface: `/v1/chat` and `/v1/retrieve`.
 
-Error translation, preserved exactly from the pre-R9 route bodies:
+Error translation, on BOTH routes:
 
     ReindexInProgress -> 409 "project is reindexing; retrieval temporarily unavailable"
     (thread_id without project_id) -> 400
     (unknown project / thread)     -> 404
+
+`/v1/retrieve` gained its 409 in B5. It previously called no reindex guard at
+all, so a lore search during a rebuild answered 200 with an empty chunk list --
+indistinguishable from a project with no lore in it. Measured 2026-08-23: the
+same query returned its chunk once the job finished.
 """
 
 from __future__ import annotations
@@ -197,6 +202,10 @@ async def retrieve_endpoint(
             session_id=None,
             provider_key=deps._as_provider_key(payload.api_key),
         )
+        # B5: retrieval had no reindex guard, so a search during a rebuild
+        # returned 200 with zero chunks -- indistinguishable from an empty
+        # project. Measured 2026-08-23.
+        service.assert_retrievable(ctx)
         archives = await deps.get_archives_for_context(ctx)
         chunks = await archives.retrieve(
             payload.query,
@@ -226,6 +235,8 @@ async def retrieve_endpoint(
             retrieval_ms=elapsed_ms,
             chunks=serialized_chunks,
         )
+    except ReindexInProgress as e:
+        raise HTTPException(status_code=409, detail=str(e)) from e
     except HTTPException:
         raise
     except Exception as e:

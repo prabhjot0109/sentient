@@ -88,6 +88,19 @@ def conversation_prefix_hash_after(messages: list[OpenAIMessage], reply: str) ->
     return _hash_pairs([*_transcript_pairs(messages), ("assistant", reply)])
 
 
+def assert_retrievable(ctx) -> None:
+    """Raise if this project's vectors are mid-rebuild.
+
+    One function, three call sites. It used to be two inline copies that
+    disagreed on whether to test `project_id`, and the third path -- /v1/retrieve
+    -- had no copy at all, so a lore search during a reindex returned 200 with an
+    empty chunk list. "There is no lore" and "the lore is being re-embedded" are
+    different sentences and the console has to be able to tell them apart.
+    """
+    if ctx.project_id and ctx.status == "reindexing_required":
+        raise ReindexInProgress("project is reindexing; retrieval temporarily unavailable")
+
+
 async def _ground_project_turn(
     ctx,
     history,
@@ -103,8 +116,7 @@ async def _ground_project_turn(
     because the two chat surfaces each re-implemented this once before, and one
     of them then got streaming while the other did not.
     """
-    if ctx.status == "reindexing_required":
-        raise ReindexInProgress("project is reindexing; retrieval temporarily unavailable")
+    assert_retrievable(ctx)
 
     async def _retrieve():
         try:
@@ -248,8 +260,7 @@ async def prepare_completion(
     result — streamed SSE or a single completion body — which is what makes
     both chat surfaces renderers over one call.
     """
-    if ctx.project_id and ctx.status == "reindexing_required":
-        raise ReindexInProgress("project is reindexing; retrieval temporarily unavailable")
+    assert_retrievable(ctx)
 
     model_name = ctx.llm_settings["model"]
     query = last_user_text(request.messages)
