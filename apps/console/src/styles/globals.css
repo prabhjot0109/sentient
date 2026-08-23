@@ -3,3 +3,12 @@
    @source safelist for the classes better-auth-ui renders at runtime, which
    Tailwind's scanner cannot see in our own source. */
 @import "@neondatabase/neon-js/ui/tailwind";
+
+/* The theme import defines the tokens but paints nothing. Without this the shell
+   sits on the browser default white while every panel uses the token palette. */
+@layer base {
+  body {
+    background-color: var(--color-background);
+    color: var(--color-foreground);
+  }
+}

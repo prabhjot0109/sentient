@@ -1,19 +1,28 @@
-import { createFileRoute, Outlet } from "@tanstack/react-router";
+import { createFileRoute, Outlet, useParams } from "@tanstack/react-router";
 
+import { Sidebar } from "@/components/shell/Sidebar";
 import { RequireSession, useSignOut } from "@/features/auth";
+import { ProjectList } from "@/features/projects";
 
 function AppShell() {
   const signOut = useSignOut();
+  // strict:false because this layout renders above both /app/ and /app/p/$pid,
+  // and only one of those has a pid.
+  const { pid } = useParams({ strict: false });
+
   return (
     <RequireSession>
-      <div className="flex min-h-screen">
-        {/* F2 replaces this rail with the projects sidebar. */}
-        <aside className="w-64 shrink-0 border-r p-4">
-          <button className="text-sm underline" onClick={signOut}>
-            Sign out
-          </button>
-        </aside>
-        <main className="flex-1">
+      <div className="flex min-h-screen bg-background text-foreground">
+        <Sidebar
+          footer={
+            <button className="text-sm text-muted-foreground hover:underline" onClick={signOut}>
+              Sign out
+            </button>
+          }
+        >
+          <ProjectList activeProjectId={pid} />
+        </Sidebar>
+        <main className="flex-1 overflow-y-auto">
           <Outlet />
         </main>
       </div>

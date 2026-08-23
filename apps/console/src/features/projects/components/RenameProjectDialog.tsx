@@ -1,0 +1,65 @@
+import { useState } from "react";
+
+import { Modal } from "@/components/ui/Modal";
+import type { Project } from "@/types/projects";
+
+import { useRenameProject } from "../hooks";
+
+export function RenameProjectDialog({
+  project,
+  open,
+  onClose,
+}: {
+  project: Project;
+  open: boolean;
+  onClose: () => void;
+}) {
+  const [name, setName] = useState(project.name);
+  const rename = useRenameProject();
+
+  const close = () => {
+    setName(project.name);
+    rename.reset();
+    onClose();
+  };
+
+  const submit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    await rename.mutateAsync({ id: project.id, name: name.trim() });
+    close();
+  };
+
+  return (
+    <Modal open={open} onClose={close} title="Rename project">
+      <form onSubmit={submit} className="space-y-4">
+        <input
+          autoFocus
+          required
+          maxLength={200}
+          value={name}
+          onChange={(event) => setName(event.target.value)}
+          className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+        />
+
+        {rename.error && <p className="text-sm text-destructive">{rename.error.message}</p>}
+
+        <div className="flex justify-end gap-2">
+          <button
+            type="button"
+            onClick={close}
+            className="rounded-md px-3 py-2 text-sm hover:bg-accent"
+          >
+            Cancel
+          </button>
+          <button
+            type="submit"
+            disabled={rename.isPending || !name.trim()}
+            className="rounded-md bg-primary px-3 py-2 text-sm text-primary-foreground disabled:opacity-50"
+          >
+            {rename.isPending ? "Saving…" : "Rename"}
+          </button>
+        </div>
+      </form>
+    </Modal>
+  );
+}

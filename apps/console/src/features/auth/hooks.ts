@@ -1,6 +1,3 @@
-import { useQuery } from "@tanstack/react-query";
-
-import { listProjects } from "@/lib/api/projects";
 import { authClient } from "@/lib/auth";
 
 /**
@@ -17,18 +14,3 @@ export const useSignOut = () => async () => {
   // any in-flight stream, which is what "signed out" has to mean.
   window.location.href = "/auth/sign-in";
 };
-
-/**
- * F1's end-to-end proof, and nothing more. `GET /v1/projects` is authenticated,
- * so a 200 here means the seam attached a token, Neon's JWKS verified it, and
- * `ensure_user(sub)` resolved it to a mirrored `users` row. That chain is the V4
- * gate. `/health` cannot show any of it -- it is `skipAuth`.
- *
- * Delete this when F2 lands `features/projects` with a real `useProjects()`.
- */
-export const useAuthProbe = () =>
-  useQuery({
-    queryKey: ["auth-probe", "projects"],
-    queryFn: listProjects,
-    retry: false,
-  });
