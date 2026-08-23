@@ -15,6 +15,18 @@ if (!authUrl) {
 }
 
 /**
+ * One adapter instance, handed to the wrapper as a factory that ignores its
+ * arguments. Building it here rather than letting `createInternalNeonAuth` build
+ * it is the difference between a correctly typed client and a cast:
+ * `NeonAuthPublicApi<T>` is a conditional whose vanilla branch matches the React
+ * adapter first, so `neonAuth.adapter` is typed as the VANILLA client -- where
+ * `useSession` is a nanostores atom, not a hook. Calling it is TS2349.
+ * `adapter.getBetterAuthInstance()` is typed `ReactAuthClient` and is the same
+ * object at runtime.
+ */
+const adapter = BetterAuthReactAdapter()(authUrl);
+
+/**
  * `createInternalNeonAuth`, not `createAuthClient`, and the name is misleading:
  * both are exported from the package's public entry and documented in the same
  * JSDoc block. `createAuthClient(url, cfg)` is literally
@@ -26,15 +38,13 @@ if (!authUrl) {
  * config type, and Better Auth's own client config already sets
  * `credentials: "include"` whenever the browser supports it.
  */
-const neonAuth = createInternalNeonAuth(authUrl, {
-  adapter: BetterAuthReactAdapter(),
-});
+const neonAuth = createInternalNeonAuth(authUrl, { adapter: () => adapter });
 
 /**
  * The Better Auth React client: `useSession()`, `signIn`, `signUp`, `signOut`.
  * This is what `NeonAuthUIProvider` wants for its `authClient` prop.
  */
-export const authClient = neonAuth.adapter;
+export const authClient = adapter.getBetterAuthInstance();
 
 /**
  * The JWT the Sentient backend verifies against Neon's JWKS.

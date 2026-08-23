@@ -1,5 +1,11 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Navigate } from "@tanstack/react-router";
 
-export const Route = createFileRoute("/")({
-  component: () => <div className="p-8 text-lg">Sentient console</div>,
-});
+import { useSession } from "@/features/auth";
+
+function Landing() {
+  const { data, isPending } = useSession();
+  if (isPending) return null;
+  return <Navigate to={data ? "/app" : "/auth/sign-in"} />;
+}
+
+export const Route = createFileRoute("/")({ component: Landing });

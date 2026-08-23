@@ -1,1 +1,5 @@
 @import "tailwindcss";
+/* Must come AFTER tailwindcss: it pulls the auth-UI theme variables and the
+   @source safelist for the classes better-auth-ui renders at runtime, which
+   Tailwind's scanner cannot see in our own source. */
+@import "@neondatabase/neon-js/ui/tailwind";
