@@ -32,13 +32,22 @@ function ProjectHome() {
             <strong>{project.persona_source}</strong>
           </p>
         </div>
-        <Link
-          to="/app/p/$pid/chat"
-          params={{ pid }}
-          className="shrink-0 text-sm underline underline-offset-4"
-        >
-          Conversations →
-        </Link>
+        <div className="flex shrink-0 gap-4">
+          <Link
+            to="/app/p/$pid/chat"
+            params={{ pid }}
+            className="text-sm underline underline-offset-4"
+          >
+            Conversations →
+          </Link>
+          <Link
+            to="/app/p/$pid/settings"
+            params={{ pid }}
+            className="text-sm underline underline-offset-4"
+          >
+            Settings →
+          </Link>
+        </div>
       </header>
 
       <section className="space-y-1">
@@ -49,8 +58,6 @@ function ProjectHome() {
       </section>
 
       <DocumentsScreen projectId={pid} />
-
-      <p className="text-sm text-muted-foreground">Settings land here as F3 ships.</p>
     </div>
   );
 }

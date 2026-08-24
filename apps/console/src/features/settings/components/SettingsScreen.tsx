@@ -10,6 +10,7 @@ import { willReindex } from "../reindex";
 import { ConfigForm } from "./ConfigForm";
 import { PersonaEditor } from "./PersonaEditor";
 import { ReindexWarningDialog } from "./ReindexWarningDialog";
+import { SpeechProviderNote } from "./SpeechProviderNote";
 
 const message = (error: unknown): string | null =>
   error instanceof ApiError ? error.detail : error ? "Something went wrong." : null;
@@ -55,6 +56,8 @@ export function SettingsScreen({ projectId }: { projectId: string }) {
         isSaving={updateConfig.isPending}
         error={message(updateConfig.error)}
       />
+
+      <SpeechProviderNote />
 
       <ReindexWarningDialog
         open={confirming !== null}

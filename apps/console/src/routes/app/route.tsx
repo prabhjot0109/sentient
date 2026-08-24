@@ -16,9 +16,22 @@ function AppShell() {
         <Sidebar
           footer={
             <div className="flex items-center justify-between">
-              <Link to="/app/keys" className="text-sm text-muted-foreground hover:underline">
-                API keys
-              </Link>
+              <div className="flex flex-col gap-1">
+                <Link to="/app/keys" className="text-sm text-muted-foreground hover:underline">
+                  API keys
+                </Link>
+                {/*
+                  User-level, not project-level -- `provider_credentials` is keyed
+                  on the user -- so it belongs in the shell rather than on a
+                  project page.
+                */}
+                <Link
+                  to="/app/credentials"
+                  className="text-sm text-muted-foreground hover:underline"
+                >
+                  Provider keys
+                </Link>
+              </div>
               <button className="text-sm text-muted-foreground hover:underline" onClick={signOut}>
                 Sign out
               </button>
