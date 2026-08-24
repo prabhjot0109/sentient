@@ -122,9 +122,14 @@ never cleared. It reads the window off the polled document rows instead:
 status is non-terminal, so `features/documents`' own query is already polling across the
 whole window and both edges land by themselves. See `features/documents/polling.ts`.
 
-**F3 inherits this**, since its reindex warning has the same shape. Either derive the state
-from something that already polls, or give the project query its own interval -- but do not
-assume the cached project row moves.
+**F3 inherited this and went further, because the window turned out to be smaller than the
+staleness.** Re-measured 2026-08-24 by polling the project once a second: a one-document
+project read `reindexing_required` at t+1 s and `active` at t+2 s, and an **empty** project
+never showed the flip at all. So `projects.status` is not merely stale here, it is usually
+already over. `features/settings/reindex.ts` therefore predicts a reindex from the config
+patch and the stored config — the two things the client already holds — and reads neither
+the status nor a clock. Derive the state from something that already polls, or from the
+change you are about to make; never assume the cached project row moves.
 
 ## Polling an async backend state
 
@@ -177,6 +182,62 @@ and it and `p.$pid.chat.tsx` are two sibling leaves with no layout between them;
 `/app/p/$pid` still resolves to the index. Anything adding a third project screen (F3's
 settings) does the same. `src/routeTree.gen.ts` is generated during `vite build` and is
 gitignored — never hand-edit it, and read it after adding a route to confirm the nesting.
+
+## Error bodies are not always strings
+
+`lib/api/client.ts` maps a failed response onto a typed error carrying a `detail` string.
+FastAPI supplies that as a string for a raised `HTTPException` -- and as an **array** of
+error objects for a request-validation failure:
+
+```
+PUT /v1/projects/{id}/config  {"temperature": 5}
+422 {"detail":[{"type":"less_than_equal","loc":["body","temperature"],
+                "msg":"Input should be less than or equal to 2","input":5}]}
+```
+
+`readDetail` originally treated anything non-string as absent and fell back to
+`response.statusText`, so **every 422 in the console read "Unprocessable Content"**. It
+survived four F items because the screens before F3 produced string details almost
+exclusively; a config form with seventeen bounded fields hits the array shape routinely.
+
+It is flattened at the seam now, into `temperature: Input should be less than or equal to 2`,
+with `loc[0]` (the request part -- `body`, `query`, `path`) dropped so the message names the
+field a reader can act on. Three tests pin it. **Do not add a second flattener in a form**:
+one place turns a status into an error, and that is where the shape of an error body is known.
+
+## Two response shapes that are not what their route name suggests
+
+Measured 2026-08-24 while building F3+F4, both after the plan had typed them wrongly:
+
+1. **`PUT /v1/projects/{id}/persona` returns the stored CONFIG row, not the project detail.**
+   `services.projects.set_persona` returns `upsert_project_config(...)` -- the same 21-key
+   body the config PUT gives back, carrying the **stored** `persona_prompt` and no
+   `persona_source`. Two routes write one column and both answer with the config.
+2. **`POST /v1/credentials` returns `{provider, key_hint}` only.** `created_at` is on the
+   listing alone, so the ack has its own type.
+
+And one value that is not what it looks like: **`key_hint` already carries its leading
+ellipsis.** `core/crypto.key_hint` is `"…" + raw[-4:]`, so a stored key arrives as the
+five-character string `"…ABCD"`. Rendering it as `…{key_hint}` prints `……ABCD`.
+
+## Null means unset, and omitting is not clearing
+
+`project_configs` is a row of nullable columns where **null means "unset"**, not "the default
+happens to be this" -- which is why `get_project_detail` reports the config **as stored**
+while reporting the persona **as resolved**. Rendering a resolved default into an input pins
+a value the user never chose, and the next save writes it.
+
+`ConfigInput` is `extra="forbid"` and the service applies `model_dump(exclude_unset=True)`,
+so the three cases are genuinely different and were measured over the wire:
+
+| body                         | result                |
+| ---------------------------- | --------------------- |
+| `{"rag_top_k": 9}`           | set to `9`            |
+| `{"rag_top_k": null}`        | **cleared** to `null` |
+| a patch omitting `rag_top_k` | **preserved** at `9`  |
+
+`JSON.stringify` drops `undefined` and keeps `null`, which gives omit-vs-clear for free. Do
+not "helpfully" normalise `undefined` to `null` anywhere between the form and the seam.
 
 ## Modals
 

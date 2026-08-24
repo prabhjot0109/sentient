@@ -45,6 +45,22 @@ different hops. Neon Auth trusts the hostname `localhost` and rejects
 `http://127.0.0.1:<port>` with `INVALID_ORIGIN` before it validates anything, so the console
 is browsed at `localhost` while its `VITE_API_BASE_URL` stays `127.0.0.1:8000`.
 
+From the console you can create a project per game, mint an API key and copy the Mantella
+base URL, upload lore and watch it index, read and hold conversations, change the model and
+retrieval settings, edit the project's persona, and store your own provider API keys.
+
+**The provider-key vault needs `SENTIENT_SECRET_KEY`.** Without it every credential route
+answers `503 credential vault is not configured` — including the listing, so the console
+says the vault is unconfigured rather than that you have no keys, because the two lead to
+opposite next actions. Generate one with:
+
+```bash
+python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+```
+
+Rotating or removing that key leaves every stored credential undecryptable; there is no
+re-encrypt path yet.
+
 `apps/web` is the frozen pre-refactor test UI, kept for reference only; `apps/landing` is the
 marketing site. Neither is the console.
 
@@ -76,7 +92,7 @@ SQLite at `data/state.db`, and auth disabled.
 | `DATABASE_URL` | none | Postgres (Neon or Supabase). Falls back to SQLite when unset |
 | `NEON_AUTH_JWKS_URL` | none | Blank disables auth and serves a single `default` user |
 | `NEON_AUTH_BASE_URL` | none | Written by `neon env pull`; the token `iss` is its origin |
-| `SENTIENT_SECRET_KEY` | none | Fernet key enabling the per-user credential vault |
+| `SENTIENT_SECRET_KEY` | none | Fernet key enabling the per-user credential vault. Unset ⇒ every `/v1/credentials` route answers 503, which the console renders as a state |
 | `LOG_LEVEL` / `LOG_FORMAT` | `INFO` / `text` | `LOG_FORMAT=json` emits one JSON object per line for a log shipper |
 | `UPLOAD_MAX_BYTES` / `UPLOAD_USER_QUOTA_BYTES` | 25 MiB / 500 MiB | Per-file cap and per-user storage total |
 
@@ -254,6 +270,14 @@ so the 409 can outlive the rebuild by up to the cache TTL (60 s). Measured 2026-
 one-chunk project rebuilt in ~2 s and kept answering 409 for ~60 s. This predates the guard
 on `/v1/retrieve` and applies equally to the two chat paths, which have guarded on the same
 cached status since R7.
+
+**A corollary for anything rendering the reindex state:** the project's own `status` is a
+much narrower window than the 409. Re-measured 2026-08-24 by polling once a second, a
+one-document project read `reindexing_required` at t+1 s and `active` at t+2 s, and an
+**empty** project never showed the flip at all. So a UI keyed on `projects.status` will
+usually miss the rebuild entirely while a client keyed on the 409 still sees it a minute
+later. The console reads the window off the polled document rows instead, and its settings
+pane predicts a reindex from the config change rather than from any status at all.
 
 ## Development
 

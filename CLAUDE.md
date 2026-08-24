@@ -18,15 +18,16 @@ Plans 01–03, R1–R7, R8, V1 and **R9 (the modular-monolith refactor) are all 
 replaced the 1,727-line `api.py` with a four-layer package under `src/sentient/`, deleted the
 legacy chat-session system, and added ruff, mypy, import-linter and CI.
 
-**Since then, also done (2026-08-22/23):** phase **G** (identity, access, game-turn
+**Since then, also done (2026-08-22/24):** phase **G** (identity, access, game-turn
 persistence), **H1–H7** (the live gates and backend hardening), **B1–B3** (the console's
 backend surface), **B4–B5** (error surfacing), and the console screens — **F1** (auth
 shell), **F2** (projects), **F7** (API keys and the Mantella card), **F6** (the document
-manager) and **F5+F8** (the thread sidebar, the transcript and streamed chat).
-**V2 and V4 PASSED, and V3's thread family closed** with F5. The frontend lives in
-`apps/console`; **F3+F4 is the last planned F item left unbuilt**, so a stranger can sign
-in, create a project, point Mantella at it, upload lore and read or hold the conversation,
-but cannot yet change the model or supply their own provider key.
+manager), **F5+F8** (the thread sidebar, the transcript and streamed chat) and **F3+F4**
+(project settings, the persona editor and the credential vault). **V2 and V4 PASSED, and
+V3 is down to Qdrant alone** — F5 closed its thread family and F3+F4 its credential family.
+The frontend lives in `apps/console`; **every planned F item is built**, so a stranger can
+sign in, create a project, point Mantella at it, upload lore, read or hold the conversation,
+change the model, edit the persona and supply their own provider keys.
 
 **F6 carries the async state-machine shape F5 and F3 copy** — a 202 with no document id, a
 status reached only by polling `GET /v1/projects/{id}/documents`, and a project-wide reindex
@@ -49,30 +50,45 @@ persists `"".join(parts)` built from the strings it streamed — verified byte-f
 the wire. Not a count (stale across turns), not a clock, and **not** "does the transcript
 end with an assistant message?" (wrong on turn 2).
 
-**DEV-2: V2 PASSED 2026-08-22. V3 is still open but much smaller than it was** — as of
-2026-08-23 `PostgresStateStore` has been driven against real Neon for users, api keys,
-projects, configs, documents and the whole thread family; **only the credential vault
-remains**, and F3+F4's Task 0 covers it. **The Qdrant payload filters are still entirely
-unexecuted** (`VECTOR_BACKEND` is `faiss`) and no planned F item will close that by
-accident, so it stays BLOCKER-grade and needs its own run. When running a gate, print the
-config the harness resolved (provider, model, threshold, paths) before reporting any
-number — V1 produced one false positive from a harness that silently resolved a different
-embedding provider than the server.
+**F3+F4 found the same class of thing a third time, and one defect older than all of
+them.** The reindex window on a one-document project is **under two seconds** — status
+`reindexing_required` at t+1s, `active` at t+2s — and on an empty project it is never
+observable at all, so `willReindex` predicts from the config patch and never reads
+`projects.status`. Separately, **every 422 in the console rendered as "Unprocessable
+Content"** until 2026-08-24: `lib/api/client.ts` treated a non-string `detail` as absent,
+and FastAPI answers a validation failure with an **array**. It survived four F items because
+earlier screens produced string details almost exclusively. Two more measured traps worth
+carrying: `PUT /v1/projects/{id}/persona` returns the **stored config row**, not the project
+detail, and `core/crypto.key_hint` **already includes its leading ellipsis**, so rendering
+`…{key_hint}` doubles it.
+
+**DEV-2: V2 PASSED 2026-08-22. V3 is down to one item.** As of 2026-08-24 every
+`PostgresStateStore` family has been driven against real Neon — users, api keys, projects,
+configs, documents, the whole thread family, and now the credential vault (F3+F4's Task 0,
+including a Fernet round-trip back to the exact plaintext). **The Qdrant payload filters are
+still entirely unexecuted** (`VECTOR_BACKEND` is `faiss`); every F item is built, so nothing
+will close them by accident now, and they stay BLOCKER-grade needing their own deliberate
+run. When running a gate, print the config the harness resolved (provider, model,
+threshold, paths) before reporting any number — V1 produced one false positive from a
+harness that silently resolved a different embedding provider than the server.
 
 **Plan documents have drifted from the code.** Several quote 125, 200, 209 or 345 tests; the
-suite collects **356** as of 2026-08-23
+suite collects **356** as of 2026-08-24
 (`uv run python -m pytest tests/ --collect-only -q | tail -1`).
 Each plan file also carries 🔶 DELTA banners that override its body text, newest delta wins.
 Never copy a test count, file list, or "state at time of writing" line out of a plan —
 regenerate it, and confirm a referenced file exists before relying on it.
 
-**Verify a backend shape against the running server before writing a type against it.** The
-two state stores disagree in ways no gate catches, and three such divergences have now cost a
-plan revision each: `projects.created_at` and `projects.user_id` are returned by SQLite and
-not by Postgres, `api_keys.revoked` is `INTEGER` on one and `boolean` on the other, and
-`chat_threads.prefix_hash` is returned by SQLite only. Ten minutes of `curl` against a live
-project turns each of those from a bug into a non-event. `deps.current_user` accepts an
-`X-API-Key` as readily as a Bearer JWT, so the whole console surface can be driven from a
+**Verify a backend shape against the running server before writing a type against it.** It
+has now paid on five consecutive plans. The two state stores disagree in ways no gate
+catches, and three such divergences have cost a plan revision each: `projects.created_at`
+and `projects.user_id` are returned by SQLite and not by Postgres, `api_keys.revoked` is
+`INTEGER` on one and `boolean` on the other, and `chat_threads.prefix_hash` is returned by
+SQLite only — and per METHOD on Postgres, not per store. F3+F4 added four more that were
+not divergences at all but simply wrong guesses in a plan: two response shapes, one value
+that already carried its own ellipsis, and one export that already existed. Ten minutes of
+`curl` against a live project turns each of those from a bug into a non-event.
+`deps.current_user` accepts an `X-API-Key` as readily as a Bearer JWT, so the whole console surface can be driven from a
 throwaway probe identity with no browser. `documents` and `chat_messages` were checked this
 way on 2026-08-23 and **agree** on both stores — record the negatives too, or the next reader
 re-measures them.
