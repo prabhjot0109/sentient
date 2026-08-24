@@ -12,10 +12,43 @@ function withAuth(init: RequestInit, token: string | null): RequestInit {
   return { ...init, headers };
 }
 
+/** One entry of FastAPI's request-validation array. */
+type ValidationDetail = { loc?: unknown[]; msg?: string };
+
+/**
+ * FastAPI answers a request-validation failure with `detail` as an ARRAY of error
+ * objects rather than a string:
+ *
+ *   [{"type":"less_than_equal","loc":["body","temperature"],
+ *     "msg":"Input should be less than or equal to 2","input":5}]
+ *
+ * Read as "not a string" it fell through to `statusText` -- "Unprocessable
+ * Content" -- which tells the user nothing about which of seventeen fields was
+ * out of range. Flattened here, at the one place that turns a status into an
+ * error, rather than in whichever form happened to notice first.
+ *
+ * `loc[0]` is the request part (`body`, `query`, `path`) and is dropped: the
+ * field name is what the reader can act on, and it is what sits beside the input
+ * that produced it.
+ */
+function flattenValidation(detail: ValidationDetail[]): string {
+  return detail
+    .map((entry) => {
+      const field = Array.isArray(entry.loc) ? entry.loc.slice(1).join(".") : "";
+      const message = entry.msg ?? "is invalid";
+      return field ? `${field}: ${message}` : message;
+    })
+    .join("; ");
+}
+
 async function readDetail(response: Response): Promise<string> {
   try {
     const body = await response.json();
-    return typeof body?.detail === "string" ? body.detail : response.statusText;
+    if (typeof body?.detail === "string") return body.detail;
+    if (Array.isArray(body?.detail) && body.detail.length > 0) {
+      return flattenValidation(body.detail);
+    }
+    return response.statusText;
   } catch {
     // A proxy or a crash can return HTML. Never let the error path throw its own
     // error -- that replaces a diagnosable 502 with an opaque SyntaxError.

@@ -76,6 +76,59 @@ describe("apiFetch", () => {
     });
   });
 
+  // FastAPI answers a request-validation failure with `detail` as an ARRAY of
+  // error objects, not a string. Every screen before F3 produced string details
+  // almost exclusively; F3's config form has seventeen bounded fields and is the
+  // first surface that hits the array shape routinely. Measured 2026-08-24:
+  // PUT /config {"temperature":5} -> 422 with the array below.
+  it("flattens a FastAPI validation array into a readable sentence", async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      jsonResponse(422, {
+        detail: [
+          {
+            type: "less_than_equal",
+            loc: ["body", "temperature"],
+            msg: "Input should be less than or equal to 2",
+            input: 5,
+          },
+        ],
+      }),
+    );
+    await expect(apiFetch("/v1/projects/x/config")).rejects.toMatchObject({
+      status: 422,
+      detail: "temperature: Input should be less than or equal to 2",
+    });
+  });
+
+  it("joins several validation errors instead of surfacing only the first", async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      jsonResponse(422, {
+        detail: [
+          { loc: ["body", "temperature"], msg: "Input should be less than or equal to 2" },
+          { loc: ["body", "rag_top_k"], msg: "Input should be greater than or equal to 1" },
+        ],
+      }),
+    );
+    await expect(apiFetch("/v1/projects/x/config")).rejects.toMatchObject({
+      detail:
+        "temperature: Input should be less than or equal to 2; " +
+        "rag_top_k: Input should be greater than or equal to 1",
+    });
+  });
+
+  it("drops the leading body/query segment rather than printing it", async () => {
+    // `loc` is ["body", "<field>"] for a JSON body. Naming the field alone is
+    // what makes the message usable next to the input that produced it.
+    vi.mocked(fetch).mockResolvedValue(
+      jsonResponse(422, {
+        detail: [{ loc: ["body"], msg: "Input should be a valid dictionary" }],
+      }),
+    );
+    await expect(apiFetch("/v1/x")).rejects.toMatchObject({
+      detail: "Input should be a valid dictionary",
+    });
+  });
+
   it("handles a non-JSON error body without throwing a parse error", async () => {
     vi.mocked(fetch).mockResolvedValue(new Response("<html>502</html>", { status: 502 }));
     await expect(apiFetch("/v1/x")).rejects.toMatchObject({ status: 502 });
