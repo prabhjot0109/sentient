@@ -16,6 +16,27 @@ OPENAI_COMPATIBLE = {"openai", "cerebras", "openrouter"}
 LLM_ONLY_PROVIDERS = {"groq", "cerebras", "openrouter"}
 SearchType = Literal["mmr", "similarity"]
 
+# A model name only means anything on the provider it was written for, so every
+# layer that can swap a provider needs the replacement provider's own default.
+# The env layer uses these below; the project overlay in services/runtime.py uses
+# them for the same reason (a project that sets `embedding_provider` alone).
+DEFAULT_CHAT_MODELS: dict[str, str] = {
+    "google": "gemini-2.5-flash",
+    "openai": "gpt-4o-mini",
+    "huggingface": "Qwen/Qwen2.5-7B-Instruct",
+    # Groq's fastest non-reasoning chat model — no "thinking" pass, so replies
+    # come back immediately, which is what the NPC path wants.
+    "groq": "llama-3.3-70b-versatile",
+    "cerebras": "llama-3.3-70b",
+    "openrouter": "meta-llama/llama-3.3-70b-instruct",
+}
+
+DEFAULT_EMBEDDING_MODELS: dict[str, str] = {
+    "google": "models/gemini-embedding-001",
+    "openai": "text-embedding-3-small",
+    "huggingface": "BAAI/bge-base-en-v1.5",
+}
+
 
 def _env_int(name: str, default: int, minimum: int = 1) -> int:
     raw = os.getenv(name)
@@ -266,19 +287,7 @@ def load_rag_settings(api_key: str | None = None) -> RAGSettings:
         fallback="huggingface",
     )
     llm_api_key = provider_api_key(llm_provider, api_key)
-    llm_model = os.getenv(
-        "MODEL_NAME",
-        {
-            "google": "gemini-2.5-flash",
-            "openai": "gpt-4o-mini",
-            "huggingface": "Qwen/Qwen2.5-7B-Instruct",
-            # Groq's fastest non-reasoning chat model — no "thinking" pass, so
-            # replies come back immediately, which is what the NPC path wants.
-            "groq": "llama-3.3-70b-versatile",
-            "cerebras": "llama-3.3-70b",
-            "openrouter": "meta-llama/llama-3.3-70b-instruct",
-        }[llm_provider],
-    )
+    llm_model = os.getenv("MODEL_NAME", DEFAULT_CHAT_MODELS[llm_provider])
     llm_base_url = provider_base_url(llm_provider)
 
     embedding_provider = resolve_provider(
@@ -299,14 +308,7 @@ def load_rag_settings(api_key: str | None = None) -> RAGSettings:
     # Hub, which fails. Settings must never carry a provider/model pair that
     # disagree, so the fallback takes the model with it.
     embedding_model_override = None if embedding_fallback else os.getenv("EMBEDDING_MODEL_NAME")
-    embedding_model = (
-        embedding_model_override
-        or {
-            "google": "models/gemini-embedding-001",
-            "openai": "text-embedding-3-small",
-            "huggingface": "BAAI/bge-base-en-v1.5",
-        }[embedding_provider]
-    )
+    embedding_model = embedding_model_override or DEFAULT_EMBEDDING_MODELS[embedding_provider]
     embedding_base_url = provider_base_url(embedding_provider)
 
     chunk_size = _env_int("RAG_CHUNK_SIZE", 900)

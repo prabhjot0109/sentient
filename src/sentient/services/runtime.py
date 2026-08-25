@@ -9,7 +9,12 @@ from typing import Any
 
 from cachetools import TTLCache
 
-from sentient.core.config import provider_api_key, resolve_provider
+from sentient.core.config import (
+    DEFAULT_CHAT_MODELS,
+    DEFAULT_EMBEDDING_MODELS,
+    provider_api_key,
+    resolve_provider,
+)
 from sentient.core.crypto import crypto_available, decrypt_key
 from sentient.core.presets import get_preset
 
@@ -94,6 +99,35 @@ _RAG_MAP = {
 }
 
 
+def _apply_overlay(llm: dict, rag: dict, config: dict) -> None:
+    """Lay a project's stored config over the env floor, keeping each provider
+    paired with a model that belongs to it.
+
+    provider and model are two independent nullable columns but they are one
+    value: a model name only means anything on the provider it was written for.
+    `load_rag_settings` already enforces that at the env layer; the overlay did
+    not, so a project that set `embedding_provider` alone kept the env default's
+    model. That handed a Google model id to sentence-transformers, which raises
+    inside `run_reindex_job` and pins the project at `reindexing_required`, where
+    every retrieval 409s and nothing tells the user why (measured 2026-08-25).
+    """
+    floor_llm, floor_embedding = llm["provider"], rag["embedding_provider"]
+    for col, key in _LLM_MAP.items():
+        if config.get(col) is not None:
+            llm[key] = config[col]
+    for col, key in _RAG_MAP.items():
+        if config.get(col) is not None:
+            rag[key] = config[col]
+    # Only when the overlay actually replaced the provider: naming the same
+    # provider the env already uses must not discard that env model.
+    if llm["provider"] != floor_llm and config.get("model_name") is None:
+        llm["model"] = DEFAULT_CHAT_MODELS.get(llm["provider"], llm["model"])
+    if rag["embedding_provider"] != floor_embedding and config.get("embedding_model_name") is None:
+        rag["embedding_model"] = DEFAULT_EMBEDDING_MODELS.get(
+            rag["embedding_provider"], rag["embedding_model"]
+        )
+
+
 def _belongs_to(provider: str, provider_key: str | None) -> str | None:
     """The request-supplied key, but only when its prefix says it is this provider's."""
     if (
@@ -167,12 +201,7 @@ async def resolve_runtime_context(
     if project_id is not None:
         config = await state.get_project_config(project_id)
         if config:
-            for col, key in _LLM_MAP.items():
-                if config.get(col) is not None:
-                    llm[key] = config[col]
-            for col, key in _RAG_MAP.items():
-                if config.get(col) is not None:
-                    rag[key] = config[col]
+            _apply_overlay(llm, rag, config)
         # project persona > base_preset > generic
         system_prompt = (config or {}).get("persona_prompt") or ""
         project = await state.get_project(user_id, project_id)
