@@ -62,15 +62,35 @@ carrying: `PUT /v1/projects/{id}/persona` returns the **stored config row**, not
 detail, and `core/crypto.key_hint` **already includes its leading ellipsis**, so rendering
 `…{key_hint}` doubles it.
 
-**DEV-2: V2 PASSED 2026-08-22. V3 is down to one item.** As of 2026-08-24 every
-`PostgresStateStore` family has been driven against real Neon — users, api keys, projects,
-configs, documents, the whole thread family, and now the credential vault (F3+F4's Task 0,
-including a Fernet round-trip back to the exact plaintext). **The Qdrant payload filters are
-still entirely unexecuted** (`VECTOR_BACKEND` is `faiss`); every F item is built, so nothing
-will close them by accident now, and they stay BLOCKER-grade needing their own deliberate
-run. When running a gate, print the config the harness resolved (provider, model,
-threshold, paths) before reporting any number — V1 produced one false positive from a
-harness that silently resolved a different embedding provider than the server.
+**DEV-2: Phase V is closed. V2 PASSED 2026-08-22; V3, V5 and V6 all ran 2026-08-25 and no
+BLOCKER-grade verification gap remains.** Every `PostgresStateStore` family has been driven
+against real Neon, and **the Qdrant payload filters now have too** — all four isolation probes
+pass against a real Qdrant 1.19.0, with the tenant filter proven at the backend seam with the
+router's ownership 404 bypassed. Evidence: `docs/superpowers/verification/2026-08-24-V3-qdrant.md`
+and its two siblings. The one thing still unexecuted is TLS and authenticated gRPC, because
+that run used a local Docker server with no API key; it rides along with D1. When running a
+gate, print the config the harness resolved (provider, model, threshold, paths) before
+reporting any number — V1 produced one false positive from a harness that silently resolved a
+different embedding provider than the server.
+
+**Three Qdrant facts the V3 run measured that the FAISS default hides.** The shared collection
+is created once at whatever dense dimension writes first and never revisits it, so **every
+tenant on a `VECTOR_BACKEND=qdrant` deployment shares one embedding dimension** — a project
+cannot move to a model of a different size, and FAISS has no such limit. `RAG_SCORE_THRESHOLD`
+is a cosine floor on FAISS but a **rank-fusion artefact on Qdrant**, where pure gibberish scores
+0.5 and clears the configured 0.2, so the knob is inert below 0.5; never tune it against one
+backend and deploy the other. And `/health`'s `index_metadata` has a **different shape per
+backend** — FAISS returns `sources` / `source_count` / `persona` / `updated_at` and no
+`backend` key, Qdrant returns `backend` and `collection` and no `sources`.
+
+**A failed reindex used to wedge a project forever, and the shape of that bug is worth
+remembering.** `reindexing_required` is written both by `update_config` (meaning "a rebuild is
+queued") and by `run_reindex_job`'s `except` (meaning "a rebuild failed"), and a guard that
+branched on that one value could not tell them apart — so a project whose rebuild failed could
+never be rebuilt, 409'ing for good while its document rows still read `ready` with
+`error: null`. Fixed in `478e591` by removing the guard, since `IngestQueue` is a single FIFO
+worker and `index()` clears the scope before writing, so re-enqueueing converges. **The status
+column still carries both meanings**; surfacing a reindex failure to the user is open work.
 
 **F9 adds the fourth instance of that same lesson, and one rule that outranks it: never
 render `ApiError.message`.** Its constructor is `super(`${status}: ${detail}`)`, so
@@ -87,7 +107,7 @@ was the one the seam could not type), and a TanStack Query error is **returned, 
 so it reaches no router boundary unless a `throwOnError` predicate opts it in.
 
 **Plan documents have drifted from the code.** Several quote 125, 200, 209 or 345 tests; the
-suite collects **358** as of 2026-08-25
+suite collects **363** as of 2026-08-25
 (`uv run python -m pytest tests/ --collect-only -q | tail -1`).
 Each plan file also carries 🔶 DELTA banners that override its body text, newest delta wins.
 Never copy a test count, file list, or "state at time of writing" line out of a plan —
