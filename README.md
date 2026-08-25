@@ -263,13 +263,18 @@ from a project with no lore in it. The vectors are not missing during the window
 of them is written under a signature that did not exist a second earlier, so the filter
 matches nothing.
 
-**The 409 window is bounded by the runtime-context cache, not by the job.** Onset is
-immediate — a config write invalidates `RuntimeCache`, so the next turn sees the new status.
-Clearing is not: the reindex job flips the project back to `active` without invalidating,
-so the 409 can outlive the rebuild by up to the cache TTL (60 s). Measured 2026-08-23: a
-one-chunk project rebuilt in ~2 s and kept answering 409 for ~60 s. This predates the guard
-on `/v1/retrieve` and applies equally to the two chat paths, which have guarded on the same
-cached status since R7.
+**The 409 window is the rebuild, and nothing longer.** Both edges go through
+`RuntimeCache`: a config write invalidates it, so onset is immediate, and since B6 the
+reindex handler invalidates it again when the job settles, so clearing is immediate too.
+
+It did not always clear. Until B6, `_reindex_handler` flipped the project back to `active`
+without invalidating, and nothing was watching that column — the guard reads `ctx.status`,
+and `ctx` comes from a `TTLCache(ttl=60)`. Measured 2026-08-23 and again on 2026-08-25
+against Neon: a one-document project finished rebuilding at **t+6.77 s**, read `active` from
+that second on, and `/v1/retrieve` kept answering 409 until **t+64.08 s** — 57 s of the API
+contradicting its own status field. After the fix the same probe cleared at **t+6.28 s**,
+on the same poll that first reported `active`. Evidence:
+`docs/superpowers/verification/2026-08-24-B6-F9-error-states.md`.
 
 **A corollary for anything rendering the reindex state:** the project's own `status` is a
 much narrower window than the 409. Re-measured 2026-08-24 by polling once a second, a

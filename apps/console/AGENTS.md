@@ -101,6 +101,16 @@ backend shape.**
    internal thread-identity mechanism, it means nothing to a reader, and an optional field
    invites someone to render or branch on it. Do not add it back.
 
+4. **A malformed project id is a plain-text `500` on Postgres and a clean `404` on SQLite.**
+   Measured 2026-08-25 while verifying F9. asyncpg refuses to **bind** a non-UUID string to a
+   `uuid` parameter — `DataError`, raised before the query is sent — so
+   `GET /v1/projects/does-not-exist` escapes to Starlette's `ServerErrorMiddleware` and
+   returns `Internal Server Error` as `text/plain`. `SQLiteStateStore.get_project` returns
+   `None` for the same input and the router raises its normal 404. A well-formed but absent
+   UUID 404s correctly on both. **This is unfixed** (it is a backend item). Two consequences
+   here: `/app/p/<garbage>` renders "Something went wrong" rather than "Not found", and any
+   not-found check you write must use a **well-formed UUID** or it will test the wrong thing.
+
 **And one they agree on, recorded so nobody adds a layer against a divergence that is not
 there.** `documents` returns the same nine fields from both stores (`id`, `project_id`,
 `filename`, `chunk_count`, `embedding_signature`, `status`, `size_bytes`, `created_at`,
@@ -204,6 +214,65 @@ It is flattened at the seam now, into `temperature: Input should be less than or
 with `loc[0]` (the request part -- `body`, `query`, `path`) dropped so the message names the
 field a reader can act on. Three tests pin it. **Do not add a second flattener in a form**:
 one place turns a status into an error, and that is where the shape of an error body is known.
+
+## One place decides what an error says: `lib/api/messages.ts`
+
+Added by F9. `describe(error: unknown): ErrorCopy` maps every typed error onto
+`{title, body, tone}`, and `components/ui/ErrorState` renders it. **No component branches on
+an error class, and nothing anywhere renders `error.message`.**
+
+`ApiError`'s constructor is ``super(`${status}: ${detail}`)``, so `.message` is
+`404: project not found` — an HTTP status a reader cannot act on, prefixed to a sentence
+written for a developer. Eight files rendered it raw before F9, and three features had each
+hand-rolled the same four-line `message()` helper. A **fourth** copy lived in `ChatScreen` as
+an inline ternary, which is why grepping for the helper's declaration found only three: if
+you go looking for duplicates of this, grep for `instanceof ApiError` too.
+
+Two rules `describe()` follows, and any new branch must:
+
+- **Never invent detail the backend does not send.** The spec sketched "N of M done" for the
+  reindex 409; no such number is on the wire (`services/chat.py` raises one fixed sentence),
+  and the document rows F6 polls carry the real progress. A test pins the absence.
+- **Pass the backend's own sentence through where it wrote one for a human.** B4 put Groq's
+  wording in the 502 body and F3+F4 flattened the 422 array into `temperature: Input should
+  be less than or equal to 2`. Generic copy over either is a regression.
+
+`ErrorState` takes `error: unknown` and calls `describe()` itself rather than taking an
+`ErrorCopy` — if it took copy, a call site could pass its own strings and quietly re-fork the
+map. For the same reason, a child component that shows an error takes `error: unknown`, never
+`error: string | null`: a string prop keeps a second copy path alive.
+
+## `NetworkError`, and why `navigator.onLine` never decides a request's outcome
+
+`fetch` rejects with `TypeError: Failed to fetch` when the backend is unreachable, and that
+rejection never passed through `toApiError` — so before F9 a dead backend arrived as an
+untyped `Error` and rendered as the generic branch. It is typed at the seam now as
+`NetworkError extends ApiError` with `status: 0` (what `XMLHttpRequest` reports; it cannot
+collide with a real status). **Only a `TypeError` is treated as transport** — a
+`ReferenceError` from our own code keeps propagating, because reporting our bug as "the
+backend is unreachable" is a plausible lie that sends the reader to the wrong machine.
+
+`useOnline()` in `features/system` is a **separate** question and must stay separate.
+`navigator.onLine` reports that an interface is up, not that anything is reachable, and a
+captive portal reports `true`. It drives the ambient offline banner only. Never use it to
+decide whether a request failed; never use `NetworkError` to decide whether to show the
+banner.
+
+## A query error is returned, not thrown
+
+TanStack Query hands an error back as `error`; it does not throw during render, so a
+`useQuery` failure reaches **no** router `errorComponent` on its own. F9's expired-session
+state works because `main.tsx` sets `throwOnError: (e) => e instanceof UnauthenticatedError`,
+which is what lets the `/app` route boundary render a whole-page "Your session has expired"
+with a sign-in action instead of a card stranded beside a sidebar still listing cached
+projects.
+
+Scoped to that one class deliberately: every other error reads better rendered in place, next
+to the thing that failed. The same block turns off retries for `UnauthenticatedError` only —
+the seam already re-reads the token once before surfacing a 401, so the answer is settled, and
+three more round trips only delay the prompt. It is **not** a blanket `retry: false`; a 502
+from a flaky provider is worth one go. And note what is still deliberately absent from that
+QueryClient: a global `refetchInterval`. See "Nothing refetches a project's detail on a timer".
 
 ## Two response shapes that are not what their route name suggests
 

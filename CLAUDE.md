@@ -72,19 +72,39 @@ run. When running a gate, print the config the harness resolved (provider, model
 threshold, paths) before reporting any number — V1 produced one false positive from a
 harness that silently resolved a different embedding provider than the server.
 
+**F9 adds the fourth instance of that same lesson, and one rule that outranks it: never
+render `ApiError.message`.** Its constructor is `super(`${status}: ${detail}`)`, so
+`.message` reads "404: project not found" — eight call sites showed users an HTTP status
+they cannot act on, and three features had each hand-rolled the same four-line `message()`
+helper (a fourth lived in `ChatScreen` as an inline ternary, which is why a grep for the
+helper found only three). **`describe()` in `apps/console/src/lib/api/messages.ts` is now the
+only place an error becomes words**; components render its `ErrorCopy` and never branch on an
+error class. Where the backend wrote a sentence for a human — B4's provider text, F3+F4's
+flattened 422 — pass it through rather than covering it with generic copy. Two seam facts
+that go with it: a dead backend is now a typed `NetworkError` with `status: 0` (a `fetch`
+rejection is a `TypeError` and never reached `toApiError`, so the one state F9 is named after
+was the one the seam could not type), and a TanStack Query error is **returned, not thrown**,
+so it reaches no router boundary unless a `throwOnError` predicate opts it in.
+
 **Plan documents have drifted from the code.** Several quote 125, 200, 209 or 345 tests; the
-suite collects **356** as of 2026-08-24
+suite collects **358** as of 2026-08-25
 (`uv run python -m pytest tests/ --collect-only -q | tail -1`).
 Each plan file also carries 🔶 DELTA banners that override its body text, newest delta wins.
 Never copy a test count, file list, or "state at time of writing" line out of a plan —
 regenerate it, and confirm a referenced file exists before relying on it.
 
 **Verify a backend shape against the running server before writing a type against it.** It
-has now paid on five consecutive plans. The two state stores disagree in ways no gate
-catches, and three such divergences have cost a plan revision each: `projects.created_at`
+has now paid on six consecutive plans. The two state stores disagree in ways no gate
+catches, and four such divergences have cost a plan revision each: `projects.created_at`
 and `projects.user_id` are returned by SQLite and not by Postgres, `api_keys.revoked` is
-`INTEGER` on one and `boolean` on the other, and `chat_threads.prefix_hash` is returned by
-SQLite only — and per METHOD on Postgres, not per store. F3+F4 added four more that were
+`INTEGER` on one and `boolean` on the other, `chat_threads.prefix_hash` is returned by
+SQLite only — and per METHOD on Postgres, not per store — and, found while verifying F9,
+**a malformed project id crashes on Postgres and 404s on SQLite**: asyncpg refuses to *bind*
+a non-UUID string to a `uuid` parameter (`DataError`, before the query is sent), so
+`GET /v1/projects/does-not-exist` answers a plain-text `500` where SQLite returns `None` and
+the router raises its normal 404. That one is a crash rather than a missing field, it is
+**unfixed**, and it is the reason a "not found" check must use a well-formed UUID.
+F3+F4 added four more that were
 not divergences at all but simply wrong guesses in a plan: two response shapes, one value
 that already carried its own ellipsis, and one export that already existed. Ten minutes of
 `curl` against a live project turns each of those from a bug into a non-event.
