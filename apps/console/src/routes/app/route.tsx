@@ -3,6 +3,7 @@ import { createFileRoute, Link, Outlet, useParams } from "@tanstack/react-router
 import { Sidebar } from "@/components/shell/Sidebar";
 import { RequireSession, useSignOut } from "@/features/auth";
 import { ProjectList } from "@/features/projects";
+import { OfflineBanner } from "@/features/system";
 
 function AppShell() {
   const signOut = useSignOut();
@@ -41,6 +42,7 @@ function AppShell() {
           <ProjectList activeProjectId={pid} />
         </Sidebar>
         <main className="flex-1 overflow-y-auto">
+          <OfflineBanner />
           <Outlet />
         </main>
       </div>
