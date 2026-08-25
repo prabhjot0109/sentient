@@ -1,6 +1,7 @@
 import { createFileRoute, Link, Outlet, useParams } from "@tanstack/react-router";
 
 import { Sidebar } from "@/components/shell/Sidebar";
+import { ErrorState } from "@/components/ui/ErrorState";
 import { RequireSession, useSignOut } from "@/features/auth";
 import { ProjectList } from "@/features/projects";
 import { OfflineBanner } from "@/features/system";
@@ -50,4 +51,31 @@ function AppShell() {
   );
 }
 
-export const Route = createFileRoute("/app")({ component: AppShell });
+/**
+ * The authenticated area's boundary. An UnauthenticatedError is thrown here
+ * rather than returned (see main.tsx), so an expired session unmounts the shell
+ * and lands on describe()'s "Your session has expired" with a sign-in action --
+ * instead of a card stranded beside a sidebar still listing cached projects.
+ *
+ * It lives on /app rather than __root because signing out is only a sensible
+ * offer inside the signed-in area; the root boundary stays domain-free.
+ */
+function AppShellError({ error }: { error: unknown }) {
+  const signOut = useSignOut();
+  return (
+    <ErrorState
+      error={error}
+      size="page"
+      action={
+        <button className="text-sm underline underline-offset-4" onClick={signOut}>
+          Sign in again
+        </button>
+      }
+    />
+  );
+}
+
+export const Route = createFileRoute("/app")({
+  component: AppShell,
+  errorComponent: AppShellError,
+});
