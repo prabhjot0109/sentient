@@ -151,7 +151,13 @@ async def update_config(
     )
     new_signature = config["embedding_signature"]
     runtime_cache.invalidate(project_id)
-    if prior is not None and prior != new_signature and project["status"] != "reindexing_required":
+    # No "already reindexing_required, so skip" clause: that status is written
+    # both when a rebuild is enqueued and by `run_reindex_job`'s except when one
+    # fails, so a guard on it could not tell "in flight" from "failed" and left a
+    # failed project unrebuildable for good. Re-enqueueing costs nothing instead:
+    # the queue drains FIFO through one worker and `index()` clears the scope
+    # before writing, so the last signature wins and a rebuild never duplicates.
+    if prior is not None and prior != new_signature:
         await state_store.set_project_status(project_id, "reindexing_required")
         await enqueue_reindex(
             ReindexJob(

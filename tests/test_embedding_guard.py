@@ -97,6 +97,36 @@ class ReindexGuardTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(stored["status"], "reindexing_required")
         enqueue.assert_awaited_once()
 
+    async def test_a_failed_reindex_can_be_retried_by_changing_the_signature(self) -> None:
+        """`reindexing_required` is both "a rebuild is queued" and "a rebuild
+        failed": `run_reindex_job`'s except clause writes the same value the
+        enqueue path does. `update_config` used to skip enqueueing whenever it
+        saw that status, so a project whose rebuild had failed could never be
+        rebuilt again -- every retrieval 409'd for good. Measured against a live
+        server on 2026-08-25 (V3 gate). The queue drains FIFO through one worker,
+        so a second job is ordered after the first and the last signature wins.
+        """
+        with patch.object(self.deps, "enqueue_reindex", new_callable=AsyncMock) as enqueue:
+            transport = httpx.ASGITransport(app=self.api.app)
+            async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+                project = await client.post("/v1/projects", json={"name": "P"})
+                project_id = project.json()["id"]
+                await client.put(
+                    f"/v1/projects/{project_id}/config",
+                    json={"embedding_model_name": "models/other-embedding"},
+                )
+                enqueue.reset_mock()
+                # What run_reindex_job's `except` leaves behind on a failure.
+                await self.deps.state_store.set_project_status(project_id, "reindexing_required")
+
+                response = await client.put(
+                    f"/v1/projects/{project_id}/config",
+                    json={"embedding_model_name": "models/third-embedding"},
+                )
+
+        self.assertEqual(response.status_code, 200)
+        enqueue.assert_awaited_once()
+
     async def test_reindexing_project_blocks_completions(self) -> None:
         user = await self.deps.state_store.ensure_user(None)
         project = await self.deps.state_store.create_project(user["id"], "P")
