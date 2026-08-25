@@ -2,6 +2,7 @@ import { useState } from "react";
 
 import { Modal } from "@/components/ui/Modal";
 import { PROVIDERS } from "@/types/credentials";
+import { ErrorState } from "@/components/ui/ErrorState";
 
 export function AddCredentialDialog({
   existingProviders,
@@ -22,7 +23,7 @@ export function AddCredentialDialog({
    */
   onSubmit: (provider: string, apiKey: string) => Promise<unknown>;
   isPending: boolean;
-  error: string | null;
+  error: unknown;
 }) {
   const [open, setOpen] = useState(false);
   const [provider, setProvider] = useState<string>(PROVIDERS[0]);
@@ -85,7 +86,7 @@ export function AddCredentialDialog({
               className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
             />
           </label>
-          {error && <p className="mt-2 text-sm text-destructive">{error}</p>}
+          {error != null && <ErrorState error={error} />}
           <div className="mt-4 flex justify-end gap-2">
             <button type="button" onClick={close} className="text-sm text-muted-foreground">
               Cancel

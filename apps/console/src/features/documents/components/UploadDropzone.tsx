@@ -1,4 +1,5 @@
 import { useRef, useState } from "react";
+import { ErrorState } from "@/components/ui/ErrorState";
 
 /**
  * The `accept` attribute is a hint the file picker honours and a drop does not,
@@ -12,7 +13,7 @@ export function UploadDropzone({
 }: {
   onUpload: (file: File) => void;
   isUploading: boolean;
-  error: string | null;
+  error: unknown;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [isOver, setIsOver] = useState(false);
@@ -72,7 +73,7 @@ export function UploadDropzone({
           }}
         />
       </div>
-      {error && <p className="text-sm text-destructive">{error}</p>}
+      {error != null && <ErrorState error={error} />}
     </div>
   );
 }

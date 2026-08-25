@@ -2,6 +2,7 @@ import { Modal } from "@/components/ui/Modal";
 import type { ApiKey } from "@/types/keys";
 
 import { useRevokeKey } from "../hooks";
+import { ErrorState } from "@/components/ui/ErrorState";
 
 export function RevokeKeyDialog({
   apiKey,
@@ -35,7 +36,7 @@ export function RevokeKeyDialog({
           conversation ends mid-sentence.
         </p>
 
-        {revoke.error && <p className="text-sm text-destructive">{revoke.error.message}</p>}
+        {revoke.error && <ErrorState error={revoke.error} />}
 
         <div className="flex justify-end gap-2">
           <button

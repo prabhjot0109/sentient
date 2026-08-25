@@ -1,6 +1,5 @@
 import { useState } from "react";
 
-import { ApiError } from "@/lib/api/errors";
 import type { Thread } from "@/types/threads";
 
 import { useChatTurn, useDeleteThread, useMessages, useRenameThread, useThreads } from "../hooks";
@@ -11,6 +10,7 @@ import { MessageList } from "./MessageList";
 import { RenameThreadDialog } from "./RenameThreadDialog";
 import { SourcesPanel } from "./SourcesPanel";
 import { ThreadList } from "./ThreadList";
+import { ErrorState } from "@/components/ui/ErrorState";
 
 /**
  * Holds the selected thread and the in-flight turn. `routes/` may not hold
@@ -52,11 +52,7 @@ export function ChatScreen({ projectId }: { projectId: string }) {
       />
 
       <div className="min-w-0 flex-1 space-y-4">
-        {threadsError && (
-          <p className="text-sm text-destructive">
-            {threadsError instanceof ApiError ? threadsError.detail : "Could not load threads."}
-          </p>
-        )}
+        {threadsError && <ErrorState error={threadsError} />}
 
         <MessageList
           messages={messages}

@@ -4,6 +4,7 @@ import { Modal } from "@/components/ui/Modal";
 import type { Project } from "@/types/projects";
 
 import { useRenameProject } from "../hooks";
+import { ErrorState } from "@/components/ui/ErrorState";
 
 export function RenameProjectDialog({
   project,
@@ -46,7 +47,7 @@ export function RenameProjectDialog({
           className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
         />
 
-        {rename.error && <p className="text-sm text-destructive">{rename.error.message}</p>}
+        {rename.error && <ErrorState error={rename.error} />}
 
         <div className="flex justify-end gap-2">
           <button

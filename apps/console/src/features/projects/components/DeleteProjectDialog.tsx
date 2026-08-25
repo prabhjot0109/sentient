@@ -4,6 +4,7 @@ import { Modal } from "@/components/ui/Modal";
 import type { Project } from "@/types/projects";
 
 import { useDeleteProject } from "../hooks";
+import { ErrorState } from "@/components/ui/ErrorState";
 
 /**
  * Typed confirmation, not a plain "Are you sure?". Every foreign key into a
@@ -63,7 +64,7 @@ export function DeleteProjectDialog({
           />
         </label>
 
-        {remove.error && <p className="text-sm text-destructive">{remove.error.message}</p>}
+        {remove.error && <ErrorState error={remove.error} />}
 
         <div className="flex justify-end gap-2">
           <button

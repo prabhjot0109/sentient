@@ -1,6 +1,7 @@
 import { useProjects } from "../hooks";
 import { NewProjectDialog } from "./NewProjectDialog";
 import { ProjectRow } from "./ProjectRow";
+import { ErrorState } from "@/components/ui/ErrorState";
 
 /** The rail. The feature's top-level component, and the only one that fetches. */
 export function ProjectList({ activeProjectId }: { activeProjectId?: string }) {
@@ -19,7 +20,7 @@ export function ProjectList({ activeProjectId }: { activeProjectId?: string }) {
       </div>
 
       {isPending && <p className="px-2 text-sm text-muted-foreground">Loading projects…</p>}
-      {error && <p className="px-2 text-sm text-destructive">{error.message}</p>}
+      {error && <ErrorState error={error} />}
       {projects?.length === 0 && (
         <p className="px-2 text-sm text-muted-foreground">No projects yet.</p>
       )}

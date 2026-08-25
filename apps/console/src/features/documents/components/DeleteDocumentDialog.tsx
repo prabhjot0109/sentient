@@ -2,6 +2,7 @@ import { useState } from "react";
 
 import { Modal } from "@/components/ui/Modal";
 import type { SourceDocument } from "@/types/documents";
+import { ErrorState } from "@/components/ui/ErrorState";
 
 /**
  * Typed-name confirmation, matching `DeleteProjectDialog`.
@@ -22,7 +23,7 @@ export function DeleteDocumentDialog({
   onConfirm: (filename: string) => void;
   onClose: () => void;
   isPending: boolean;
-  error: string | null;
+  error: unknown;
 }) {
   const [typed, setTyped] = useState("");
   if (!document) return null;
@@ -39,7 +40,7 @@ export function DeleteDocumentDialog({
         onChange={(e) => setTyped(e.target.value)}
         className="mt-3 w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
       />
-      {error && <p className="mt-2 text-sm text-destructive">{error}</p>}
+      {error != null && <ErrorState error={error} />}
       <div className="mt-4 flex justify-end gap-2">
         <button type="button" onClick={onClose} className="text-sm text-muted-foreground">
           Cancel

@@ -2,7 +2,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 
 import { DocumentsScreen } from "@/features/documents";
 import { useProject } from "@/features/projects";
-import { NotFoundError } from "@/lib/api/errors";
+import { ErrorState } from "@/components/ui/ErrorState";
 
 function ProjectHome() {
   const { pid } = Route.useParams();
@@ -10,17 +10,10 @@ function ProjectHome() {
 
   if (isPending) return <p className="p-8 text-sm text-muted-foreground">Loading…</p>;
 
-  if (error instanceof NotFoundError) {
-    return (
-      <div className="space-y-2 p-8">
-        <h1 className="text-lg font-semibold">Project not found</h1>
-        <p className="text-sm text-muted-foreground">
-          It has been deleted, or it belongs to another account.
-        </p>
-      </div>
-    );
-  }
-  if (error) return <p className="p-8 text-sm text-destructive">{error.message}</p>;
+  // Both branches collapse here: describe() already distinguishes a 404 from
+  // everything else, and its 404 copy is the same sentence this route used to
+  // hand-roll.
+  if (error) return <ErrorState error={error} size="page" />;
 
   return (
     <div className="space-y-6 p-8">

@@ -4,6 +4,7 @@ import { Modal } from "@/components/ui/Modal";
 import type { CreatedApiKey } from "@/types/keys";
 
 import { useCreateKey } from "../hooks";
+import { ErrorState } from "@/components/ui/ErrorState";
 
 /**
  * Hands the minted key UP rather than rendering it. The raw value has to reach
@@ -60,7 +61,7 @@ export function NewKeyDialog({ onCreated }: { onCreated: (key: CreatedApiKey) =>
             </span>
           </label>
 
-          {create.error && <p className="text-sm text-destructive">{create.error.message}</p>}
+          {create.error && <ErrorState error={create.error} />}
 
           <div className="flex justify-end gap-2">
             <button

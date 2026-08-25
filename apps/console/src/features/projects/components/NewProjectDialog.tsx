@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Modal } from "@/components/ui/Modal";
 
 import { useCreateProject, usePresets } from "../hooks";
+import { ErrorState } from "@/components/ui/ErrorState";
 
 /**
  * Renders its own trigger and owns its own open state. The rail and the first-run
@@ -78,7 +79,7 @@ export function NewProjectDialog({ label = "New project", className = "" }) {
             </span>
           </label>
 
-          {create.error && <p className="text-sm text-destructive">{create.error.message}</p>}
+          {create.error && <ErrorState error={create.error} />}
 
           <div className="flex justify-end gap-2 pt-2">
             <button

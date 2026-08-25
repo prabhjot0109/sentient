@@ -5,6 +5,7 @@ import { PROVIDERS, SEARCH_TYPES } from "@/types/credentials";
 import type { ProjectConfig } from "@/types/projects";
 
 import { ConfigField } from "./ConfigField";
+import { ErrorState } from "@/components/ui/ErrorState";
 
 type FieldSpec = {
   key: WritableConfigField;
@@ -99,7 +100,7 @@ export function ConfigForm({
   savedAt: string | null;
   onSave: (patch: ConfigPatch) => void;
   isSaving: boolean;
-  error: string | null;
+  error: unknown;
 }) {
   // Only what the user touched. Sending the whole row would make every save look
   // like a change to the three embedding fields and warn every time.
@@ -174,7 +175,7 @@ export function ConfigForm({
         })}
       </div>
 
-      {error && <p className="text-sm text-destructive">{error}</p>}
+      {error != null && <ErrorState error={error} />}
 
       <button
         type="submit"

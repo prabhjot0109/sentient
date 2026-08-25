@@ -1,7 +1,7 @@
 import { useState } from "react";
 
 import { useProject } from "@/features/projects";
-import { ApiError } from "@/lib/api/errors";
+import { ErrorState } from "@/components/ui/ErrorState";
 import type { SourceDocument } from "@/types/documents";
 import { REINDEXING } from "@/types/projects";
 
@@ -12,9 +12,6 @@ import { DocumentList } from "./DocumentList";
 import { DocumentsEmptyState } from "./DocumentsEmptyState";
 import { ReindexBanner } from "./ReindexBanner";
 import { UploadDropzone } from "./UploadDropzone";
-
-const message = (error: unknown): string | null =>
-  error instanceof ApiError ? error.detail : error ? "Something went wrong." : null;
 
 /**
  * Holds the state that spans the uploader, the list and the delete dialog.
@@ -48,11 +45,11 @@ export function DocumentsScreen({ projectId }: { projectId: string }) {
       <UploadDropzone
         onUpload={(file) => upload.mutate(file)}
         isUploading={upload.isPending}
-        error={message(upload.error)}
+        error={upload.error}
       />
 
       {isPending && <p className="text-sm text-muted-foreground">Loading&hellip;</p>}
-      {error && <p className="text-sm text-destructive">{message(error)}</p>}
+      {error && <ErrorState error={error} />}
       {documents &&
         (documents.length === 0 ? (
           <DocumentsEmptyState />
@@ -66,7 +63,7 @@ export function DocumentsScreen({ projectId }: { projectId: string }) {
         key={pendingDelete?.filename ?? "closed"}
         document={pendingDelete}
         isPending={remove.isPending}
-        error={message(remove.error)}
+        error={remove.error}
         onClose={() => {
           // Without the reset a failed delete leaves `remove.error` set, and the
           // next dialog shows the previous file's error before you touch it.

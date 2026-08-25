@@ -1,13 +1,12 @@
 import { useState } from "react";
 
-import { ApiError, ServiceUnavailableError } from "@/lib/api/errors";
+import { EmptyState } from "@/components/ui/EmptyState";
+import { ErrorState } from "@/components/ui/ErrorState";
+import { ServiceUnavailableError } from "@/lib/api/errors";
 
 import { useCredentials, useDeleteCredential, useStoreCredential } from "../hooks";
 import { AddCredentialDialog } from "./AddCredentialDialog";
 import { CredentialList } from "./CredentialList";
-
-const message = (error: unknown): string | null =>
-  error instanceof ApiError ? error.detail : error ? "Something went wrong." : null;
 
 export function VaultScreen() {
   const { data: credentials, error, isPending } = useCredentials();
@@ -23,16 +22,21 @@ export function VaultScreen() {
   // POST with a deliberately invalid provider, because `store_credential` gates
   // on the vault before it validates anything else.
   if (error instanceof ServiceUnavailableError) {
+    // Title and body come from describe() so the wording cannot drift from
+    // every other 503, but the actionable half -- WHICH env var, and what
+    // happens meanwhile -- is this screen's own and rides in `action`.
     return (
-      <div className="max-w-2xl rounded-md border border-border p-6">
-        <h2 className="text-sm font-medium">The credential vault is not configured</h2>
-        <p className="mt-1 text-sm text-muted-foreground">
-          This server has no <code>SENTIENT_SECRET_KEY</code>, so it cannot encrypt or read stored
-          provider keys. Until it does, projects use whatever keys the server itself was started
-          with.
-        </p>
-        <p className="mt-2 text-xs text-muted-foreground">{error.detail}</p>
-      </div>
+      <ErrorState
+        error={error}
+        size="page"
+        action={
+          <p className="text-sm text-muted-foreground">
+            This server has no <code>SENTIENT_SECRET_KEY</code>, so it cannot encrypt or read stored
+            provider keys. Until it does, projects use whatever keys the server itself was started
+            with.
+          </p>
+        }
+      />
     );
   }
 
@@ -47,14 +51,15 @@ export function VaultScreen() {
       </header>
 
       {isPending && <p className="text-sm text-muted-foreground">Loading…</p>}
-      {error && <p className="text-sm text-destructive">{message(error)}</p>}
-      {remove.error && <p className="text-sm text-destructive">{message(remove.error)}</p>}
+      {error && <ErrorState error={error} />}
+      {remove.error && <ErrorState error={remove.error} />}
 
       {credentials &&
         (credentials.length === 0 ? (
-          <p className="rounded-md border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
-            No keys stored. Projects fall back to the keys this server was started with.
-          </p>
+          <EmptyState
+            title="No keys stored"
+            body="Projects fall back to the keys this server was started with."
+          />
         ) : (
           <CredentialList
             credentials={credentials}
@@ -69,7 +74,7 @@ export function VaultScreen() {
       <AddCredentialDialog
         existingProviders={(credentials ?? []).map((c) => c.provider)}
         isPending={store.isPending}
-        error={message(store.error)}
+        error={store.error}
         onSubmit={(provider, apiKey) => store.mutateAsync({ provider, apiKey })}
       />
     </div>

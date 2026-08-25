@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 
 import type { PersonaSource } from "@/types/projects";
+import { ErrorState } from "@/components/ui/ErrorState";
 
 const SOURCE_NOTE: Record<PersonaSource, string> = {
   custom: "This project has its own persona.",
@@ -31,7 +32,7 @@ export function PersonaEditor({
   personaSource: PersonaSource;
   onSave: (prompt: string) => void;
   isSaving: boolean;
-  error: string | null;
+  error: unknown;
 }) {
   const [text, setText] = useState(personaPrompt);
   // Re-seed when the server's value changes (a save, or switching project).
@@ -51,7 +52,7 @@ export function PersonaEditor({
         rows={8}
         className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
       />
-      {error && <p className="text-sm text-destructive">{error}</p>}
+      {error != null && <ErrorState error={error} />}
       <button
         type="button"
         onClick={() => onSave(text)}

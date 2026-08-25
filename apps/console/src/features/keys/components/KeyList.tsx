@@ -4,6 +4,7 @@ import type { ApiKey } from "@/types/keys";
 
 import { useKeys } from "../hooks";
 import { RevokeKeyDialog } from "./RevokeKeyDialog";
+import { ErrorState } from "@/components/ui/ErrorState";
 
 /** Never shows a key, not even masked: list_api_keys returns no key material. */
 function KeyRow({ apiKey }: { apiKey: ApiKey }) {
@@ -42,7 +43,7 @@ export function KeyList() {
   const { data: keys, isPending, error } = useKeys();
 
   if (isPending) return <p className="text-sm text-muted-foreground">Loading keys…</p>;
-  if (error) return <p className="text-sm text-destructive">{error.message}</p>;
+  if (error) return <ErrorState error={error} />;
   if (!keys.length) return <p className="text-sm text-muted-foreground">No keys yet.</p>;
 
   return (
