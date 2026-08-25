@@ -305,7 +305,19 @@ async def _reindex_handler(job: ReindexJob) -> None:
         )
         archives = await get_archives_for_context(ctx)
 
-    await ingestion.run_reindex_job(job, state_store=state_store, archives=archives)
+    try:
+        await ingestion.run_reindex_job(job, state_store=state_store, archives=archives)
+    finally:
+        # B6. run_reindex_job's last act is a DB write flipping the project back to
+        # 'active', and nothing is watching that column: the reindex guard reads
+        # ctx.status, and ctx comes from RuntimeCache, a TTLCache(ttl=60). Without
+        # this the 409 outlives its own rebuild by up to a minute -- measured
+        # 2026-08-23 at ~2 s of work followed by ~60 s of 409. finally, not else,
+        # because the failure branch puts the project back to reindexing_required
+        # and the next reader should not have to re-derive that invalidating is
+        # harmless there. services/projects.py does the same thing for the three
+        # write paths; this is the fourth.
+        runtime_cache.invalidate(job.project_id)
 
 
 reindex_queue = IngestQueue(_reindex_handler)

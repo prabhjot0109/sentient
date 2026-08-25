@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import unittest
 from dataclasses import dataclass
+from unittest import mock
 
 from sentient.core.errors import ReindexInProgress
 from sentient.services.chat import assert_retrievable
@@ -42,3 +43,51 @@ class AssertRetrievableTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ReindexCompletionInvalidatesCacheTests(unittest.IsolatedAsyncioTestCase):
+    """B6: the 409 must end when the rebuild ends, not when the TTL does.
+
+    Measured 2026-08-23: a one-chunk project rebuilt in ~2 s and /v1/retrieve kept
+    answering 409 for ~60 s, because _reindex_handler flips the project to
+    'active' without telling RuntimeCache. The three write paths in
+    services/projects.py all invalidate; this one did not.
+    """
+
+    async def _run_handler(self, *, fails: bool) -> list[str]:
+        from sentient.api import deps
+        from sentient.core.concurrency import ReindexJob
+
+        job = ReindexJob(
+            api_key="probe-key",
+            user_id="user-1",
+            user_key="user-1",
+            project_id="project-1",
+            embedding_signature="sig-2",
+        )
+        invalidated: list[str] = []
+
+        async def fake_run_reindex_job(_job, *, state_store, archives):
+            if fails:
+                raise RuntimeError("embedding provider is down")
+
+        with (
+            mock.patch.object(deps.runtime_cache, "invalidate", invalidated.append),
+            mock.patch.object(deps.ingestion, "run_reindex_job", fake_run_reindex_job),
+            mock.patch.object(deps, "resolve_runtime_context", mock.AsyncMock()),
+            mock.patch.object(deps, "get_archives_for_context", mock.AsyncMock()),
+        ):
+            if fails:
+                with self.assertRaises(RuntimeError):
+                    await deps._reindex_handler(job)
+            else:
+                await deps._reindex_handler(job)
+        return invalidated
+
+    async def test_invalidates_the_project_after_a_successful_rebuild(self):
+        self.assertEqual(await self._run_handler(fails=False), ["project-1"])
+
+    async def test_invalidates_the_project_after_a_failed_rebuild(self):
+        # The status goes back to reindexing_required, which is what the cache
+        # already holds -- but the invalidation must not depend on that staying true.
+        self.assertEqual(await self._run_handler(fails=True), ["project-1"])
