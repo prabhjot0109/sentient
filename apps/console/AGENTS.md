@@ -75,11 +75,10 @@ Three shape rules the layer lint cannot express, each learned from a concrete fa
 - **A store quirk is normalised in `lib/api/`, never in a component.** See the two
   below.
 
-## Two shapes the two state stores disagree on
+## Four shapes the two state stores disagree on
 
-Measured against the live Neon branch and the SQLite DDL on 2026-08-23, not inferred.
-Both cost a plan revision. **Check the store, not the schema file, before typing a
-backend shape.**
+Measured against the live Neon branch and the SQLite DDL, not inferred. Each cost a plan
+revision. **Check the store, not the schema file, before typing a backend shape.**
 
 1. **`created_at` is not reliably on a project.** `PostgresStateStore.list_projects`
    selects `id, name, base_preset, status` and only ORDERS BY `created_at`; neither
@@ -121,9 +120,12 @@ has **no normalisation** and should not grow any.
 
 ## Nothing refetches a project's detail on a timer
 
-`useProjectQuery` sets no `refetchInterval` and `main.tsx` builds a bare `new QueryClient()`
-with no defaults. So a `projects.detail(id)` query updates on mount, on a mutation that
-invalidates it, and on a window refocus -- **never on its own while the page sits open.**
+`useProjectQuery` sets no `refetchInterval`, and the `QueryClient` in `main.tsx` sets none
+either — F9 gave it `retry` and `throwOnError` defaults and **deliberately no
+`refetchInterval`**, so this contract is unchanged. A `projects.detail(id)` query updates on
+mount, on a mutation that invalidates it, and on a window refocus -- **never on its own while
+the page sits open.** Do not add a global interval to fix one screen: it would silently change
+this for every screen.
 
 This matters for anything rendering `projects.status`. F6's first cut keyed the reindex
 banner on `status === REINDEXING`, which would have appeared only after a refocus and then
@@ -235,7 +237,7 @@ Two rules `describe()` follows, and any new branch must:
   and the document rows F6 polls carry the real progress. A test pins the absence.
 - **Pass the backend's own sentence through where it wrote one for a human.** B4 put Groq's
   wording in the 502 body and F3+F4 flattened the 422 array into `temperature: Input should
-  be less than or equal to 2`. Generic copy over either is a regression.
+be less than or equal to 2`. Generic copy over either is a regression.
 
 `ErrorState` takes `error: unknown` and calls `describe()` itself rather than taking an
 `ErrorCopy` — if it took copy, a call site could pass its own strings and quietly re-fork the
