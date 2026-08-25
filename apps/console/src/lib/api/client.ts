@@ -1,6 +1,6 @@
 import { getAccessToken } from "@/lib/auth";
 
-import { toApiError } from "./errors";
+import { NetworkError, toApiError } from "./errors";
 
 const BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:8000";
 
@@ -57,6 +57,21 @@ async function readDetail(response: Response): Promise<string> {
 }
 
 /**
+ * Only a TypeError is a transport failure. A ReferenceError or a TypeError we
+ * threw ourselves further up must keep propagating: reporting our own bug as
+ * "the backend is unreachable" is a plausible lie, and it sends the reader to
+ * the wrong machine.
+ */
+async function send(path: string, init: RequestInit): Promise<Response> {
+  try {
+    return await fetch(`${BASE_URL}${path}`, init);
+  } catch (cause) {
+    if (cause instanceof TypeError) throw new NetworkError();
+    throw cause;
+  }
+}
+
+/**
  * The seam. The ONLY place an Authorization header is attached, a 401 triggers a
  * re-read of the token, or an HTTP status becomes a typed error. Features import
  * a resource module and never call fetch -- lint enforces that, because
@@ -65,7 +80,7 @@ async function readDetail(response: Response): Promise<string> {
 async function request(path: string, init: ApiInit = {}): Promise<Response> {
   const { skipAuth, ...rest } = init;
   const token = skipAuth ? null : await getAccessToken();
-  const response = await fetch(`${BASE_URL}${path}`, withAuth(rest, token));
+  const response = await send(path, withAuth(rest, token));
 
   if (response.status !== 401 || skipAuth) return response;
 
@@ -74,7 +89,7 @@ async function request(path: string, init: ApiInit = {}): Promise<Response> {
   // getAccessToken() goes through Better Auth's getSession(), so this picks up a
   // token minted since the first attempt; it does not force a refresh itself.
   const refreshed = await getAccessToken();
-  return fetch(`${BASE_URL}${path}`, withAuth(rest, refreshed));
+  return send(path, withAuth(rest, refreshed));
 }
 
 export async function apiFetch<T>(path: string, init: ApiInit = {}): Promise<T> {

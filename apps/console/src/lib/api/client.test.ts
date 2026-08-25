@@ -4,7 +4,12 @@ const getAccessToken = vi.fn();
 vi.mock("@/lib/auth", () => ({ getAccessToken: () => getAccessToken() }));
 
 import { apiFetch } from "./client";
-import { NotFoundError, ReindexInProgressError, UnauthenticatedError } from "./errors";
+import {
+  NetworkError,
+  NotFoundError,
+  ReindexInProgressError,
+  UnauthenticatedError,
+} from "./errors";
 
 function jsonResponse(status: number, body: unknown) {
   return new Response(JSON.stringify(body), {
@@ -149,5 +154,30 @@ describe("apiFetch", () => {
   it("returns undefined on a 204 rather than choking on an empty body", async () => {
     vi.mocked(fetch).mockResolvedValue(new Response(null, { status: 204 }));
     await expect(apiFetch("/v1/threads/x")).resolves.toBeUndefined();
+  });
+});
+
+describe("transport failures", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("turns a dead backend into a typed NetworkError", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("Failed to fetch")));
+
+    await expect(apiFetch("/v1/projects")).rejects.toBeInstanceOf(NetworkError);
+  });
+
+  it("gives the NetworkError status 0 so it cannot collide with an HTTP status", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("Failed to fetch")));
+
+    await expect(apiFetch("/v1/projects")).rejects.toMatchObject({ status: 0 });
+  });
+
+  it("does not swallow a programming error thrown inside the seam", async () => {
+    // A ReferenceError from our own code must NOT be reported to the user as
+    // "the backend is unreachable" -- that hides the bug behind a plausible
+    // network story and sends the reader looking at the wrong machine.
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new ReferenceError("x is not defined")));
+
+    await expect(apiFetch("/v1/projects")).rejects.toBeInstanceOf(ReferenceError);
   });
 });
