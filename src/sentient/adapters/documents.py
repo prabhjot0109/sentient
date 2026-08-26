@@ -17,6 +17,7 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from sentient.adapters.llm.models import build_chat_model
 from sentient.adapters.llm.persona import GENERIC_PERSONA, infer_persona_descriptor
 from sentient.core.config import RAGSettings, load_rag_settings
+from sentient.core.errors import InvalidRequest
 from sentient.core.logging import get_logger
 
 log = get_logger(__name__)
@@ -209,12 +210,34 @@ class ArchivesIngestion:
         finally:
             pdf.close()
 
+    def _assert_extraction_bounded(self, path: Path, documents: list[Document]) -> None:
+        """Reject a file whose EXTRACTED text is enormous, however small it was.
+
+        H6's cap counts bytes on the wire. A 2 MB PDF that expands to 500 MB of
+        text clears it and then costs one embedding call per 900 characters, so
+        the byte cap bounds the upload and bounds nothing about what it costs.
+        This is the other half, and it is checked here because this is the first
+        moment the extracted text exists -- in `services/ingestion.py`, beside
+        the byte cap, there is nothing yet to measure.
+
+        Counted after OCR, deliberately: OCR is itself an expansion step, and a
+        page of pure image is exactly the input that has no bytes to speak of.
+        """
+        limit = self.settings.extract_max_chars
+        total = sum(len(document.page_content or "") for document in documents)
+        if total > limit:
+            raise InvalidRequest(
+                f"{path.name} extracts to {total:,} characters, over the {limit:,} character limit"
+            )
+
     def _load_file(self, path: Path) -> list[Document]:
         if path.suffix.lower() == ".pdf":
             documents = PyPDFLoader(str(path)).load()
             self._ocr_pdf_pages(path, documents)
         else:
             documents = TextLoader(str(path), encoding="utf-8", autodetect_encoding=True).load()
+
+        self._assert_extraction_bounded(path, documents)
 
         for document in documents:
             page_number = document.metadata.get("page")

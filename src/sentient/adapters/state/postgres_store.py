@@ -2,10 +2,33 @@ from __future__ import annotations
 
 from datetime import datetime
 from typing import Any
+from uuid import UUID
 
 import asyncpg
 
 from sentient.adapters.state.schema import _CONFIG_COLUMNS, _DEFAULT_USER_SENTINEL
+
+
+def _is_uuid(value: Any) -> bool:
+    """Whether asyncpg can bind `value` to a `uuid` parameter.
+
+    Postgres columns are `uuid`; SQLite's are `TEXT`. asyncpg refuses to **bind**
+    a non-UUID string -- it raises `DataError` before the query is ever sent --
+    so `GET /v1/projects/does-not-exist` answered a plain-text 500 here while
+    SQLite returned None and the router raised its normal 404. Found while
+    verifying F9, on the store this deployment actually uses.
+
+    Guarding is not a workaround for the type system; it is the correct answer.
+    A malformed id cannot name a row, so "no row" is what a lookup means, and
+    that is exactly what SQLite already says. Every guard below runs BEFORE
+    `_pool_()`, which both saves a connection and makes the behaviour testable
+    without a database.
+    """
+    try:
+        UUID(str(value))
+    except (ValueError, AttributeError, TypeError):
+        return False
+    return True
 
 
 class PostgresStateStore:
@@ -87,6 +110,8 @@ class PostgresStateStore:
         return {**dict(row), "user_id": user_id}
 
     async def revoke_api_key(self, user_id: str, key_id: str) -> bool:
+        if not _is_uuid(key_id):
+            return False
         pool = await self._pool_()
         async with pool.acquire() as conn:
             # asyncpg types execute() as Any; it returns the command status tag.
@@ -120,6 +145,8 @@ class PostgresStateStore:
         return {**dict(row), "user_id": user_id}
 
     async def get_project(self, user_id: str, project_id: str) -> dict[str, Any] | None:
+        if not _is_uuid(project_id):
+            return None
         pool = await self._pool_()
         async with pool.acquire() as conn:
             row = await conn.fetchrow(
@@ -146,6 +173,8 @@ class PostgresStateStore:
             await conn.execute("UPDATE projects SET status=$1 WHERE id=$2", status, project_id)
 
     async def delete_project(self, user_id: str, project_id: str) -> bool:
+        if not _is_uuid(project_id):
+            return False
         # user_id is filtered in the statement, so a wrong owner deletes nothing.
         # Configs, threads, messages and documents go with it via ON DELETE CASCADE.
         pool = await self._pool_()
@@ -159,6 +188,8 @@ class PostgresStateStore:
     async def rename_project(
         self, user_id: str, project_id: str, name: str
     ) -> dict[str, Any] | None:
+        if not _is_uuid(project_id):
+            return None
         pool = await self._pool_()
         async with pool.acquire() as conn:
             row = await conn.fetchrow(
@@ -171,6 +202,8 @@ class PostgresStateStore:
         return dict(row) if row else None
 
     async def get_project_config(self, project_id: str) -> dict[str, Any] | None:
+        if not _is_uuid(project_id):
+            return None
         pool = await self._pool_()
         async with pool.acquire() as conn:
             row = await conn.fetchrow(
@@ -243,6 +276,8 @@ class PostgresStateStore:
             )
 
     async def list_documents(self, project_id: str) -> list[dict[str, Any]]:
+        if not _is_uuid(project_id):
+            return []
         pool = await self._pool_()
         async with pool.acquire() as conn:
             rows = await conn.fetch("SELECT * FROM documents WHERE project_id=$1", project_id)
@@ -392,6 +427,8 @@ class PostgresStateStore:
         return dict(row)
 
     async def get_thread(self, user_id: str, thread_id: str) -> dict[str, Any] | None:
+        if not _is_uuid(thread_id):
+            return None
         pool = await self._pool_()
         async with pool.acquire() as conn:
             row = await conn.fetchrow(
@@ -425,6 +462,8 @@ class PostgresStateStore:
             )
 
     async def delete_thread(self, user_id: str, thread_id: str) -> bool:
+        if not _is_uuid(thread_id):
+            return False
         # Ownership rides through the thread's project; a thread has no user_id.
         # Messages go with it via ON DELETE CASCADE.
         pool = await self._pool_()
@@ -441,6 +480,8 @@ class PostgresStateStore:
     async def rename_thread(
         self, user_id: str, thread_id: str, title: str
     ) -> dict[str, Any] | None:
+        if not _is_uuid(thread_id):
+            return None
         # One statement checks ownership and returns the row: RETURNING yields
         # nothing when the WHERE excluded it, so a stranger and a missing thread
         # are indistinguishable here, which is what the 404 needs.
@@ -488,6 +529,8 @@ class PostgresStateStore:
         return dict(row)
 
     async def list_threads(self, project_id: str) -> list[dict[str, Any]]:
+        if not _is_uuid(project_id):
+            return []
         pool = await self._pool_()
         async with pool.acquire() as conn:
             rows = await conn.fetch(
@@ -498,6 +541,8 @@ class PostgresStateStore:
         return [dict(row) for row in rows]
 
     async def list_messages(self, thread_id: str, limit: int = 50) -> list[dict[str, Any]]:
+        if not _is_uuid(thread_id):
+            return []
         pool = await self._pool_()
         async with pool.acquire() as conn:
             rows = await conn.fetch(

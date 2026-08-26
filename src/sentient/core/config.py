@@ -278,11 +278,13 @@ class RAGSettings:
     log_format: str
     upload_max_bytes: int
     upload_user_quota_bytes: int
+    extract_max_chars: int
     rate_limit_enabled: bool
     rate_limit_completions_per_minute: int
     rate_limit_uploads_per_hour: int
     rate_limit_default_per_minute: int
     token_quota_per_month: int
+    max_api_keys_per_user: int
 
 
 def load_rag_settings(api_key: str | None = None) -> RAGSettings:
@@ -394,6 +396,17 @@ def load_rag_settings(api_key: str | None = None) -> RAGSettings:
         # of stage_and_enqueue gets them rather than only the upload route.
         upload_max_bytes=_env_int("UPLOAD_MAX_BYTES", 26_214_400),
         upload_user_quota_bytes=_env_int("UPLOAD_USER_QUOTA_BYTES", 524_288_000),
+        # S2's one open sub-item: the upload cap counts bytes ON THE WIRE, so a
+        # small compressed PDF that expands to enormous text passes it and then
+        # costs an embedding call per chunk. This bounds the amplification.
+        #
+        # Defaulted to 2x the byte cap rather than an absolute number, so the two
+        # move together. A 25 MiB plain-text upload is at most ~26.2M characters
+        # and clears it comfortably; nothing a fresh clone accepts today is
+        # rejected by this.
+        extract_max_chars=_env_int(
+            "EXTRACT_MAX_CHARS", _env_int("UPLOAD_MAX_BYTES", 26_214_400) * 2
+        ),
         # Off by default: "defaults preserve behavior" is a hard constraint and a
         # fresh clone must behave like main. A deployment turns it on -- D2 sets it.
         rate_limit_enabled=_env_bool("RATE_LIMIT_ENABLED", False),
@@ -411,4 +424,9 @@ def load_rag_settings(api_key: str | None = None) -> RAGSettings:
         # not substitutes -- 30 requests a minute with a 100k-token context on
         # an expensive model is a real bill.
         token_quota_per_month=_env_int("TOKEN_QUOTA_PER_MONTH", 0, minimum=0),
+        # S6's key-minting row. The rate limiter bounds how FAST keys can be
+        # minted; nothing bounded the total, and the limiter buckets on a key's
+        # hash -- so capping keys is also what caps buckets. 25 is far above any
+        # real use (one per machine running Mantella) and far below abuse.
+        max_api_keys_per_user=_env_int("MAX_API_KEYS_PER_USER", 25, minimum=0),
     )

@@ -110,29 +110,30 @@ is P3's territory, not this phase's.
 
 | Scenario | Control today | Gap |
 |---|---|---|
-| Upload 10 GB | Streaming per-file cap (`UPLOAD_MAX_BYTES`, 25 MiB) + per-user disk quota (`UPLOAD_USER_QUOTA_BYTES`, 500 MB), both enforced in `services/ingestion.py` where staging already lives | **None for size on the wire.** A 2 MB PDF that expands to 500 MB of extracted text is not bounded — see the finding below. |
+| Upload 10 GB | Streaming per-file cap (`UPLOAD_MAX_BYTES`, 25 MiB) + per-user disk quota (`UPLOAD_USER_QUOTA_BYTES`, 500 MB) | None |
+| Upload a 2 MB PDF that expands to 500 MB of text | `EXTRACT_MAX_CHARS`, checked after extraction *and after OCR* in `adapters/documents.py` — the first moment the text exists | None |
 | Fifty Mantella instances on one key | `RATE_LIMIT_COMPLETIONS_PER_MINUTE` (30/min), keyed on the API key's hash | Per-process: N replicas means N× the limit until X5. And ten keys buy ten buckets — see the finding below. |
-| Mint 10,000 API keys | `RATE_LIMIT_DEFAULT_PER_MINUTE` bounds the *rate*, nothing bounds the *total* | **No per-user key cap** — see the finding below. |
+| Mint 10,000 API keys | `MAX_API_KEYS_PER_USER` (25 live keys), plus `RATE_LIMIT_DEFAULT_PER_MINUTE` on the rate. Revoking frees a slot | None |
 | Burn a stored provider key | `TOKEN_QUOTA_PER_MONTH`, summed from `chat_messages.total_tokens` over a rolling 30 days | Counts only turns Sentient recorded. Embedding spend during ingestion is bounded by disk quota, not tokens. |
 | Upload a renamed binary as a PDF | Magic-byte sniffing, separator-agnostic filename sanitisation (H6, pinned by 21 tests in `tests/test_upload_hardening.py`) | None known |
 | Sign up 10,000 accounts | Neon Auth's own controls | **Outside this codebase.** Sentient sees a verified `sub` and creates a user row; it has no signup rate limit of its own and cannot have one. |
 
-### Three findings, raised as their own backlog items
+### The three findings this table used to carry
 
-Each of these is a change with its own test and its own commit, not a paragraph to fold into a
-posture document. Raised in `docs/superpowers/plans/order.md` rather than fixed here — the same
-judgement B5 made about the 409 TTL, and it kept both changes reviewable.
+Raised as their own items rather than folded in, and then closed on 2026-08-27 — except the last,
+which is not a security issue.
 
-1. **A character cap after extraction.** The upload cap counts bytes on the wire; a compressed PDF
-   that expands to enormous text passes it and then costs embedding calls per character. Belongs in
-   `services/ingestion.py` beside the byte cap. This is the one sub-item of S2 that H6 did not
-   close.
-2. **A per-user API key cap.** `POST /v1/keys` is open to any authenticated user with no ceiling.
-   Roughly four lines in `routers/keys.py`. It is also the complement to the rate limiter's
-   identity choice: buckets are keyed on the key's hash, so capping keys caps buckets.
-3. **A surfaced reindex failure.** `projects.status = 'reindexing_required'` is written both by
-   "a rebuild is queued" and by "a rebuild failed", and the user is shown neither. Not a security
-   issue, but it is the same class — a state the system knows and does not say.
+1. **A character cap after extraction — DONE.** `EXTRACT_MAX_CHARS`, defaulted to 2× the byte cap
+   so the two move together. It lives in `adapters/documents.py`, not `services/ingestion.py`
+   where the plan put it: the byte cap runs while the upload streams, and at that point there is
+   no extracted text to measure. Counted as a **sum across pages** — a bomb is ten thousand
+   ordinary-looking pages, not one enormous one. This was S2's one open sub-item.
+2. **A per-user API key cap — DONE.** `MAX_API_KEYS_PER_USER`, 25 live keys, 409 at the ceiling.
+   Revoked rows do not count, or a user who cleaned up would be wedged at the cap forever.
+3. **A surfaced reindex failure — STILL OPEN.** `projects.status = 'reindexing_required'` is
+   written both by "a rebuild is queued" and by "a rebuild failed", and the user is shown neither.
+   Not a security issue, but the same class — a state the system knows and does not say. It needs
+   a console change as well as a backend one, so it is tracked in `order.md`.
 
 ---
 
