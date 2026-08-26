@@ -24,15 +24,38 @@ class RouterImportStyleTests(unittest.TestCase):
         self.assertEqual(offenders, [], f"routers binding deps names at import time: {offenders}")
 
     def test_every_router_is_registered(self):
+        """A router file that nobody include_router()s is dead code that looks live.
+
+        Walks nested routes rather than reading `app.routes` flat. FastAPI 0.141 /
+        Starlette 1.x stopped flattening `include_router` into `app.routes` and now
+        leaves an `_IncludedRouter` wrapper -- which exposes the real router as
+        `original_router`, not as `routes` -- so the flat read found ZERO endpoints
+        and this guard reported all nine routers missing while the app served all
+        25 paths perfectly well. Both container attributes are followed, so this
+        keeps working whichever shape a future version picks.
+        """
         from sentient.api.app import app
 
         routers = Path(__file__).resolve().parent.parent / "src" / "sentient" / "api" / "routers"
         expected = {p.stem for p in routers.glob("*.py") if p.stem != "__init__"}
-        registered = {
-            getattr(r, "endpoint", None).__module__.rsplit(".", 1)[-1]
-            for r in app.routes
-            if getattr(r, "endpoint", None) is not None
-        }
+
+        def modules_of(routes) -> set[str]:
+            found: set[str] = set()
+            for route in routes:
+                endpoint = getattr(route, "endpoint", None)
+                if endpoint is not None:
+                    found.add(endpoint.__module__.rsplit(".", 1)[-1])
+                nested = getattr(route, "original_router", None)
+                found |= modules_of(getattr(route, "routes", ()) or ())
+                if nested is not None:
+                    found |= modules_of(getattr(nested, "routes", ()) or ())
+            return found
+
+        registered = modules_of(app.routes)
+        # Belt and braces: an empty `registered` would make issubset trivially
+        # false and read as "nothing is wired", but a future shape change could
+        # equally make it trivially TRUE against an empty `expected`.
+        self.assertTrue(expected, "no router files found on disk")
         self.assertTrue(
             expected.issubset(registered),
             f"routers on disk but not included in app.py: {expected - registered}",
