@@ -284,6 +284,38 @@ usually miss the rebuild entirely while a client keyed on the 409 still sees it 
 later. The console reads the window off the polled document rows instead, and its settings
 pane predicts a reindex from the config change rather than from any status at all.
 
+## Rate limits
+
+**Off by default.** A fresh clone behaves exactly like `main`. Turn it on for any deployment a
+stranger can reach — until you do, a public origin is an open proxy on your provider bill.
+
+```bash
+RATE_LIMIT_ENABLED=true
+RATE_LIMIT_COMPLETIONS_PER_MINUTE=30   # both completions shapes and POST /v1/chat
+RATE_LIMIT_UPLOADS_PER_HOUR=60         # POST /v1/upload
+RATE_LIMIT_DEFAULT_PER_MINUTE=120      # everything else, including POST /v1/keys
+```
+
+A refused request is a **429** with `Retry-After` in whole seconds and the usual `{"detail": …}`
+body. `/health` is never throttled — the platform polls it forever, and throttling it would pull
+the instance out of the load balancer under exactly the load the limiter exists to survive.
+
+Three things worth knowing before you rely on it:
+
+- **Buckets are per process.** Everything stateful here already is — the object registry, the
+  ingest queue, the session locks, the runtime cache — and making the limiter the one component
+  that needs Redis would buy a shared store for the cheapest thing in the system. **With N
+  replicas the effective limit is N × the number you configure.** That changes when X5 (horizontal
+  scale) lands; until then, size the number for the replica count you actually run.
+- **Identity is the API key's hash, or the client host when there is no key.** Not the resolved
+  user: that needs a database round trip on every request, and verifying a JWT in middleware would
+  add a JWKS fetch to the hot path. So a caller who mints ten API keys gets ten buckets, and
+  several console users behind one NAT share one. The first gap wants a per-user key cap; the
+  second is the safe direction to be wrong, since keying on an unverified token would let an
+  attacker mint a fresh bucket per request.
+- **It bounds frequency, not spend.** Thirty requests a minute with a 100k-token context on an
+  expensive model is still a real bill. `TOKEN_QUOTA_PER_MONTH` is the other half.
+
 ## Development
 
 ```bash

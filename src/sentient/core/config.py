@@ -275,6 +275,10 @@ class RAGSettings:
     log_format: str
     upload_max_bytes: int
     upload_user_quota_bytes: int
+    rate_limit_enabled: bool
+    rate_limit_completions_per_minute: int
+    rate_limit_uploads_per_hour: int
+    rate_limit_default_per_minute: int
 
 
 def load_rag_settings(api_key: str | None = None) -> RAGSettings:
@@ -378,4 +382,16 @@ def load_rag_settings(api_key: str | None = None) -> RAGSettings:
         # of stage_and_enqueue gets them rather than only the upload route.
         upload_max_bytes=_env_int("UPLOAD_MAX_BYTES", 26_214_400),
         upload_user_quota_bytes=_env_int("UPLOAD_USER_QUOTA_BYTES", 524_288_000),
+        # Off by default: "defaults preserve behavior" is a hard constraint and a
+        # fresh clone must behave like main. A deployment turns it on -- D2 sets it.
+        rate_limit_enabled=_env_bool("RATE_LIMIT_ENABLED", False),
+        # One Mantella session is roughly one request per NPC turn. 30/min is
+        # generous for a player at a keyboard and useless to someone reselling
+        # the endpoint.
+        rate_limit_completions_per_minute=_env_int("RATE_LIMIT_COMPLETIONS_PER_MINUTE", 30),
+        # Uploads cost embedding calls per byte, so they get their own tighter
+        # bucket on top of H6's per-user disk quota, which bounds total size but
+        # not rate.
+        rate_limit_uploads_per_hour=_env_int("RATE_LIMIT_UPLOADS_PER_HOUR", 60),
+        rate_limit_default_per_minute=_env_int("RATE_LIMIT_DEFAULT_PER_MINUTE", 120),
     )

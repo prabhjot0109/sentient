@@ -15,6 +15,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from sentient.api import deps
+from sentient.api.middleware import RateLimitMiddleware
 from sentient.api.routers import (
     audio,
     chat,
@@ -104,21 +105,41 @@ async def lifespan(app: FastAPI):
         log.info("shutdown complete")
 
 
+def configure_middleware(app: FastAPI, settings) -> None:
+    """Install the middleware stack. **Order is load-bearing.**
+
+    Starlette builds the stack with the LAST-added middleware outermost, so CORS
+    must be added last to end up in front of everything else. If the rate limiter
+    were outermost instead, its 429 would carry no `Access-Control-Allow-Origin`
+    header and a browser would report it as a network failure rather than as the
+    throttle it is -- the console would lose the one error it most needs to
+    explain. `tests/test_rate_limits.py` pins this rather than the comment alone.
+
+    A function rather than module-level statements so a test can build the exact
+    same stack over a fresh app with a different `settings`, instead of reloading
+    this module and leaving a mutated global behind for every test after it.
+    """
+    if settings.rate_limit_enabled:
+        app.add_middleware(RateLimitMiddleware, settings=settings)
+
+    app.add_middleware(
+        CORSMiddleware,
+        # Vite picks the next free port (5174, 5175, ...) whenever 5173 is already
+        # taken by another running dev server, so pin the allow-list to a regex
+        # instead of a fixed port list to avoid breaking on port bumps.
+        allow_origin_regex=r"http://(localhost|127\.0\.0\.1):\d+",
+        # Deployed frontends, from CORS_ALLOW_ORIGINS. FastAPI honours the list and the
+        # regex together, so a production origin does not cost the dev-port coverage.
+        allow_origins=list(settings.cors_allow_origins),
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
+
 app = FastAPI(title="Sentient AI API", lifespan=lifespan)
 
-app.add_middleware(
-    CORSMiddleware,
-    # Vite picks the next free port (5174, 5175, ...) whenever 5173 is already
-    # taken by another running dev server, so pin the allow-list to a regex
-    # instead of a fixed port list to avoid breaking on port bumps.
-    allow_origin_regex=r"http://(localhost|127\.0\.0\.1):\d+",
-    # Deployed frontends, from CORS_ALLOW_ORIGINS. FastAPI honours the list and the
-    # regex together, so a production origin does not cost the dev-port coverage.
-    allow_origins=list(deps._settings.cors_allow_origins),
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+configure_middleware(app, deps._settings)
 
 app.include_router(health.router)
 app.include_router(keys.router)
