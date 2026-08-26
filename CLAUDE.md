@@ -121,10 +121,28 @@ all, which is the one error the console most needs to explain. (4) **Retrieved l
 the SYSTEM message**, not carried as user content (`adapters/llm/openai_wire.py:101`), so an
 uploaded document speaks with the persona's own authority — there is no privilege boundary, weak or
 otherwise, and the threat model is only tolerable because documents are uploaded by the project's
-own owner. A shared-project feature inverts that overnight. (5) **`pymupdf` is AGPL-3.0**, a direct
-dependency (`pyproject.toml:27`), imported for OCR rasterisation — it blocks a closed-source hosted
-launch until it is replaced (`pypdfium2`) or licensed from Artifex. `SECURITY.md` at the repo root
+own owner. A shared-project feature inverts that overnight. (5) **`pymupdf` was AGPL-3.0**, a direct dependency imported for OCR rasterisation, and it
+blocked a closed-source hosted launch — replaced with `pypdfium2` on 2026-08-27. `SECURITY.md` at the repo root
 states all three postures; the evidence is in `docs/superpowers/verification/2026-08-26-*`.
+
+**The five items that phase raised are closed too (2026-08-27), and three of them left traps.**
+(1) **`pymupdf` is gone**, replaced by `pypdfium2` (BSD/Apache) — `render(scale=200 / 72)` is the
+same 200 DPI `get_pixmap(dpi=200)` asked for, since scale is pixels per canvas unit and one unit
+is 1/72in. No AGPL remains anywhere. (2) **The dependency bump took starlette 0.50 → 1.6 and
+fastapi 0.128 → 0.141, and `include_router()` no longer flattens into `app.routes`** — it leaves
+an `_IncludedRouter` exposing the real router as **`original_router`**. Anything introspecting
+`app.routes` must recurse through both attributes or it will silently see *zero* endpoints, which
+is how `test_layer_rule.py` came to report all nine routers missing while the app served all 25
+OpenAPI paths. (3) **`EXTRACT_MAX_CHARS` bounds extracted text**, and it lives in
+`adapters/documents.py` rather than beside the byte cap in `services/ingestion.py`, because the
+byte cap runs while the upload is still streaming and there is nothing to measure yet; it is
+counted **after OCR** (OCR is itself an expansion step) and as a **sum across pages** (a bomb is
+ten thousand ordinary pages, not one enormous one). (4) **`MAX_API_KEYS_PER_USER` caps live keys
+at 25**, excluding revoked rows — revoking is how a user makes room. (5) **F9's malformed-id 500
+is fixed**: asyncpg refuses to *bind* a non-UUID string to a `uuid` parameter, so twelve
+`PostgresStateStore` lookups now call `_is_uuid` first and answer `None`/`False`/`[]`. **Every
+guard runs before `_pool_()`**, which is deliberate — it is what lets the tests drive a store
+whose DSN resolves to nothing, so a missed guard hangs instead of quietly passing.
 
 **The rate limiter and the token quota are both OFF by default and are not substitutes.**
 `RATE_LIMIT_ENABLED` bounds *frequency* in raw-ASGI middleware (never `BaseHTTPMiddleware` — the
@@ -139,7 +157,7 @@ sends every user to the env key**, because `services/runtime.py:_stored_key` swa
 failure by design and that fallback is correct for a single corrupt row.
 
 **Plan documents have drifted from the code.** Several quote 125, 200, 209 or 345 tests; the
-suite collects **423** as of 2026-08-26
+suite collects **434** as of 2026-08-27
 (`uv run python -m pytest tests/ --collect-only -q | tail -1`).
 Each plan file also carries 🔶 DELTA banners that override its body text, newest delta wins.
 Never copy a test count, file list, or "state at time of writing" line out of a plan —
