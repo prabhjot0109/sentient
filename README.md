@@ -316,6 +316,28 @@ Three things worth knowing before you rely on it:
 - **It bounds frequency, not spend.** Thirty requests a minute with a 100k-token context on an
   expensive model is still a real bill. `TOKEN_QUOTA_PER_MONTH` is the other half.
 
+### Token quota
+
+The other half, and the one that bounds the bill. `TOKEN_QUOTA_PER_MONTH=0` (the default) means
+unlimited; any positive number is a ceiling on `chat_messages.total_tokens` summed across every
+project the user owns.
+
+```bash
+TOKEN_QUOTA_PER_MONTH=2000000
+```
+
+A caller over the ceiling gets a **429** from `/v1/chat` and from all three completions shapes,
+raised **before** the provider is called — the request that trips the quota is not the request that
+spends the money.
+
+- The window is a **rolling 30 days**, not a calendar month. It recovers on its own; there is no
+  reset to remember to run, and no midnight-on-the-31st boundary where two months' budget can be
+  spent at once.
+- It counts only turns Sentient recorded. Embedding calls during ingestion are bounded by
+  `UPLOAD_USER_QUOTA_BYTES` instead.
+- `total_tokens` is nullable — a provider that reports no usage contributes zero. The sum
+  under-counts rather than guessing.
+
 ## Development
 
 ```bash

@@ -2,6 +2,7 @@
 
 Error translation, on BOTH routes:
 
+    QuotaExceeded     -> 429 "monthly token quota reached ..."
     ReindexInProgress -> 409 "project is reindexing; retrieval temporarily unavailable"
     (thread_id without project_id) -> 400
     (unknown project / thread)     -> 404
@@ -29,10 +30,11 @@ from sentient.api.schemas.chat import (
     RetrievedChunk,
 )
 from sentient.core.concurrency import defer
-from sentient.core.errors import ReindexInProgress
+from sentient.core.errors import QuotaExceeded, ReindexInProgress
 from sentient.core.logging import bind, get_logger
 from sentient.services import chat as service
 from sentient.services.runtime import embedding_signature
+from sentient.services.usage import assert_within_quota
 
 log = get_logger(__name__)
 router = APIRouter()
@@ -52,6 +54,12 @@ async def chat_endpoint(
             raise ValueError("API Key not found. Please provide one or set it in .env")
 
         user_id, user_key = user
+        # The web path's half of the same guard the completions router applies.
+        # It sits in the routers rather than in services/chat.py because it is a
+        # pre-flight check on the caller, like the ownership lookups below -- not
+        # a step in generating a turn -- and putting it here keeps the state store
+        # out of four service signatures that have no other use for it.
+        await assert_within_quota(deps.state_store, deps._settings, user_id=user_id)
         if payload.thread_id and not payload.project_id:
             raise HTTPException(status_code=400, detail="thread_id requires project_id")
         if payload.stream and not payload.project_id:
@@ -166,6 +174,8 @@ async def chat_endpoint(
             response="Please provide an API key or set it in the environment.",
             success=False,
         )
+    except QuotaExceeded as e:
+        raise HTTPException(status_code=429, detail=str(e)) from e
     except ReindexInProgress as e:
         raise HTTPException(status_code=409, detail=str(e)) from e
     except HTTPException:

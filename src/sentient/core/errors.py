@@ -19,6 +19,7 @@ Mapping owned by the routers, measured from api.py on 2026-08-15:
     NotFound            -> 404
     InvalidRequest      -> 400
     ReindexInProgress   -> 409
+    QuotaExceeded       -> 429
     OutOfRange          -> 422
     VaultUnavailable    -> 503
     QueueFull           -> 503
@@ -79,6 +80,17 @@ class OutOfRange(SentientError):
 
 class ReindexInProgress(SentientError):
     """The project's index is being rebuilt; retrieval is unavailable. -> 409"""
+
+
+class QuotaExceeded(SentientError):
+    """The caller has spent their allowance for the current window. -> 429
+
+    Deliberately distinct from the rate limiter's 429, which is about
+    *frequency* and is answered in middleware before a route runs. This one is
+    about *spend* and can only be known after identity is resolved, so it is a
+    domain error like every other. Both share a status code because a client's
+    correct reaction is the same: stop, and come back later.
+    """
 
 
 class QueueFull(SentientError):

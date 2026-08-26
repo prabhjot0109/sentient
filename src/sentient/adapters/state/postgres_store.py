@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any
 
 import asyncpg
@@ -255,6 +256,24 @@ class PostgresStateStore:
                 "SELECT COALESCE(SUM(d.size_bytes), 0) FROM documents d "
                 "JOIN projects p ON p.id = d.project_id WHERE p.user_id = $1",
                 user_id,
+            )
+        return int(total or 0)
+
+    async def sum_user_tokens(self, user_id: str, since: datetime) -> int:
+        """Tokens this user has spent since `since`, across every project they own.
+
+        The twin of the SQLite method, and it takes a real `datetime` because
+        `chat_messages.created_at` is a `timestamptz` here rather than TEXT.
+        """
+        pool = await self._pool_()
+        async with pool.acquire() as conn:
+            total = await conn.fetchval(
+                "SELECT COALESCE(SUM(m.total_tokens), 0) FROM chat_messages m "
+                "JOIN chat_threads t ON t.id = m.thread_id "
+                "JOIN projects p ON p.id = t.project_id "
+                "WHERE p.user_id = $1 AND m.created_at >= $2",
+                user_id,
+                since,
             )
         return int(total or 0)
 

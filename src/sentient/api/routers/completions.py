@@ -7,6 +7,7 @@ clients.
 
 Error translation, on all three shapes:
 
+    QuotaExceeded        -> 429 "monthly token quota reached ..."
     ReindexInProgress    -> 409 "project is reindexing; retrieval temporarily unavailable"
     a provider raising   -> 502 with an OpenAI-shaped `error_body`
     anything else        -> 500 {"detail": ...}
@@ -38,10 +39,10 @@ from sentient.adapters.llm.openai_wire import (
 from sentient.api import deps
 from sentient.core.concurrency import defer
 from sentient.core.config import load_rag_settings
-from sentient.core.errors import ReindexInProgress
+from sentient.core.errors import QuotaExceeded, ReindexInProgress
 from sentient.core.logging import get_logger
 from sentient.services import chat as service
-from sentient.services.usage import TokenUsage, usage_of
+from sentient.services.usage import TokenUsage, assert_within_quota, usage_of
 
 log = get_logger(__name__)
 router = APIRouter()
@@ -85,6 +86,11 @@ async def _run_completions(
 ):
     """Render one grounded turn as SSE or as a single completion body."""
     try:
+        # Before prepare_completion, which builds the client and retrieves lore,
+        # and long before ainvoke. The request that trips the quota must not be
+        # the request that spends the money. One seam for all three path shapes,
+        # because every one of them arrives here.
+        await assert_within_quota(deps.state_store, deps._settings, user_id=ctx.user_id)
         llm, messages, model_name = await service.prepare_completion(
             request,
             ctx,
@@ -93,6 +99,8 @@ async def _run_completions(
             get_archives=deps.get_archives_for_context,
             context_ms=context_ms,
         )
+    except QuotaExceeded as e:
+        raise HTTPException(status_code=429, detail=str(e)) from e
     except ReindexInProgress as e:
         raise HTTPException(status_code=409, detail=str(e)) from e
 

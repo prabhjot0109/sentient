@@ -7,12 +7,19 @@ burst" is a two-line assertion instead of a sleep.
 
 from __future__ import annotations
 
+import tempfile
 import unittest
 from dataclasses import replace
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
+from uuid import uuid4
 
 import httpx
 
+from sentient.adapters.state.sqlite_store import SQLiteStateStore
+from sentient.core.errors import QuotaExceeded
 from sentient.core.limits import BucketRegistry, TokenBucket
+from sentient.services.usage import assert_within_quota
 
 
 class TokenBucketTests(unittest.TestCase):
@@ -247,3 +254,118 @@ class RateLimitMiddlewareTests(unittest.IsolatedAsyncioTestCase):
                 response = await client.post("/v1/chat/completions", headers=headers)
             self.assertEqual(response.status_code, 429)
             self.assertEqual(response.headers["access-control-allow-origin"], origin)
+
+
+class TokenQuotaTests(unittest.IsolatedAsyncioTestCase):
+    """D6's second half: a rate limit bounds *frequency*, this bounds *spend*.
+
+    Thirty requests a minute with a 100k-token context on an expensive model is
+    still a real bill. H4 argued for owning usage rather than renting it so that
+    "a quota check cannot query a third-party SaaS on every request" -- the payoff
+    is that this is a SELECT.
+    """
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.store = SQLiteStateStore(str(Path(self.tmp.name) / "state.db"))
+
+    def _settings(self, quota: int):
+        from sentient.core.config import load_rag_settings
+
+        return replace(load_rag_settings(), token_quota_per_month=quota)
+
+    async def _spend(self, user_id: str, total_tokens: int) -> None:
+        project = await self.store.create_project(user_id, "P")
+        thread = await self.store.upsert_thread(project["id"], uuid4().hex)
+        await self.store.add_message(thread["id"], "assistant", "reply", total_tokens=total_tokens)
+
+    async def test_a_user_under_quota_is_served(self):
+        user = await self.store.ensure_user("under")
+        await self._spend(user["id"], 100)
+        await assert_within_quota(self.store, self._settings(1000), user_id=user["id"])
+
+    async def test_a_user_over_quota_is_refused(self):
+        user = await self.store.ensure_user("over")
+        await self._spend(user["id"], 1500)
+        with self.assertRaises(QuotaExceeded):
+            await assert_within_quota(self.store, self._settings(1000), user_id=user["id"])
+
+    async def test_the_refusal_happens_before_the_provider_is_called(self):
+        """ "Before" is the whole point: the request that trips the quota must not
+        be the request that spends the money.
+
+        Proven structurally -- the store is a fake that raises if the quota check
+        ever runs after generation, and `assert_within_quota` awaits nothing else.
+        """
+        calls: list[str] = []
+
+        class _Recording:
+            async def sum_user_tokens(self, user_id, since):
+                calls.append("quota")
+                return 10_000
+
+        async def _generate():
+            calls.append("provider")
+
+        with self.assertRaises(QuotaExceeded):
+            await assert_within_quota(_Recording(), self._settings(1000), user_id="u")
+            await _generate()
+        self.assertEqual(calls, ["quota"])
+
+    async def test_the_sum_counts_only_this_user(self):
+        mine = await self.store.ensure_user("mine")
+        theirs = await self.store.ensure_user("theirs")
+        await self._spend(theirs["id"], 999_999)
+        await self._spend(mine["id"], 10)
+
+        self.assertEqual(
+            await self.store.sum_user_tokens(mine["id"], datetime.now(UTC) - timedelta(days=1)),
+            10,
+        )
+        await assert_within_quota(self.store, self._settings(1000), user_id=mine["id"])
+
+    async def test_the_window_rolls(self):
+        # Usage older than the window does not count, so a quota recovers on its
+        # own rather than needing a reset anybody has to remember to run.
+        user = await self.store.ensure_user("rolling")
+        await self._spend(user["id"], 5000)
+
+        self.assertEqual(
+            await self.store.sum_user_tokens(user["id"], datetime.now(UTC) + timedelta(days=1)), 0
+        )
+        self.assertEqual(
+            await self.store.sum_user_tokens(user["id"], datetime.now(UTC) - timedelta(days=1)),
+            5000,
+        )
+
+    async def test_a_zero_quota_means_unlimited(self):
+        # The default, so a fresh clone is unchanged -- and it must not even ask
+        # the store, or an unlimited install would pay for a query per turn.
+        class _Exploding:
+            async def sum_user_tokens(self, user_id, since):
+                raise AssertionError("the store must not be touched when the quota is off")
+
+        await assert_within_quota(_Exploding(), self._settings(0), user_id="u")
+
+    async def test_an_unresolved_user_is_not_charged_to_someone_else(self):
+        """`RuntimeContext.user_id` is `str | None`. A None must skip the check,
+        not sum every row whose user_id happens to be NULL."""
+
+        class _Exploding:
+            async def sum_user_tokens(self, user_id, since):
+                raise AssertionError("no user, no quota to check")
+
+        await assert_within_quota(_Exploding(), self._settings(1000), user_id=None)
+
+    async def test_a_provider_that_reports_no_usage_contributes_zero(self):
+        # total_tokens is nullable. The sum under-counts rather than guessing --
+        # the same choice usage_of makes one layer down.
+        user = await self.store.ensure_user("nullable")
+        project = await self.store.create_project(user["id"], "P")
+        thread = await self.store.upsert_thread(project["id"], uuid4().hex)
+        await self.store.add_message(thread["id"], "assistant", "reply")
+
+        self.assertEqual(
+            await self.store.sum_user_tokens(user["id"], datetime.now(UTC) - timedelta(days=1)), 0
+        )

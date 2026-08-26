@@ -307,6 +307,11 @@ class PostgresStoreSurfaceTests(unittest.TestCase):
             "delete_document",
             "get_thread_by_prefix",
             "set_thread_prefix",
+            # D6's quota. A Protocol method implemented in one store and not
+            # the other is the divergence class this project has been bitten
+            # by four times; the isinstance check above only sees names, so
+            # this list is what makes the omission read as a missing method.
+            "sum_user_tokens",
         ):
             self.assertTrue(
                 callable(getattr(PostgresStateStore, name, None)),

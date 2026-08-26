@@ -279,6 +279,7 @@ class RAGSettings:
     rate_limit_completions_per_minute: int
     rate_limit_uploads_per_hour: int
     rate_limit_default_per_minute: int
+    token_quota_per_month: int
 
 
 def load_rag_settings(api_key: str | None = None) -> RAGSettings:
@@ -394,4 +395,9 @@ def load_rag_settings(api_key: str | None = None) -> RAGSettings:
         # not rate.
         rate_limit_uploads_per_hour=_env_int("RATE_LIMIT_UPLOADS_PER_HOUR", 60),
         rate_limit_default_per_minute=_env_int("RATE_LIMIT_DEFAULT_PER_MINUTE", 120),
+        # 0 = unlimited, and it is the default: defaults preserve behavior. A
+        # rate limit bounds frequency; only this bounds spend, and the two are
+        # not substitutes -- 30 requests a minute with a 100k-token context on
+        # an expensive model is a real bill.
+        token_quota_per_month=_env_int("TOKEN_QUOTA_PER_MONTH", 0, minimum=0),
     )

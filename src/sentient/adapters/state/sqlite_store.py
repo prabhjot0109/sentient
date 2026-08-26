@@ -395,6 +395,32 @@ class SQLiteStateStore:
         """Bytes this user has stored across every project they own."""
         return await asyncio.to_thread(self._user_storage_bytes, user_id)
 
+    def _sum_user_tokens(self, user_id: str, since: str) -> int:
+        with closing(self._connect()) as conn:
+            row = conn.execute(
+                "SELECT COALESCE(SUM(m.total_tokens), 0) AS total FROM chat_messages m "
+                "JOIN chat_threads t ON t.id = m.thread_id "
+                "JOIN projects p ON p.id = t.project_id "
+                "WHERE p.user_id = ? AND m.created_at >= ?",
+                (user_id, since),
+            ).fetchone()
+        return int(row["total"] or 0)
+
+    async def sum_user_tokens(self, user_id: str, since: datetime) -> int:
+        """Tokens this user has spent since `since`, across every project they own.
+
+        A quota check that had to ask a provider dashboard would be a third-party
+        round trip on the hot path. H4 persisted `total_tokens` on every assistant
+        message precisely so this is a SELECT instead.
+
+        `created_at` is an ISO-8601 TEXT column here, so the bound is compared as
+        a string. That is only sound because every writer uses `_now()`, which is
+        always UTC with the same offset spelling -- lexicographic order and
+        chronological order coincide. A row written with a different offset format
+        would sort wrongly, which is why nothing else may write this column.
+        """
+        return await asyncio.to_thread(self._sum_user_tokens, user_id, since.isoformat())
+
     def _fail_stuck_documents(self) -> int:
         with closing(self._connect()) as conn, conn:
             cursor = conn.execute(

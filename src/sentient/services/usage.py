@@ -12,7 +12,10 @@ Reading these attributes is free — they are already on the response object. Th
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 from typing import Any
+
+from sentient.core.errors import QuotaExceeded
 
 
 @dataclass(frozen=True)
@@ -72,3 +75,44 @@ def usage_of(result: Any, model: str | None = None) -> TokenUsage:
         total = (prompt or 0) + (completion or 0)
 
     return TokenUsage(model, prompt, completion, total)
+
+
+# --- The quota, which is a read of everything above ---------------------------
+#
+# It lives here rather than in services/chat.py because it is not a step in
+# generating a turn -- it is a question about accumulated usage, and this module
+# already owns the answer to "how many tokens did that cost". chat.py calls it;
+# nothing else needs to know how the window is computed.
+
+QUOTA_WINDOW = timedelta(days=30)
+
+
+async def assert_within_quota(state_store, settings, *, user_id: str | None) -> None:
+    """Raise `QuotaExceeded` if this user has spent their allowance.
+
+    Called BEFORE the provider, and that ordering is the whole point: the request
+    that trips the quota must not also be the request that spends the money.
+
+    A rolling 30 days, not a calendar month. The env var is named
+    TOKEN_QUOTA_PER_MONTH because that is what an operator thinks in, but a
+    calendar boundary would need a timezone nobody has chosen and would let a
+    caller spend two months' budget across midnight on the 31st.
+
+    Two deliberate holes, stated rather than discovered later:
+
+    - It counts only turns Sentient itself recorded. Embedding calls during
+      ingestion, and any provider spend outside `chat_messages`, are invisible
+      here. H6's disk quota is what bounds ingestion.
+    - `total_tokens` is nullable: a provider that reports no usage contributes
+      zero. The sum under-counts rather than guessing, which is the same choice
+      `usage_of` makes one layer down.
+    """
+    limit = getattr(settings, "token_quota_per_month", 0)
+    if limit <= 0 or user_id is None:
+        return
+
+    spent = await state_store.sum_user_tokens(user_id, datetime.now(UTC) - QUOTA_WINDOW)
+    if spent >= limit:
+        raise QuotaExceeded(
+            f"monthly token quota reached ({spent} of {limit}); it resets as usage ages out"
+        )
