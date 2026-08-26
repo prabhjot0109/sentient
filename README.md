@@ -284,6 +284,15 @@ usually miss the rebuild entirely while a client keyed on the 409 still sees it 
 later. The console reads the window off the polled document rows instead, and its settings
 pane predicts a reindex from the config change rather than from any status at all.
 
+## Security posture
+
+[`SECURITY.md`](SECURITY.md) states what this system does and does not promise about **prompt
+injection** (the NPC can be made to say anything; it cannot reach another tenant's lore, the vault,
+or a tool — there are none), the **API key in the game route's URL path**, and **abuse**, scenario
+by scenario with the control and the gap for each.
+
+Read it before pointing a public origin at this. The two knobs that matter for that are below.
+
 ## Rate limits
 
 **Off by default.** A fresh clone behaves exactly like `main`. Turn it on for any deployment a
