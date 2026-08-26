@@ -268,6 +268,9 @@ class RAGSettings:
     neon_auth_issuer: str | None
     neon_auth_algorithms: list[str]
     sentient_secret_key: str | None
+    # Retired vault keys still accepted for DECRYPTION. A tuple, not a
+    # list, so RAGSettings stays hashable/frozen like every other field.
+    sentient_secret_keys_old: tuple[str, ...]
     # Deployed browser origins allowed to call the API. A tuple, not a list, so
     # RAGSettings stays hashable/frozen like every other field here.
     cors_allow_origins: tuple[str, ...]
@@ -369,6 +372,14 @@ def load_rag_settings(api_key: str | None = None) -> RAGSettings:
             if a.strip()
         ],
         sentient_secret_key=os.getenv("SENTIENT_SECRET_KEY") or None,
+        # Comma-separated, so more than one rotation can be in flight. Present
+        # for exactly one deploy: step 1 adds it, `sentient rotate-secret`
+        # re-encrypts every row, step 3 removes it again.
+        sentient_secret_keys_old=tuple(
+            key.strip()
+            for key in (os.getenv("SENTIENT_SECRET_KEY_OLD") or "").split(",")
+            if key.strip()
+        ),
         cors_allow_origins=tuple(
             origin.strip()
             for origin in (os.getenv("CORS_ALLOW_ORIGINS") or "").split(",")

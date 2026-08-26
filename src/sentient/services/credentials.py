@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from sentient.core.crypto import crypto_available, encrypt_key, key_hint
+from sentient.core.crypto import crypto_available, encrypt_key, key_hint, rotate_token
 from sentient.core.errors import InvalidRequest, VaultUnavailable
 
 _CREDENTIAL_PROVIDERS = {"google", "openai", "huggingface", "groq", "cerebras", "openrouter"}
@@ -73,3 +73,48 @@ async def remove_credential(
     deleted = await state_store.delete_credential(user_id, normalize_provider(provider))
     await invalidate_user_projects(state_store, runtime_cache, user_id)
     return deleted
+
+
+async def rotate_vault_keys(state_store, settings) -> dict[str, Any]:
+    """Re-encrypt every stored credential under the current `SENTIENT_SECRET_KEY`.
+
+    Step 2 of the three-step rotation (README, "Rotating the vault key"). Step 1
+    deployed the new key with the old one in `SENTIENT_SECRET_KEY_OLD`, so every
+    row still decrypts and new writes already use the new key; this walks the
+    table so step 3 can drop the old key without stranding anything.
+
+    **Refuses to run without an old key**, which is the guard that matters. The
+    dangerous order is changing `SENTIENT_SECRET_KEY` and running this *before*
+    setting `SENTIENT_SECRET_KEY_OLD`: every row would fail to decrypt and the
+    command would report a long list of failures that an operator could easily
+    read as "already done".
+
+    **Idempotent enough to re-run**, because operators re-run commands.
+    `MultiFernet.rotate` decrypts then re-encrypts and never nests, so a second
+    pass produces a different ciphertext (fresh IV and timestamp) over the same
+    plaintext under the same key.
+
+    A row that decrypts under neither key is counted and skipped rather than
+    aborting the run: one unreadable row must not strand every readable one, and
+    the caller is told exactly which rows they were.
+    """
+    secret = vault_secret(settings)
+    previous = tuple(getattr(settings, "sentient_secret_keys_old", ()))
+    if not previous:
+        raise InvalidRequest(
+            "SENTIENT_SECRET_KEY_OLD is not set; there is no previous key to rotate from"
+        )
+
+    rotated = 0
+    unreadable: list[dict[str, str]] = []
+    for row in await state_store.list_all_credentials():
+        try:
+            token = rotate_token(row["encrypted_key"], secret, previous)
+        except Exception:
+            # No key material in the report -- only who and which provider.
+            unreadable.append({"user_id": str(row["user_id"]), "provider": row["provider"]})
+            continue
+        await state_store.set_credential_token(str(row["id"]), token)
+        rotated += 1
+
+    return {"rotated": rotated, "unreadable": unreadable}

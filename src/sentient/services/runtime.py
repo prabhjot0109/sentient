@@ -146,7 +146,11 @@ async def _stored_key(state, settings, user_id, provider: str) -> str | None:
     if not credential:
         return None
     try:
-        return decrypt_key(credential["encrypted_key"], settings.sentient_secret_key)
+        return decrypt_key(
+            credential["encrypted_key"],
+            settings.sentient_secret_key,
+            getattr(settings, "sentient_secret_keys_old", ()),
+        )
     except Exception:
         # Never log key material. A rotated or malformed secret must not take chats
         # down — fall through to the environment key instead.

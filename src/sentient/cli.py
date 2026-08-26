@@ -1,9 +1,11 @@
-"""Retrieval/answer smoke check, exposed as the `sentient` console script.
+"""The `sentient` console script: a retrieval/answer smoke check, and D8's
+vault-key rotation.
 
 The sys.path.append this file used to carry is gone: R9 made the repo a real
 installed package, so `import sentient` resolves from any working directory.
 """
 
+import argparse
 import asyncio
 import os
 from time import perf_counter
@@ -75,8 +77,59 @@ async def _main():
         print(f"[!] Error during verification: {e}")
 
 
+async def _rotate_secret() -> int:
+    """D8 step 2: re-encrypt every stored credential under the current key.
+
+    **Secrets come from the environment, never from flags.** The plan sketched
+    `--old <key> --new <key>`; a vault key typed on a command line lands in shell
+    history and in every process listing on the box, which is a worse outcome
+    than the problem this command exists to fix. The three-step procedure already
+    puts both keys in the environment, so there is nothing for a flag to add.
+    """
+    from sentient.adapters.state import get_state_store
+    from sentient.core.errors import InvalidRequest, VaultUnavailable
+    from sentient.services.credentials import rotate_vault_keys
+
+    settings = load_rag_settings()
+    print(
+        f"[*] Vault rotation | store={settings.db_backend} | "
+        f"previous keys held={len(settings.sentient_secret_keys_old)}"
+    )
+    try:
+        report = await rotate_vault_keys(get_state_store(settings), settings)
+    except (InvalidRequest, VaultUnavailable) as exc:
+        print(f"[!] {exc}")
+        return 1
+
+    print(f"[*] Re-encrypted {report['rotated']} credential(s).")
+    for row in report["unreadable"]:
+        # Loud, and per row: these are the credentials that will silently fall
+        # back to the env key once SENTIENT_SECRET_KEY_OLD is removed.
+        print(
+            f"[!] UNREADABLE user={row['user_id']} provider={row['provider']} "
+            f"-- decrypts under neither key; the user must re-enter it"
+        )
+    if report["unreadable"]:
+        return 2
+    print("[*] Safe to remove SENTIENT_SECRET_KEY_OLD and deploy again.")
+    return 0
+
+
 def main() -> None:
-    """Synchronous entry point for the console script."""
+    """Synchronous entry point for the console script.
+
+    No subcommand runs the smoke check, which is what `sentient` did before this
+    file grew a second job.
+    """
+    parser = argparse.ArgumentParser(prog="sentient")
+    parser.add_subparsers(dest="command").add_parser(
+        "rotate-secret",
+        help="re-encrypt every stored credential under SENTIENT_SECRET_KEY",
+    )
+    args = parser.parse_args()
+
+    if args.command == "rotate-secret":
+        raise SystemExit(asyncio.run(_rotate_secret()))
     asyncio.run(_main())
 
 

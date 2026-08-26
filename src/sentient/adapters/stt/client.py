@@ -69,7 +69,9 @@ async def _stored_key(
         row = await state.get_credential(user_id, provider)
         if not row:
             return None
-        return decrypt_key(row["encrypted_key"], secret)
+        return decrypt_key(
+            row["encrypted_key"], secret, getattr(settings, "sentient_secret_keys_old", ())
+        )
     except Exception as exc:  # no key material in the message
         log.warning(
             "stored STT credential unusable; falling back to env",

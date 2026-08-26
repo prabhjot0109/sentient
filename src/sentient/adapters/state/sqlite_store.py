@@ -518,6 +518,39 @@ class SQLiteStateStore:
             ).fetchone()
         return dict(row)
 
+    def _list_all_credentials(self) -> list[dict[str, Any]]:
+        with closing(self._connect()) as conn:
+            rows = conn.execute(
+                "SELECT id, user_id, provider, encrypted_key FROM provider_credentials "
+                "ORDER BY created_at"
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    async def list_all_credentials(self) -> list[dict[str, Any]]:
+        """Every vault row in the deployment, for `sentient rotate-secret`.
+
+        Deliberately not scoped to a user: rotation is an operator action over the
+        whole table, and it is the ONLY caller. No route exposes this -- a
+        tenant-wide read reachable over HTTP is the opposite of what S1 proved.
+        """
+        return await asyncio.to_thread(self._list_all_credentials)
+
+    def _set_credential_token(self, credential_id: str, encrypted_key: str) -> None:
+        with closing(self._connect()) as conn, conn:
+            conn.execute(
+                "UPDATE provider_credentials SET encrypted_key=? WHERE id=?",
+                (encrypted_key, credential_id),
+            )
+
+    async def set_credential_token(self, credential_id: str, encrypted_key: str) -> None:
+        """Replace one row's ciphertext, leaving user, provider and hint alone.
+
+        By id rather than by (user_id, provider) so a rotation cannot accidentally
+        create a row it meant to update, and so `key_hint` -- which is derived from
+        the plaintext and does not change under re-encryption -- is never rewritten.
+        """
+        await asyncio.to_thread(self._set_credential_token, credential_id, encrypted_key)
+
     async def upsert_thread(
         self,
         project_id: str,

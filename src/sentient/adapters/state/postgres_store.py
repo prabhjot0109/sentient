@@ -347,6 +347,27 @@ class PostgresStateStore:
             )
         return result.endswith("1")
 
+    async def list_all_credentials(self) -> list[dict[str, Any]]:
+        """Every vault row in the deployment, for `sentient rotate-secret`. The
+        twin of the SQLite method; no route reaches either."""
+        pool = await self._pool_()
+        async with pool.acquire() as conn:
+            rows = await conn.fetch(
+                "SELECT id, user_id, provider, encrypted_key FROM provider_credentials "
+                "ORDER BY created_at"
+            )
+        return [dict(row) for row in rows]
+
+    async def set_credential_token(self, credential_id: str, encrypted_key: str) -> None:
+        """Replace one row's ciphertext, by id, leaving user/provider/hint alone."""
+        pool = await self._pool_()
+        async with pool.acquire() as conn:
+            await conn.execute(
+                "UPDATE provider_credentials SET encrypted_key=$2 WHERE id=$1",
+                credential_id,
+                encrypted_key,
+            )
+
     async def upsert_thread(
         self,
         project_id: str,

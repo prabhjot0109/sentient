@@ -338,6 +338,39 @@ spends the money.
 - `total_tokens` is nullable — a provider that reports no usage contributes zero. The sum
   under-counts rather than guessing.
 
+## Rotating the vault key
+
+Changing `SENTIENT_SECRET_KEY` does not error. It silently stops every stored provider credential
+from decrypting, and `services/runtime.py` falls back to the environment key — so each user's own
+key quietly stops being used, nothing is logged that anyone reads, and the first symptom is a bill.
+
+Three steps, no downtime. `SENTIENT_SECRET_KEY_OLD` is a comma-separated list of retired keys
+accepted for **decryption only**; new writes always use `SENTIENT_SECRET_KEY`.
+
+```bash
+# 1. Deploy with both keys. Everything still decrypts; new writes use the new key.
+SENTIENT_SECRET_KEY=<new>
+SENTIENT_SECRET_KEY_OLD=<old>
+
+# 2. Re-encrypt every stored row under the new key.
+uv run sentient rotate-secret
+
+# 3. Deploy again with SENTIENT_SECRET_KEY_OLD removed.
+```
+
+`sentient rotate-secret` takes **no key arguments** — both keys come from the environment. A vault
+key typed on a command line lands in shell history and in every process listing on the box, which
+is a worse outcome than the problem the command exists to fix.
+
+It refuses to run when `SENTIENT_SECRET_KEY_OLD` is unset (exit **1**): the dangerous order is
+changing the key and rotating *before* setting the old one, where every row fails and a long list
+of failures reads far too much like "already done". A row that decrypts under neither key is named
+by user and provider and skipped rather than aborting the run (exit **2**) — those are the
+credentials their owners must re-enter. Exit **0** means it is safe to do step 3.
+
+**Skip the procedure and every stored credential becomes undecryptable.** There is no recovery;
+each user must re-enter their provider key.
+
 ## Development
 
 ```bash
