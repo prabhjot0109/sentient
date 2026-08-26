@@ -106,8 +106,40 @@ rejection is a `TypeError` and never reached `toApiError`, so the one state F9 i
 was the one the seam could not type), and a TanStack Query error is **returned, not thrown**,
 so it reaches no router boundary unless a `throwOnError` predicate opts it in.
 
+**Phase S, D6 and D8 are done (2026-08-26) and left five things worth carrying.** (1) **S1
+passed live from two identities against Neon + FAISS**, and the vector probe passed in the strong
+form — A's invented fact queried through B's project returned *B's own chunk*, not an empty list,
+which is what distinguishes a working filter from a broken index. Frozen as 20 cases in
+`tests/test_tenant_isolation.py`. (2) **`/v1/upload`, `DELETE /v1/sources/{filename}` and both
+game-path routes answer 403, not 404** — they resolve through `deps.completions_ctx`, which
+confirms existence where the management routes mask it, and `core/errors.py` calls that divergence
+deliberate. A test written against the plan's 404 would fail against correct code. (3) **CORS must
+stay the OUTERMOST middleware.** Starlette puts the last-added one in front, so the rate limiter is
+added *before* it inside `api/app.py::configure_middleware()` — otherwise a 429 carries no
+`Access-Control-Allow-Origin`, and a browser reports that as a network failure with no status at
+all, which is the one error the console most needs to explain. (4) **Retrieved lore is appended to
+the SYSTEM message**, not carried as user content (`adapters/llm/openai_wire.py:101`), so an
+uploaded document speaks with the persona's own authority — there is no privilege boundary, weak or
+otherwise, and the threat model is only tolerable because documents are uploaded by the project's
+own owner. A shared-project feature inverts that overnight. (5) **`pymupdf` is AGPL-3.0**, a direct
+dependency (`pyproject.toml:27`), imported for OCR rasterisation — it blocks a closed-source hosted
+launch until it is replaced (`pypdfium2`) or licensed from Artifex. `SECURITY.md` at the repo root
+states all three postures; the evidence is in `docs/superpowers/verification/2026-08-26-*`.
+
+**The rate limiter and the token quota are both OFF by default and are not substitutes.**
+`RATE_LIMIT_ENABLED` bounds *frequency* in raw-ASGI middleware (never `BaseHTTPMiddleware` — the
+completions path streams SSE and defers post-response work), keyed on the api key's **hash** and
+not the resolved `user_id`, because resolving that costs a database round trip on every request.
+The gap is stated rather than hidden: **ten keys buy ten buckets**, and the per-user key cap that
+closes it is open work. `TOKEN_QUOTA_PER_MONTH` bounds *spend*, summed from
+`chat_messages.total_tokens` over a rolling 30 days, checked in the two routers before the provider
+is called. `SENTIENT_SECRET_KEY_OLD` makes vault-key rotation a three-step no-downtime operation
+through `MultiFernet`; **without it, changing `SENTIENT_SECRET_KEY` does not error — it silently
+sends every user to the env key**, because `services/runtime.py:_stored_key` swallows the decrypt
+failure by design and that fallback is correct for a single corrupt row.
+
 **Plan documents have drifted from the code.** Several quote 125, 200, 209 or 345 tests; the
-suite collects **363** as of 2026-08-25
+suite collects **423** as of 2026-08-26
 (`uv run python -m pytest tests/ --collect-only -q | tail -1`).
 Each plan file also carries 🔶 DELTA banners that override its body text, newest delta wins.
 Never copy a test count, file list, or "state at time of writing" line out of a plan —
