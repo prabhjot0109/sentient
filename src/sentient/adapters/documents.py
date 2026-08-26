@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import io
 import os
 from functools import lru_cache
 from pathlib import Path
@@ -24,15 +23,23 @@ log = get_logger(__name__)
 
 # OCR is optional: scanned/image-only PDFs need it, but text PDFs don't, and the
 # Tesseract binary may not be installed. Import lazily so ingestion never hard-fails.
+#
+# pypdfium2 (BSD-3-Clause / Apache-2.0) rather than pymupdf, which is AGPL-3.0 or a
+# paid Artifex licence. AGPL section 13 obliges a hosted service to offer its source
+# to anyone interacting with it over a network, so shipping pymupdf meant a hosted
+# Sentient had to be AGPL too. S4 found it; nothing else here used it. The only job
+# is rasterising a page for Tesseract, and PDFium does that at the same 200 DPI.
 try:
-    import pymupdf
+    import pypdfium2
     import pytesseract
     from PIL import Image
 
     _OCR_IMPORT_ERROR: Exception | None = None
 except Exception as exc:  # pragma: no cover - depends on the environment
-    pymupdf = None  # type: ignore[assignment]
-    pytesseract = None  # pytesseract ships no stubs, so this needs no ignore
+    # Neither pypdfium2 nor pytesseract ships stubs, so mypy sees them as Any and
+    # these two need no ignore. Pillow does ship them, hence the one below.
+    pypdfium2 = None
+    pytesseract = None
     Image = None  # type: ignore[assignment]
     _OCR_IMPORT_ERROR = exc
 
@@ -157,9 +164,9 @@ class ArchivesIngestion:
         if not pages_needing_ocr:
             return
 
-        if pymupdf is None or pytesseract is None or Image is None:
+        if pypdfium2 is None or pytesseract is None or Image is None:
             log.warning(
-                "OCR skipped: dependencies unavailable. Install pymupdf, pytesseract "
+                "OCR skipped: dependencies unavailable. Install pypdfium2, pytesseract "
                 "and the Tesseract binary to read scanned PDFs.",
                 extra={"file": path.name, "reason": str(_OCR_IMPORT_ERROR)},
             )
@@ -170,7 +177,7 @@ class ArchivesIngestion:
             pytesseract.pytesseract.tesseract_cmd = tesseract_cmd
 
         try:
-            pdf = pymupdf.open(str(path))
+            pdf = pypdfium2.PdfDocument(str(path))
         except Exception:
             log.warning(
                 "OCR skipped: could not open the PDF for rendering",
@@ -182,12 +189,14 @@ class ArchivesIngestion:
         try:
             for document in pages_needing_ocr:
                 page_index = document.metadata.get("page")
-                if page_index is None or page_index >= pdf.page_count:
+                if page_index is None or page_index >= len(pdf):
                     continue
                 try:
-                    pixmap = pdf[page_index].get_pixmap(dpi=200)
-                    image = Image.open(io.BytesIO(pixmap.tobytes("png")))
-                    text = pytesseract.image_to_string(image)
+                    # scale is pixels per PDF canvas unit, and one unit is 1/72in,
+                    # so dpi/72 is the same 200 DPI pymupdf was asked for. to_pil()
+                    # hands back the bitmap without a PNG round trip through io.
+                    bitmap = pdf[page_index].render(scale=200 / 72)
+                    text = pytesseract.image_to_string(bitmap.to_pil())
                 except Exception:
                     log.warning(
                         "OCR failed on a page",
