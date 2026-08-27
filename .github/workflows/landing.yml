@@ -1,0 +1,47 @@
+name: Landing
+
+# Same shape and the same path filter as console.yml. It is the app a stranger
+# sees first, so it gets a gate for the same reason the console does.
+on:
+  push:
+    paths:
+      - "apps/landing/**"
+      - ".github/workflows/landing.yml"
+  pull_request:
+    paths:
+      - "apps/landing/**"
+      - ".github/workflows/landing.yml"
+
+jobs:
+  landing:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/landing
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: apps/landing/package-lock.json
+
+      - name: Install
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Format check
+        run: npx prettier --check .
+
+      # No test step: apps/landing has no `test` script. Checked, not assumed.
+
+      - name: Build
+        run: npm run build
+        env:
+          # The one VITE_ var this app reads. The Launch CTA is a plain
+          # cross-origin link built from it, so an undefined value would ship a
+          # link to the literal string "undefined".
+          VITE_CONSOLE_URL: https://example.invalid

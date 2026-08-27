@@ -1,0 +1,60 @@
+name: Console
+
+# Path-filtered: a backend-only commit should not spend three minutes on npm.
+# The workflow file itself is included so a change to THIS file is tested by it.
+on:
+  push:
+    paths:
+      - "apps/console/**"
+      - ".github/workflows/console.yml"
+  pull_request:
+    paths:
+      - "apps/console/**"
+      - ".github/workflows/console.yml"
+
+# A separate job from the Python `check` in ci.yml, on purpose. apps/ is outside
+# every backend gate (ruff/mypy/import-linter/pytest are path-scoped to src/ and
+# tests/), and keeping the split structural rather than conventional is what
+# stops a console failure ever reading as "the backend is broken".
+jobs:
+  console:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/console
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: apps/console/package-lock.json
+
+      # `ci`, never `install`. `ci` fails on a lockfile that has drifted from
+      # package.json; `install` silently rewrites it, which turns a gate into a
+      # no-op exactly when it matters.
+      - name: Install
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Format check
+        run: npx prettier --check .
+
+      - name: Test
+        run: npm test
+
+      # `build` is `vite build && tsc --noEmit`, so this is the type check as
+      # well. It runs last because it is the slowest and the others localise a
+      # failure better.
+      - name: Build
+        run: npm run build
+        env:
+          # Nothing is fetched at build time, so the values need not be real.
+          # They must exist, though: an undefined VITE_ var inlines as the
+          # literal string "undefined", which is worse than a placeholder
+          # because it looks like a URL.
+          VITE_API_BASE_URL: http://127.0.0.1:8000
+          VITE_NEON_AUTH_URL: https://example.invalid
