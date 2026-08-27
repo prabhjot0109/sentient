@@ -1,0 +1,124 @@
+/*
+ * The console's palette, ported verbatim from apps/landing/src/styles.css.
+ *
+ * A copy, not an import, because the three apps are separate builds with
+ * separate lockfiles and no workspace tool (D5, deliberately unbuilt). A
+ * cross-app relative import would be the first thing to make them one project
+ * by accident.
+ *
+ * The cost is that the two can drift. That is a real cost and it is paid on
+ * purpose: `diff apps/landing/src/styles.css apps/console/src/styles/tokens.css`
+ * makes drift visible in one command, whereas a build-time coupling would make
+ * the deploy story harder forever. If a third consumer ever appears, publish a
+ * package -- do not add a workspace for two.
+ *
+ * WHY THIS FILE OVERRIDES NOTHING BY FORCE. @neondatabase/neon-js writes its
+ * theme as `--neon-background: var(--background, <its own default>)`, using the
+ * SAME raw variable names landing uses. So defining `--background` here is not
+ * fighting the auth-UI theme, it is filling in the hook the theme already left
+ * open -- which is why one :root block restyles the console AND Neon's prebuilt
+ * AuthView, with no fork and no per-component work.
+ *
+ * MEASURED, because the F11 plan predicted otherwise: --muted-foreground on
+ * --background is 5.75:1, and on --card 5.69:1. Both clear WCAG AA for body
+ * text (4.5:1), so the console uses landing's value unchanged. --destructive is
+ * 5.16:1 and --brand 6.99:1. No divergence from landing is needed or taken.
+ */
+
+@theme inline {
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --radius-2xl: calc(var(--radius) + 8px);
+  --radius-3xl: calc(var(--radius) + 12px);
+
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Syne", "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "Geist Mono", ui-monospace, SFMono-Regular, monospace;
+
+  /* These duplicate the mapping @neondatabase/neon-js/ui/tailwind already
+     installs, and are kept anyway: they are what makes this file diffable
+     against landing's, and they keep the console painted if that package ever
+     stops delegating to a consumer-supplied variable. */
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  --color-brand: var(--brand);
+  --color-cyan-glow: var(--cyan-glow);
+  --color-violet-glow: var(--violet-glow);
+  --color-midnight: var(--midnight);
+  --color-graphite: var(--graphite);
+  --color-ink: var(--ink);
+}
+
+:root {
+  --radius: 0.375rem;
+
+  /* Neutral, cinematic black -- very slight blue in the shadows */
+  --ink: oklch(0.055 0.004 260);
+  --background: oklch(0.055 0.004 260);
+  --foreground: oklch(0.985 0 0);
+  --graphite: oklch(0.11 0.003 260);
+  --midnight: oklch(0.08 0.004 260);
+
+  --card: oklch(0.09 0.004 260);
+  --card-foreground: oklch(0.97 0 0);
+  --popover: oklch(0.09 0.004 260);
+  --popover-foreground: oklch(0.97 0 0);
+
+  --primary: oklch(0.98 0 0);
+  --primary-foreground: oklch(0.08 0 0);
+
+  --secondary: oklch(0.16 0.003 260);
+  --secondary-foreground: oklch(0.97 0 0);
+
+  --muted: oklch(0.14 0.003 260);
+  --muted-foreground: oklch(0.62 0.008 260);
+
+  --accent: oklch(0.98 0 0);
+  --accent-foreground: oklch(0.08 0 0);
+
+  --destructive: oklch(0.62 0.22 25);
+  --destructive-foreground: oklch(0.98 0 0);
+
+  --border: oklch(1 0 0 / 8%);
+  --input: oklch(1 0 0 / 10%);
+  --ring: oklch(1 0 0 / 30%);
+
+  --brand: oklch(0.68 0.11 45);
+  --cyan-glow: oklch(0.68 0.11 45);
+  --violet-glow: oklch(0.68 0.11 45);
+
+  /* Cinematic easings */
+  --ease-out-quint: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+
+  --shadow-glow: 0 0 0 1px oklch(1 0 0 / 0.06), 0 20px 60px -20px oklch(0 0 0 / 0.6);
+  --shadow-elevated: 0 30px 80px -30px oklch(0 0 0 / 0.7), 0 0 0 1px oklch(1 0 0 / 0.06);
+  --shadow-card: 0 1px 0 0 oklch(1 0 0 / 0.04) inset, 0 20px 60px -30px oklch(0 0 0 / 0.6);
+
+  /* Console-only. Neon hardcodes --neon-radius at 0.625rem with no consumer
+     hook, and its @theme maps the whole --radius-* scale off it, so the auth
+     card would keep Neon's rounder corners while everything else took
+     landing's 0.375rem. This is the one value that has to be overridden by
+     name rather than filled in. */
+  --neon-radius: 0.375rem;
+}

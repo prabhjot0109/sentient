@@ -1,14 +1,35 @@
 @import "tailwindcss";
-/* Must come AFTER tailwindcss: it pulls the auth-UI theme variables and the
-   @source safelist for the classes better-auth-ui renders at runtime, which
-   Tailwind's scanner cannot see in our own source. */
+
+/* AFTER tailwindcss: it pulls the auth-UI theme variables AND the @source
+   safelist for the classes better-auth-ui renders at runtime, which Tailwind's
+   scanner cannot see in our own source. Removing it silently unstyles sign-in
+   and sign-up -- the classes stop being emitted at all, and the only symptom is
+   a screen you have to be signed out to see. */
 @import "@neondatabase/neon-js/ui/tailwind";
 
-/* The theme import defines the tokens but paints nothing. Without this the shell
-   sits on the browser default white while every panel uses the token palette. */
+/* AFTER the Neon theme, and the order is the whole mechanism. Neon's theme
+   reads `--neon-background: var(--background, <its default>)`, so tokens.css
+   does not fight it -- it fills in the variable the theme already defers to.
+   Coming second is still required: a :root declared before Neon's would lose
+   the cascade on any value Neon sets outright, such as --neon-radius. */
+@import "./tokens.css";
+
 @layer base {
   body {
     background-color: var(--color-background);
     color: var(--color-foreground);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    letter-spacing: -0.005em;
+  }
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
+    font-family: var(--font-display);
+    letter-spacing: -0.025em;
   }
 }

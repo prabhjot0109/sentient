@@ -4,6 +4,16 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Sentient console</title>
+    <!-- The same two faces apps/landing loads, from the same URL, so a
+         visitor arriving from the Launch CTA gets a cache hit rather than a
+         second download and a flash of fallback type. Copied verbatim from
+         apps/landing/src/routes/__root.tsx; keep the weights identical. -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Syne:wght@500;600;700;800&family=Geist+Mono:wght@400;500&display=swap"
+    />
   </head>
   <body>
     <div id="root"></div>
