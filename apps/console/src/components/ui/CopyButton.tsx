@@ -1,6 +1,8 @@
 import { Check, Copy } from "lucide-react";
 import { useState } from "react";
 
+import { Button } from "./Button";
+
 /**
  * navigator.clipboard requires a secure context. localhost qualifies and so does
  * https, but it still rejects behind some permission policies, so the failure
@@ -12,7 +14,7 @@ export function CopyButton({
   value,
   label = "Copy",
   onCopied,
-  className = "",
+  className,
 }: {
   value: string;
   label?: string;
@@ -33,17 +35,10 @@ export function CopyButton({
 
   return (
     <span className="inline-flex items-center gap-2">
-      <button
-        type="button"
-        onClick={copy}
-        className={
-          className ||
-          "inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-sm hover:bg-accent"
-        }
-      >
+      <Button size="sm" onClick={copy} className={className}>
         {state === "copied" ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
         {state === "copied" ? "Copied" : label}
-      </button>
+      </Button>
       {state === "failed" && (
         <span className="text-xs text-destructive">
           Clipboard blocked — select the text above and copy it by hand.
