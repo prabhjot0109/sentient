@@ -1,5 +1,7 @@
 import { useState } from "react";
 
+import { Button } from "@/components/ui/Button";
+import { Input } from "@/components/ui/Input";
 import { Modal } from "@/components/ui/Modal";
 import { PROVIDERS } from "@/types/credentials";
 import { ErrorState } from "@/components/ui/ErrorState";
@@ -47,13 +49,7 @@ export function AddCredentialDialog({
         The dialog owns its own trigger and its own state, so both the empty state
         and the toolbar can drop it in with nothing threaded through a parent.
       */}
-      <button
-        type="button"
-        onClick={() => setOpen(true)}
-        className="rounded-md border border-border px-3 py-1.5 text-sm hover:bg-accent"
-      >
-        Add a provider key
-      </button>
+      <Button onClick={() => setOpen(true)}>Add a provider key</Button>
 
       {open && (
         <Modal open onClose={close} title="Add a provider key">
@@ -78,27 +74,22 @@ export function AddCredentialDialog({
           </label>
           <label className="mt-3 block text-sm">
             API key
-            <input
+            <Input
               type="password"
               value={apiKey}
               onChange={(e) => setApiKey(e.target.value)}
               autoComplete="off"
-              className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+              className="mt-1"
             />
           </label>
           {error != null && <ErrorState error={error} />}
           <div className="mt-4 flex justify-end gap-2">
-            <button type="button" onClick={close} className="text-sm text-muted-foreground">
+            <Button variant="ghost" onClick={close}>
               Cancel
-            </button>
-            <button
-              type="button"
-              disabled={!apiKey.trim() || isPending}
-              onClick={submit}
-              className="rounded-md bg-primary px-3 py-1.5 text-sm text-primary-foreground disabled:opacity-50"
-            >
+            </Button>
+            <Button variant="primary" disabled={!apiKey.trim() || isPending} onClick={submit}>
               {isPending ? "Storing…" : "Store"}
-            </button>
+            </Button>
           </div>
         </Modal>
       )}
