@@ -47,12 +47,12 @@ they're doing more work now than when only half the grid moved.
 
 No clip is fetched at all when any of these hold — do not re-litigate them in a component:
 
-| Gate | Reason |
-| --- | --- |
-| `prefers-reduced-motion` | Accessibility |
-| Viewport < 768px | Grid is 2-col there; tiles are thumbnails |
-| `navigator.connection.saveData` | Explicit user request |
-| `effectiveType` matches `2g$` | Slow network |
+| Gate                            | Reason                                    |
+| ------------------------------- | ----------------------------------------- |
+| `prefers-reduced-motion`        | Accessibility                             |
+| Viewport < 768px                | Grid is 2-col there; tiles are thumbnails |
+| `navigator.connection.saveData` | Explicit user request                     |
+| `effectiveType` matches `2g$`   | Slow network                              |
 
 Beyond that, playback is staggered 220ms per tile so eight hardware decoders do not start
 in one frame (last tile begins ~1.5s after the first), and pauses when the hero scrolls

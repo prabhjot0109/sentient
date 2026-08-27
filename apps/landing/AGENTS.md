@@ -11,7 +11,7 @@ path-scoped to `src/` and `tests/`.
 ## State: deliberately unwired
 
 The "Launch" call to action is a **plain link**, not an auth flow. This site has no
-signed-in state and never reads a session: the user authenticates *inside*
+signed-in state and never reads a session: the user authenticates _inside_
 `apps/web` after arriving. That is what lets the two apps stay separate builds with
 no cross-origin token handoff. If a requirement ever appears to show signed-in state
 here (a "Welcome back" header, an avatar), that assumption breaks and the two apps
