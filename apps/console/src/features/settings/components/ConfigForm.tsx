@@ -149,6 +149,7 @@ export function ConfigForm({
             >
               {field.kind === "provider" || field.kind === "searchType" ? (
                 <select
+                  aria-label={field.label}
                   value={(value as string) ?? ""}
                   onChange={(e) => set(field.key, e.target.value, field.kind)}
                   className="w-full rounded-md border border-border bg-background px-3 py-1.5 text-sm"
@@ -162,6 +163,7 @@ export function ConfigForm({
                 </select>
               ) : (
                 <Input
+                  aria-label={field.label}
                   type={field.kind === "number" ? "number" : "text"}
                   value={value ?? ""}
                   min={field.min}

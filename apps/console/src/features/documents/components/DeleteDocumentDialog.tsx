@@ -36,7 +36,13 @@ export function DeleteDocumentDialog({
         Its chunks leave the index immediately. NPCs stop being able to cite it. Type{" "}
         <code className="font-medium text-foreground">{document.filename}</code> to confirm.
       </p>
-      <Input autoFocus value={typed} onChange={(e) => setTyped(e.target.value)} className="mt-3" />
+      <Input
+        aria-label={`Type ${document.filename} to confirm`}
+        autoFocus
+        value={typed}
+        onChange={(e) => setTyped(e.target.value)}
+        className="mt-3"
+      />
       {error != null && <ErrorState error={error} />}
       <div className="mt-4 flex justify-end gap-2">
         <Button variant="ghost" onClick={onClose}>

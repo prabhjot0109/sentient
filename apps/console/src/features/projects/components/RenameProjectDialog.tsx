@@ -41,6 +41,7 @@ export function RenameProjectDialog({
     <Modal open={open} onClose={close} title="Rename project">
       <form onSubmit={submit} className="space-y-4">
         <Input
+          aria-label="Project name"
           autoFocus
           required
           maxLength={200}

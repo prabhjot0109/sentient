@@ -21,7 +21,11 @@ export function MessageList({
   isStreaming: boolean;
 }) {
   return (
-    <ol className="space-y-3">
+    // aria-live announces the reply a screen reader would otherwise never hear:
+    // the transcript grows without a navigation. aria-busy is what keeps that
+    // bearable -- it holds the announcement until the stream ends, so the reader
+    // gets the finished message once instead of one utterance per token.
+    <ol className="space-y-3" aria-live="polite" aria-busy={isStreaming}>
       {messages.map((message) => (
         <li key={message.id} className="space-y-1">
           <p className="text-xs uppercase tracking-wide text-muted-foreground">{message.role}</p>

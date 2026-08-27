@@ -24,7 +24,7 @@ export function ThreadList({
   onNew: () => void;
 }) {
   return (
-    <div className="w-64 shrink-0 space-y-2 border-r border-border pr-3">
+    <div className="w-full shrink-0 space-y-2 border-b border-border pb-3 md:w-64 md:border-r md:border-b-0 md:pr-3 md:pb-0">
       <Button size="sm" onClick={onNew} className="w-full">
         New conversation
       </Button>

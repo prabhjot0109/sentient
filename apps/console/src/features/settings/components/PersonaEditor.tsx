@@ -48,6 +48,7 @@ export function PersonaEditor({
         </p>
       </div>
       <textarea
+        aria-label="Persona"
         value={text}
         onChange={(e) => setText(e.target.value)}
         rows={8}

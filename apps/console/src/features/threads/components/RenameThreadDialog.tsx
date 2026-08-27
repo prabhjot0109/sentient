@@ -25,7 +25,12 @@ export function RenameThreadDialog({
 
   return (
     <Modal open onClose={onClose} title="Rename conversation">
-      <Input autoFocus value={title} onChange={(e) => setTitle(e.target.value)} />
+      <Input
+        aria-label="Conversation title"
+        autoFocus
+        value={title}
+        onChange={(e) => setTitle(e.target.value)}
+      />
       <div className="mt-4 flex justify-end gap-2">
         <Button variant="ghost" onClick={onClose}>
           Cancel

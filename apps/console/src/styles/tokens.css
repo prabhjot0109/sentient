@@ -21,8 +21,20 @@
  *
  * MEASURED, because the F11 plan predicted otherwise: --muted-foreground on
  * --background is 5.75:1, and on --card 5.69:1. Both clear WCAG AA for body
- * text (4.5:1), so the console uses landing's value unchanged. --destructive is
- * 5.16:1 and --brand 6.99:1. No divergence from landing is needed or taken.
+ * text (4.5:1), so the console uses landing's value unchanged. --brand is
+ * 6.99:1 and --destructive as TEXT on the background is 5.16:1.
+ *
+ * ONE VALUE DIVERGES FROM LANDING, deliberately: --destructive-foreground.
+ * --destructive has two jobs here that pull in opposite directions. It is the
+ * fill behind a Delete button, which needs its label to contrast with it, and
+ * it is the colour of error text, which needs to contrast with the page. No
+ * single lightness serves both: at landing's 0.62 the white label is 3.83:1
+ * (fails AA), and darkening it to 0.58 to fix that drops the error text to
+ * 4.37:1 (fails AA the other way, in the worse place -- an error message is
+ * exactly the text a user must be able to read). So --destructive keeps
+ * landing's value and the LABEL goes dark instead: oklch(0.15 0 0) on the red
+ * fill is 4.85:1. Landing declares a destructive button variant it never
+ * renders, so nothing there changes appearance to match.
  */
 
 @theme inline {
@@ -97,7 +109,8 @@
   --accent-foreground: oklch(0.08 0 0);
 
   --destructive: oklch(0.62 0.22 25);
-  --destructive-foreground: oklch(0.98 0 0);
+  /* Diverges from landing. See the header: white was 3.83:1 on this red. */
+  --destructive-foreground: oklch(0.15 0 0);
 
   --border: oklch(1 0 0 / 8%);
   --input: oklch(1 0 0 / 10%);

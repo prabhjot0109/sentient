@@ -41,7 +41,9 @@ export function ChatScreen({ projectId }: { projectId: string }) {
   };
 
   return (
-    <section className="flex gap-4">
+    // Stacked below md: a 256px thread list beside the transcript leaves the
+    // conversation about 100px wide on a phone.
+    <section className="flex flex-col gap-4 md:flex-row">
       <ThreadList
         threads={threads}
         activeId={activeId}

@@ -21,6 +21,7 @@ export function Composer({
   return (
     <div className="flex gap-2">
       <textarea
+        aria-label="Message"
         value={text}
         onChange={(e) => setText(e.target.value)}
         onKeyDown={(e) => {
