@@ -27,6 +27,18 @@ jobs:
           cache: npm
           cache-dependency-path: apps/landing/package-lock.json
 
+      # npm 11, pinned. `npm ci` does not check the lockfile for internal
+      # consistency -- it rebuilds the tree with the RUNNING npm's resolver and
+      # demands the lockfile already contain every package that resolver picked.
+      # npm 10 and npm 11 disagree about optional peer dependencies, so node
+      # 22's bundled npm 10 rejects a lockfile npm 11 wrote and npm 11 accepts.
+      # Measured, not guessed: the first run of this workflow failed on
+      # `Missing: ajv@8.20.0 from lock file` (console) and `Missing:
+      # lru-cache@11.5.2` (landing, an optional peer of nitro's unstorage),
+      # both from a clean `npm ci` that passes locally on npm 11.
+      - name: Pin npm to the major that maintains these lockfiles
+        run: npm i -g npm@11
+
       - name: Install
         run: npm ci
 
