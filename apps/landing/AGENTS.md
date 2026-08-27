@@ -12,10 +12,10 @@ path-scoped to `src/` and `tests/`.
 
 The "Launch" call to action is a **plain link**, not an auth flow. This site has no
 signed-in state and never reads a session: the user authenticates _inside_
-`apps/web` after arriving. That is what lets the two apps stay separate builds with
-no cross-origin token handoff. If a requirement ever appears to show signed-in state
-here (a "Welcome back" header, an avatar), that assumption breaks and the two apps
-should be reconsidered as one.
+`apps/console` after arriving. That is what lets the two apps stay separate builds
+with no cross-origin token handoff. If a requirement ever appears to show signed-in
+state here (a "Welcome back" header, an avatar), that assumption breaks and the two
+apps should be reconsidered as one.
 
 Wiring Launch → auth → app is Phase F work (**F1** auth shell, **F10** build/serve and
 `CORS_ALLOW_ORIGINS`). Both are gated behind V2/V3. Do not build it here ahead of that.
@@ -63,8 +63,9 @@ those gates able to prevent the download rather than just hide the result.
   and `Spark()` draws the same `Math.sin` curve under all four. There is no telemetry
   behind any of it. Do not cite these numbers anywhere else; they need to be measured or
   removed.
-- Nav and footer link to `#docs`, which is the code-sample section. There is no CTA to
-  `apps/web` yet — deliberate, pending the auth shell (F1).
+- Nav and footer link to `#docs`, which is the code-sample section. All four Launch CTAs
+  point at `CONSOLE_URL` from `src/lib/site.ts` (wired in `99491a2`); the console they reach
+  landed with F1.
 - `@lovable.dev/vite-tanstack-config` and `src/lib/lovable-error-reporting.ts` are
   platform lock-in. The reporter is inert off-platform (it no-ops when
   `window.__lovableEvents` is absent), so it is harmless but dead. Replacing the config

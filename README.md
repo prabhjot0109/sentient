@@ -61,8 +61,7 @@ python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().d
 Rotating or removing that key leaves every stored credential undecryptable; there is no
 re-encrypt path yet.
 
-`apps/web` is the frozen pre-refactor test UI, kept for reference only; `apps/landing` is the
-marketing site. Neither is the console.
+`apps/console` is the console. `apps/landing` is the marketing site that links to it.
 
 ## Usage
 
@@ -119,11 +118,11 @@ src/sentient/
 
 `core/config.py` is the only place environment variables are read. `adapters/state/` and
 `adapters/retrieval/` are Protocol seams with swappable implementations (SQLite/Postgres,
-FAISS/Qdrant). `apps/console`, `apps/web` and `apps/landing` are separate Node builds outside
-the backend gates — `ruff`, `mypy`, `import-linter` and `pytest` are path-scoped to `src/` and
-`tests/`, so nothing under `apps/` can turn the Python CI red, and nothing there is covered by
-it either. `apps/console` carries its own `lint` / `test` / `build` / `prettier` gates that no
-CI job runs yet.
+FAISS/Qdrant). `apps/console` and `apps/landing` are separate Node builds outside the backend
+gates — `ruff`, `mypy`, `import-linter` and `pytest` are path-scoped to `src/` and `tests/`, so
+nothing under `apps/` can turn the Python CI red. Each carries its own gates in its own
+workflow instead: `.github/workflows/console.yml` runs `lint` / `prettier` / `test` / `build`,
+and `landing.yml` the same minus the tests it does not have.
 
 ### Tenant partitions
 

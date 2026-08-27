@@ -230,18 +230,21 @@ it; a violation is an architectural regression, so move the code rather than wea
   module-level singleton. `routers/` holds the nine routers (none over 250 lines) and `schemas/`
   the Pydantic bodies.
 
-`apps/` holds **three** Node apps, all outside every backend gate (ruff/mypy/import-linter/
-pytest are path-scoped to `src/` and `tests/`, so nothing there can turn CI red):
+`apps/` holds **two** Node apps, both outside every backend gate (ruff/mypy/import-linter/
+pytest are path-scoped to `src/` and `tests/`, so nothing there can turn the Python CI red).
+A third, `apps/web/`, was the frozen pre-refactor test UI and was **deleted by F12**: it called
+`/v1/chats*`, which R9 removed, and sent no `Authorization` header, so it 401'd on everything
+after E3 — a fossil that gave wrong answers rather than a reference:
 
 - **`apps/console/`** — the real console, added 2026-08-23 (F1). Vite 8 + TanStack Router +
   Query + Tailwind 4. Layers are `routes → features → lib → types`, enforced by ESLint along
   with a ban on any `fetch` outside `lib/api/client.ts`. **Read `apps/console/AGENTS.md`
   before touching it** — it carries the measured Neon Auth SDK surface (two traps the F1 plan
   had wrong), the store divergences, and the `localhost`-vs-`127.0.0.1` rule. Its four gates
-  (`npm run lint` / `test` / `build` / `npx prettier --check .`) are run by hand; wiring them
-  into CI is F10.
-- **`apps/web/`** — the frozen pre-refactor test UI, reference only (its chat-history sidebar
-  is *expected* to be broken since B0). F12 retires it.
+  (`npm run lint` / `test` / `build` / `npx prettier --check .`) run in CI as of F10, in
+  `.github/workflows/console.yml` — a separate workflow from `ci.yml`, path-filtered, so a
+  console failure names itself instead of reading as a backend failure. Its palette is a
+  verbatim port of landing's, in `src/styles/tokens.css`; `diff` the two to see drift.
 - **`apps/landing/`** — the marketing site. Its Launch CTA is a plain cross-origin link to the
   console's `/auth/sign-in`, which is what lets the two stay separate builds with no
   cross-origin token handoff.

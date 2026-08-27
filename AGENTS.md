@@ -76,12 +76,18 @@ it; a violation is an architectural regression, so move the code rather than wea
   the Pydantic bodies.
 
 `apps/` holds the two Node apps, both outside every backend gate (ruff/mypy/import-linter/
-pytest are path-scoped to `src/` and `tests/`, so nothing there can turn CI red): `apps/web/`
-is the frozen pre-refactor test UI (D4 — its chat-history sidebar is *expected* to be broken
-since B0; F5 rebuilds it on threads), and `apps/landing/` is the marketing site, deliberately
-unwired — its Launch CTA is a plain link and auth happens in `apps/web`, which is what lets
-the two stay separate builds with no cross-origin token handoff. Each has its own
-`AGENTS.md`, `package.json` and npm lockfile; there is no workspace tool (D5).
+pytest are path-scoped to `src/` and `tests/`, so nothing there can turn the Python CI red):
+`apps/console/` is the console, and `apps/landing/` is the marketing site, whose Launch CTA is
+a plain cross-origin link to the console's `/auth/sign-in` — which is what lets the two stay
+separate builds with no cross-origin token handoff. Each has its own `AGENTS.md`,
+`package.json` and npm lockfile; there is no workspace tool (D5). Each also has its own
+GitHub Actions workflow (`.github/workflows/console.yml`, `landing.yml`), path-filtered and
+separate from `ci.yml` so a frontend failure never reads as "the backend is broken".
+
+`apps/web/`, the frozen pre-refactor test UI, was **deleted by F12**. It had stopped being a
+reference and become a fossil that gave wrong answers: it called `/v1/chats*`, which R9
+removed, and sent no `Authorization` header on any request, so it 401'd on everything after
+E3. Its shapes are all covered by `apps/console/src/lib/api/`.
 
 `cli.py` is the `sentient` console script. `migrations/` holds the `.sql` files
 `PostgresStateStore` applies on first connect. `config/config.ini` is **Mantella's** config, checked
