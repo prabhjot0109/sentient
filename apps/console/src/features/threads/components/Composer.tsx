@@ -1,5 +1,7 @@
 import { useState } from "react";
 
+import { Button } from "@/components/ui/Button";
+
 export function Composer({
   onSend,
   disabled,
@@ -33,14 +35,14 @@ export function Composer({
         placeholder="Say something to an NPC in this world…"
         className="flex-1 resize-none rounded-md border border-border bg-background px-3 py-2 text-sm"
       />
-      <button
-        type="button"
+      <Button
+        variant="primary"
         onClick={submit}
         disabled={disabled || !text.trim()}
-        className="self-end rounded-md bg-primary px-3 py-2 text-sm text-primary-foreground disabled:opacity-50"
+        className="self-end"
       >
         Send
-      </button>
+      </Button>
     </div>
   );
 }

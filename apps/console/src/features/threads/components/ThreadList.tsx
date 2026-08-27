@@ -1,3 +1,4 @@
+import { Button } from "@/components/ui/Button";
 import type { Thread } from "@/types/threads";
 
 import { ThreadRow } from "./ThreadRow";
@@ -24,13 +25,9 @@ export function ThreadList({
 }) {
   return (
     <div className="w-64 shrink-0 space-y-2 border-r border-border pr-3">
-      <button
-        type="button"
-        onClick={onNew}
-        className="w-full rounded-md border border-border px-2 py-1.5 text-sm hover:bg-accent"
-      >
+      <Button size="sm" onClick={onNew} className="w-full">
         New conversation
-      </button>
+      </Button>
       {threads.length === 0 ? (
         <p className="px-2 text-xs text-muted-foreground">
           No conversations yet. Talk to an NPC in-game, or start one here.

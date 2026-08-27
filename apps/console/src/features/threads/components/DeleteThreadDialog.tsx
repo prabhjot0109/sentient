@@ -1,3 +1,4 @@
+import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
 import type { Thread } from "@/types/threads";
 
@@ -26,17 +27,12 @@ export function DeleteThreadDialog({
         an in-game conversation, the NPC loses that memory.
       </p>
       <div className="mt-4 flex justify-end gap-2">
-        <button type="button" onClick={onClose} className="text-sm text-muted-foreground">
+        <Button variant="ghost" onClick={onClose}>
           Cancel
-        </button>
-        <button
-          type="button"
-          disabled={isPending}
-          onClick={onConfirm}
-          className="rounded-md bg-destructive px-3 py-1.5 text-sm text-white disabled:opacity-50"
-        >
+        </Button>
+        <Button variant="destructive" disabled={isPending} onClick={onConfirm}>
           {isPending ? "Deleting…" : "Delete"}
-        </button>
+        </Button>
       </div>
     </Modal>
   );

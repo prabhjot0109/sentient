@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 
+import { Button } from "@/components/ui/Button";
+import { Input } from "@/components/ui/Input";
 import { Modal } from "@/components/ui/Modal";
 import type { Thread } from "@/types/threads";
 
@@ -23,24 +25,18 @@ export function RenameThreadDialog({
 
   return (
     <Modal open onClose={onClose} title="Rename conversation">
-      <input
-        autoFocus
-        value={title}
-        onChange={(e) => setTitle(e.target.value)}
-        className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
-      />
+      <Input autoFocus value={title} onChange={(e) => setTitle(e.target.value)} />
       <div className="mt-4 flex justify-end gap-2">
-        <button type="button" onClick={onClose} className="text-sm text-muted-foreground">
+        <Button variant="ghost" onClick={onClose}>
           Cancel
-        </button>
-        <button
-          type="button"
+        </Button>
+        <Button
+          variant="primary"
           disabled={!title.trim() || isPending}
           onClick={() => onConfirm(title.trim())}
-          className="rounded-md bg-primary px-3 py-1.5 text-sm text-primary-foreground disabled:opacity-50"
         >
           {isPending ? "Saving…" : "Save"}
-        </button>
+        </Button>
       </div>
     </Modal>
   );

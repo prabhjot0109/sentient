@@ -14,7 +14,7 @@ export function ThreadRow({
   onDelete: (thread: Thread) => void;
 }) {
   return (
-    <li className={`group rounded-md px-2 py-1.5 ${isActive ? "bg-accent" : "hover:bg-accent/50"}`}>
+    <li className={`group rounded-md px-2 py-1.5 ${isActive ? "bg-muted" : "hover:bg-muted/50"}`}>
       <button
         type="button"
         onClick={() => onSelect(thread)}
