@@ -451,3 +451,70 @@ and filtering on `object` first drops the one frame that exists to end the silen
 Confirmed live: a bad model gives `http=200` with the provider's own `model_not_found`
 sentence as the last frame before `[DONE]`. The first `chat.completion.chunk` carries
 `delta: {"role": "assistant"}` and no content, so guard on the text, never on the index.
+
+## Styling: the import order in `globals.css` is load-bearing
+
+Three imports, in this order, and each position is a decision:
+
+```css
+@import "tailwindcss";
+@import "@neondatabase/neon-js/ui/tailwind";
+@import "./tokens.css";
+```
+
+**Do not delete the Neon import to "clean up" the palette.** It pulls the auth-UI theme
+variables _and_ the `@source` safelist for the classes better-auth-ui renders at runtime,
+which Tailwind's scanner cannot see anywhere in our source. Removing it does not merely
+change colours; it stops those classes being emitted at all, and the only symptom is a
+sign-in screen you have to be **signed out** to look at.
+
+To check you have not broken it, grep the **built** stylesheet, not the page — and not for
+the string "better-auth", which appears nowhere in it. The safelist holds Tailwind utilities
+(`!bg-transparent`, `!size-8`, `*:data-[slot=select-value]:line-clamp-1`). Diff the _count of
+emitted class selectors_ before and after instead. It was 379 when F11 landed, and F11 lost
+none of them.
+
+**`tokens.css` is not fighting the Neon theme.** Neon writes its variables as
+`--neon-background: var(--background, <its own default>)`, using the same raw names
+`apps/landing/src/styles.css` uses. So defining `--background`, `--card`, `--muted-foreground`
+and the rest in `tokens.css` fills in a hook the theme already left open, which is why one
+`:root` block restyles the console **and** Neon's prebuilt `AuthView` with no fork.
+
+**One exception, and it is the reason order still matters.** `--neon-radius` is hardcoded at
+`0.625rem` with no consumer indirection, and Neon's `@theme` maps the whole `--radius-*` scale
+off it. `tokens.css` overrides it by name. That works because ours is unlayered and Neon's
+sits inside `@layer neon-auth` — unlayered beats layered regardless of source order — but keep
+the import last anyway, because the next such value may not be in a layer.
+
+**`tokens.css` is a copy of landing's palette, not an import.** Three apps, three lockfiles,
+no workspace tool (D5, deliberately unbuilt). `diff apps/landing/src/styles.css
+apps/console/src/styles/tokens.css` is how you see drift. **One value diverges on purpose**:
+`--destructive-foreground` is `oklch(0.15 0 0)` here and `oklch(0.98 0 0)` there, because
+`--destructive` has two jobs that pull against each other — it is a Delete button's fill,
+where the label must contrast with it (white on it is 3.83:1, failing AA), and it is error
+text, where it must contrast with the page (5.16:1, passing). Darkening the fill to fix the
+first breaks the second. Darkening the label fixes both: 4.85:1. The header comment in
+`tokens.css` carries the full table.
+
+## Landing's `--accent` is nearly white
+
+`oklch(0.98 0 0)`. It is a _bright_ accent on a near-black page, not a subtle hover fill.
+**Never write `hover:bg-accent`** — that is white text on a white background at 1.01:1, and
+F11 shipped it live for four commits before the migration found it. Use `bg-muted`
+(19.07:1). The instance that survived longest was not a hover at all: `ThreadRow` painted the
+_selected_ conversation `bg-accent`, and a grep excluding `hover:bg-accent` dropped the whole
+line because the same line also contained `hover:bg-accent/50`.
+
+## Primitives, and where they deliberately stop
+
+`components/ui/Button.tsx` and `Input.tsx` are the only two. `Button` defaults
+`type="button"`, because a bare `<button>` inside a `<form>` is `type="submit"` — that is how
+a Cancel button comes to submit the dialog it was meant to dismiss. Both use `twMerge` so a
+call site's one-off `className` overrides the variant rather than fighting it.
+
+**There is deliberately no `Card` and no `Select`.** F11 wrote a `Card` and deleted it in the
+same phase: the 28 `rounded-md border` class strings it was meant to absorb turned out to be
+four `<select>`, two `<textarea>`, two `<code>` blocks, the native `<dialog>`, a dashed
+dropzone and two amber banners — two shared utility classes and nothing else. The four real
+panels each wanted a different padding and radius. Do not re-add either one until there is
+duplication that actually has one shape.
