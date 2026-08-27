@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 
+import { Button } from "@/components/ui/Button";
 import type { PersonaSource } from "@/types/projects";
 import { ErrorState } from "@/components/ui/ErrorState";
 
@@ -53,17 +54,16 @@ export function PersonaEditor({
         className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
       />
       {error != null && <ErrorState error={error} />}
-      <button
-        type="button"
+      <Button
+        variant="primary"
         onClick={() => onSave(text)}
         // An empty prompt is a 422 (`system_prompt` is a required str, confirmed:
         // `{}` answers "Field required"), and text identical to the resolved value
         // would only convert an inherited persona into the same custom one.
         disabled={isSaving || !text.trim() || text === personaPrompt}
-        className="rounded-md bg-primary px-3 py-1.5 text-sm text-primary-foreground disabled:opacity-50"
       >
         {isSaving ? "Saving…" : "Save persona"}
-      </button>
+      </Button>
     </div>
   );
 }

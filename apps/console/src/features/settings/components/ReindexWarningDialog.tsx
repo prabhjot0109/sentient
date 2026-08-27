@@ -1,3 +1,4 @@
+import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
 
 /**
@@ -34,17 +35,12 @@ export function ReindexWarningDialog({
         lost, and you can watch the progress on the Lore tab.
       </p>
       <div className="mt-4 flex justify-end gap-2">
-        <button type="button" onClick={onClose} className="text-sm text-muted-foreground">
+        <Button variant="ghost" onClick={onClose}>
           Cancel
-        </button>
-        <button
-          type="button"
-          disabled={isPending}
-          onClick={onConfirm}
-          className="rounded-md bg-primary px-3 py-1.5 text-sm text-primary-foreground disabled:opacity-50"
-        >
+        </Button>
+        <Button variant="primary" disabled={isPending} onClick={onConfirm}>
           {isPending ? "Saving…" : "Save and re-embed"}
-        </button>
+        </Button>
       </div>
     </Modal>
   );

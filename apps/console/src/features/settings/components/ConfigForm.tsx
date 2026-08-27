@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 
+import { Button } from "@/components/ui/Button";
+import { Input } from "@/components/ui/Input";
 import type { ConfigPatch, WritableConfigField } from "@/lib/api/config";
 import { PROVIDERS, SEARCH_TYPES } from "@/types/credentials";
 import type { ProjectConfig } from "@/types/projects";
@@ -159,7 +161,7 @@ export function ConfigForm({
                   ))}
                 </select>
               ) : (
-                <input
+                <Input
                   type={field.kind === "number" ? "number" : "text"}
                   value={value ?? ""}
                   min={field.min}
@@ -167,7 +169,7 @@ export function ConfigForm({
                   step={field.step}
                   placeholder="Server default"
                   onChange={(e) => set(field.key, e.target.value, field.kind)}
-                  className="w-full rounded-md border border-border bg-background px-3 py-1.5 text-sm"
+                  className="py-1.5"
                 />
               )}
             </ConfigField>
@@ -177,13 +179,13 @@ export function ConfigForm({
 
       {error != null && <ErrorState error={error} />}
 
-      <button
+      <Button
         type="submit"
+        variant="primary"
         disabled={isSaving || Object.keys(patch).length === 0}
-        className="rounded-md bg-primary px-3 py-1.5 text-sm text-primary-foreground disabled:opacity-50"
       >
         {isSaving ? "Saving…" : "Save changes"}
-      </button>
+      </Button>
     </form>
   );
 }
