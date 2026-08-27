@@ -1,5 +1,7 @@
 import { useState } from "react";
 
+import { Button } from "@/components/ui/Button";
+import { Input } from "@/components/ui/Input";
 import { Modal } from "@/components/ui/Modal";
 import type { SourceDocument } from "@/types/documents";
 import { ErrorState } from "@/components/ui/ErrorState";
@@ -34,25 +36,19 @@ export function DeleteDocumentDialog({
         Its chunks leave the index immediately. NPCs stop being able to cite it. Type{" "}
         <code className="font-medium text-foreground">{document.filename}</code> to confirm.
       </p>
-      <input
-        autoFocus
-        value={typed}
-        onChange={(e) => setTyped(e.target.value)}
-        className="mt-3 w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
-      />
+      <Input autoFocus value={typed} onChange={(e) => setTyped(e.target.value)} className="mt-3" />
       {error != null && <ErrorState error={error} />}
       <div className="mt-4 flex justify-end gap-2">
-        <button type="button" onClick={onClose} className="text-sm text-muted-foreground">
+        <Button variant="ghost" onClick={onClose}>
           Cancel
-        </button>
-        <button
-          type="button"
+        </Button>
+        <Button
+          variant="destructive"
           disabled={typed !== document.filename || isPending}
           onClick={() => onConfirm(document.filename)}
-          className="rounded-md bg-destructive px-3 py-1.5 text-sm text-white disabled:opacity-50"
         >
           {isPending ? "Deleting…" : "Delete"}
-        </button>
+        </Button>
       </div>
     </Modal>
   );
