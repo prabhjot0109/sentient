@@ -1,5 +1,7 @@
 import { useState } from "react";
 
+import { Button } from "@/components/ui/Button";
+import { Input } from "@/components/ui/Input";
 import { Modal } from "@/components/ui/Modal";
 import type { CreatedApiKey } from "@/types/keys";
 
@@ -36,24 +38,19 @@ export function NewKeyDialog({ onCreated }: { onCreated: (key: CreatedApiKey) =>
 
   return (
     <>
-      <button
-        type="button"
-        onClick={() => setOpen(true)}
-        className="rounded-md bg-primary px-3 py-2 text-sm text-primary-foreground"
-      >
+      <Button variant="primary" onClick={() => setOpen(true)}>
         Create a key
-      </button>
+      </Button>
 
       <Modal open={open} onClose={close} title="Create an API key">
         <form onSubmit={submit} className="space-y-4">
           <label className="block space-y-1">
             <span className="text-sm font-medium">Label (optional)</span>
-            <input
+            <Input
               autoFocus
               value={label}
               onChange={(event) => setLabel(event.target.value)}
               placeholder="my gaming PC"
-              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
             />
             <span className="block text-xs text-muted-foreground">
               The label is the only way to tell two keys apart later. The key itself is never shown
@@ -64,20 +61,12 @@ export function NewKeyDialog({ onCreated }: { onCreated: (key: CreatedApiKey) =>
           {create.error && <ErrorState error={create.error} />}
 
           <div className="flex justify-end gap-2">
-            <button
-              type="button"
-              onClick={close}
-              className="rounded-md px-3 py-2 text-sm hover:bg-accent"
-            >
+            <Button variant="ghost" onClick={close}>
               Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={create.isPending}
-              className="rounded-md bg-primary px-3 py-2 text-sm text-primary-foreground disabled:opacity-50"
-            >
+            </Button>
+            <Button type="submit" variant="primary" disabled={create.isPending}>
               {create.isPending ? "Creating…" : "Create key"}
-            </button>
+            </Button>
           </div>
         </form>
       </Modal>

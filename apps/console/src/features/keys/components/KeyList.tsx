@@ -1,5 +1,6 @@
 import { useState } from "react";
 
+import { Button } from "@/components/ui/Button";
 import type { ApiKey } from "@/types/keys";
 
 import { useKeys } from "../hooks";
@@ -25,13 +26,9 @@ function KeyRow({ apiKey }: { apiKey: ApiKey }) {
       </div>
 
       {!apiKey.revoked && (
-        <button
-          type="button"
-          onClick={() => setConfirming(true)}
-          className="rounded-md border border-border px-2.5 py-1.5 text-sm hover:bg-accent"
-        >
+        <Button size="sm" onClick={() => setConfirming(true)}>
           Revoke
-        </button>
+        </Button>
       )}
 
       <RevokeKeyDialog apiKey={apiKey} open={confirming} onClose={() => setConfirming(false)} />

@@ -1,3 +1,4 @@
+import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
 import type { ApiKey } from "@/types/keys";
 
@@ -39,21 +40,12 @@ export function RevokeKeyDialog({
         {revoke.error && <ErrorState error={revoke.error} />}
 
         <div className="flex justify-end gap-2">
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-md px-3 py-2 text-sm hover:bg-accent"
-          >
+          <Button variant="ghost" onClick={onClose}>
             Cancel
-          </button>
-          <button
-            type="button"
-            onClick={submit}
-            disabled={revoke.isPending}
-            className="rounded-md bg-destructive px-3 py-2 text-sm text-white disabled:opacity-50"
-          >
+          </Button>
+          <Button variant="destructive" onClick={submit} disabled={revoke.isPending}>
             {revoke.isPending ? "Revoking…" : "Revoke key"}
-          </button>
+          </Button>
         </div>
       </div>
     </Modal>

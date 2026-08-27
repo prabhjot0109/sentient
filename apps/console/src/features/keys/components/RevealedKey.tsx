@@ -1,5 +1,6 @@
 import { useState } from "react";
 
+import { Button } from "@/components/ui/Button";
 import { CopyButton } from "@/components/ui/CopyButton";
 import { Modal } from "@/components/ui/Modal";
 import type { CreatedApiKey } from "@/types/keys";
@@ -48,14 +49,9 @@ export function RevealedKey({
         </label>
 
         <div className="flex justify-end">
-          <button
-            type="button"
-            disabled={!acknowledged}
-            onClick={onDismiss}
-            className="rounded-md bg-primary px-3 py-2 text-sm text-primary-foreground disabled:opacity-50"
-          >
+          <Button variant="primary" disabled={!acknowledged} onClick={onDismiss}>
             Done
-          </button>
+          </Button>
         </div>
       </div>
     </Modal>
