@@ -1,5 +1,7 @@
 import { useState } from "react";
 
+import { Button } from "@/components/ui/Button";
+import { Input } from "@/components/ui/Input";
 import { Modal } from "@/components/ui/Modal";
 import type { Project } from "@/types/projects";
 
@@ -56,31 +58,26 @@ export function DeleteProjectDialog({
           <span className="text-sm">
             Type <strong className="font-mono">{project.name}</strong> to confirm.
           </span>
-          <input
+          <Input
             autoFocus
             value={confirmation}
             onChange={(event) => setConfirmation(event.target.value)}
-            className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
           />
         </label>
 
         {remove.error && <ErrorState error={remove.error} />}
 
         <div className="flex justify-end gap-2">
-          <button
-            type="button"
-            onClick={close}
-            className="rounded-md px-3 py-2 text-sm hover:bg-accent"
-          >
+          <Button variant="ghost" onClick={close}>
             Cancel
-          </button>
-          <button
+          </Button>
+          <Button
             type="submit"
+            variant="destructive"
             disabled={remove.isPending || confirmation !== project.name}
-            className="rounded-md bg-destructive px-3 py-2 text-sm text-white disabled:opacity-50"
           >
             {remove.isPending ? "Deleting…" : "Delete project"}
-          </button>
+          </Button>
         </div>
       </form>
     </Modal>

@@ -1,5 +1,7 @@
 import { useState } from "react";
 
+import { Button } from "@/components/ui/Button";
+import { Input } from "@/components/ui/Input";
 import { Modal } from "@/components/ui/Modal";
 import type { Project } from "@/types/projects";
 
@@ -38,32 +40,23 @@ export function RenameProjectDialog({
   return (
     <Modal open={open} onClose={close} title="Rename project">
       <form onSubmit={submit} className="space-y-4">
-        <input
+        <Input
           autoFocus
           required
           maxLength={200}
           value={name}
           onChange={(event) => setName(event.target.value)}
-          className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
         />
 
         {rename.error && <ErrorState error={rename.error} />}
 
         <div className="flex justify-end gap-2">
-          <button
-            type="button"
-            onClick={close}
-            className="rounded-md px-3 py-2 text-sm hover:bg-accent"
-          >
+          <Button variant="ghost" onClick={close}>
             Cancel
-          </button>
-          <button
-            type="submit"
-            disabled={rename.isPending || !name.trim()}
-            className="rounded-md bg-primary px-3 py-2 text-sm text-primary-foreground disabled:opacity-50"
-          >
+          </Button>
+          <Button type="submit" variant="primary" disabled={rename.isPending || !name.trim()}>
             {rename.isPending ? "Saving…" : "Rename"}
-          </button>
+          </Button>
         </div>
       </form>
     </Modal>

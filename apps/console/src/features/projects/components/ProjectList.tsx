@@ -15,7 +15,9 @@ export function ProjectList({ activeProjectId }: { activeProjectId?: string }) {
         </span>
         <NewProjectDialog
           label="+ New"
-          className="rounded px-1.5 py-0.5 text-xs text-muted-foreground hover:bg-sidebar-accent"
+          variant="ghost"
+          size="sm"
+          className="h-auto px-1.5 py-0.5 text-xs text-muted-foreground"
         />
       </div>
 

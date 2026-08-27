@@ -13,10 +13,7 @@ export function ProjectsEmptyState() {
         conversations, which is what keeps Skyrim&rsquo;s lore out of Fallout&rsquo;s answers. Every
         NPC in one game shares the project&rsquo;s persona; there is no per-NPC setup.
       </p>
-      <NewProjectDialog
-        label="Create a project"
-        className="rounded-md bg-primary px-4 py-2 text-sm text-primary-foreground"
-      />
+      <NewProjectDialog label="Create a project" />
     </div>
   );
 }
