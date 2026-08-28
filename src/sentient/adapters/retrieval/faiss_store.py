@@ -5,7 +5,7 @@ import json
 import shutil
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, cast
+from typing import Any
 
 from langchain_community.vectorstores import FAISS
 from langchain_core.documents import Document
@@ -223,10 +223,11 @@ class FaissBackend:
                 return [(d, None) for d in store.similarity_search(query, k=resolved_k)]
             if threshold > 0:
                 scored = [(d, s) for d, s in scored if s >= threshold]
-            # list is invariant, so list[tuple[Document, float]] is not a
-            # list[tuple[Document, float | None]] even though every element is.
-            # Nothing writes to it, so widening is safe.
-            return cast(list[tuple[Document, float | None]], scored)
+            # float() is load-bearing, not cosmetic: FAISS scores are
+            # numpy.float32, which json.dumps refuses, and `stream_project_turn`
+            # encodes them by hand into the meta frame. The `cast` this replaces
+            # asserted the Protocol's `float` to mypy and did nothing at runtime.
+            return [(d, float(s)) for d, s in scored]
         fetch_k = max(self.settings.fetch_k, resolved_k)
         docs = store.max_marginal_relevance_search(
             query, k=resolved_k, fetch_k=fetch_k, lambda_mult=self.settings.lambda_mult

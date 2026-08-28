@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Any, cast
+from typing import Any
 
 from langchain_core.documents import Document
 from langchain_core.embeddings import Embeddings
@@ -227,8 +227,9 @@ class QdrantBackend:
         scored = store.similarity_search_with_score(query, k=resolved_k, filter=qfilter)
         if threshold and threshold > 0:
             scored = [(d, s) for d, s in scored if s >= threshold]
-        # Same list-invariance widening as FaissBackend._retrieve_sync.
-        return cast(list[tuple[Document, float | None]], scored)
+        # Same float() as FaissBackend._retrieve_sync. The two backends must not
+        # differ in the type they hand back, or a bug ships on one and not the other.
+        return [(d, float(s)) for d, s in scored]
 
     async def retrieve(
         self,

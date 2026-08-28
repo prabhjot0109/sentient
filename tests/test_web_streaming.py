@@ -188,28 +188,53 @@ class WebChatStreamingTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(meta["sources"][0]["score"], 0.74)
         self.assertEqual(meta["sources"][0]["chunk_id"], 7)
 
-    async def test_a_numpy_score_does_not_500_the_stream(self):
-        """FAISS scores arrive as `numpy.float32`, which `json.dumps` refuses.
+    async def test_a_real_retrieval_encodes_into_the_meta_frame(self):
+        """The one test here that does NOT stub the retriever.
 
-        Reported from a live turn the moment a project had lore to retrieve: with
-        an empty index `sources` is `[]` and the meta frame encodes fine, so the
-        crash waited for the first successful retrieval.
+        Every other case hands `_StubArchives` a hand-written score, and a Python
+        float is exactly what the real backend could not produce: FAISS returns
+        `numpy.float32`, `json.dumps` refuses it, and the turn 500'd. The stub was
+        the reason a whole streaming suite stayed green through a broken wire.
+
+        With an empty index `sources` is `[]` and the meta frame encodes fine, so
+        the crash waited for a project to have lore. This indexes one document so
+        retrieval actually returns something.
         """
-        import numpy as np
         from langchain_core.documents import Document
 
-        document = Document(
-            page_content="Journeyman trainers cap a skill at 50.",
-            metadata={"source": "skyrimskills.pdf", "page_label": "3", "chunk_id": 7},
+        from sentient.adapters.documents import ArchivesIngestion
+
+        archives = ArchivesIngestion()
+        await archives.backend.index(
+            [
+                Document(
+                    page_content="Journeyman trainers cap a skill at 50.",
+                    metadata={"source": "skyrimskills.pdf", "page_label": "3", "chunk_id": 7},
+                )
+            ]
         )
-        response = await self._post(
-            {"message": "Hello.", "project_id": self.project["id"], "stream": True},
-            chunks=[(document, np.float32(0.74))],
-        )
+
+        with (
+            patch.object(
+                self.deps, "build_llm", new_callable=AsyncMock, return_value=_FakeLLM("Aye.")
+            ),
+            patch.object(
+                self.deps, "get_archives_for_context", new_callable=AsyncMock, return_value=archives
+            ),
+        ):
+            response = await self.client.post(
+                "/v1/chat",
+                json={
+                    "message": "What cap do journeyman trainers set?",
+                    "project_id": self.project["id"],
+                    "stream": True,
+                },
+            )
 
         self.assertEqual(response.status_code, 200)
         meta = self._frames(response.text)[0]
-        self.assertAlmostEqual(meta["sources"][0]["score"], 0.74, places=5)
+        self.assertEqual(meta["sources"][0]["source"], "skyrimskills.pdf")
+        self.assertIs(type(meta["sources"][0]["score"]), float)
 
     async def test_a_streamed_turn_is_persisted_like_a_non_streamed_one(self):
         response = await self._post(
