@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import tempfile
 import unittest
@@ -134,6 +135,26 @@ class FaissBackendTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertTrue(results)
         self.assertIsInstance(results[0][0], Document)
+
+    async def test_scores_are_builtin_floats_not_numpy_scalars(self):
+        """The Protocol says `float`, and `_retrieve_sync` casts to say so, but a
+        `cast` is erased at runtime: FAISS returns `numpy.float32`.
+
+        It reaches the wire because `stream_project_turn` hand-rolls `json.dumps`
+        over the sources, where a numpy scalar is a `TypeError` and the turn 500s.
+        Pydantic coerces it on the non-streaming path, which is why only one of
+        the two renderers ever broke.
+        """
+        backend = self._backend()
+        await backend.index(
+            [Document(page_content="Sentinel guards.", metadata={"source": "lore.txt"})]
+        )
+        results = await backend.retrieve("guards", k=1, search_type="similarity", min_score=0.0)
+
+        self.assertTrue(results)
+        score = results[0][1]
+        self.assertIs(type(score), float)
+        json.dumps({"score": score})
 
     async def test_remove_source_drops_chunks(self):
         backend = self._backend()

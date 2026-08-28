@@ -188,6 +188,29 @@ class WebChatStreamingTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(meta["sources"][0]["score"], 0.74)
         self.assertEqual(meta["sources"][0]["chunk_id"], 7)
 
+    async def test_a_numpy_score_does_not_500_the_stream(self):
+        """FAISS scores arrive as `numpy.float32`, which `json.dumps` refuses.
+
+        Reported from a live turn the moment a project had lore to retrieve: with
+        an empty index `sources` is `[]` and the meta frame encodes fine, so the
+        crash waited for the first successful retrieval.
+        """
+        import numpy as np
+        from langchain_core.documents import Document
+
+        document = Document(
+            page_content="Journeyman trainers cap a skill at 50.",
+            metadata={"source": "skyrimskills.pdf", "page_label": "3", "chunk_id": 7},
+        )
+        response = await self._post(
+            {"message": "Hello.", "project_id": self.project["id"], "stream": True},
+            chunks=[(document, np.float32(0.74))],
+        )
+
+        self.assertEqual(response.status_code, 200)
+        meta = self._frames(response.text)[0]
+        self.assertAlmostEqual(meta["sources"][0]["score"], 0.74, places=5)
+
     async def test_a_streamed_turn_is_persisted_like_a_non_streamed_one(self):
         response = await self._post(
             {"message": "Hello.", "project_id": self.project["id"], "stream": True}
