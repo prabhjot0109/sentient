@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createRouter, RouterProvider } from "@tanstack/react-router";
+import { ThemeProvider } from "next-themes";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 
@@ -41,8 +42,36 @@ declare module "@tanstack/react-router" {
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
-    <QueryClientProvider client={queryClient}>
-      <RouterProvider router={router} />
-    </QueryClientProvider>
+    {/*
+      One ThemeProvider for the whole app, and it governs the auth screens too.
+      NeonAuthUIProvider mounts its OWN next-themes ThemeProvider with
+      `enableSystem: true` and its own defaultTheme -- but next-themes is
+      `useContext(ctx) ? <Fragment>{children}</Fragment> : <Provider/>`, read out
+      of the installed 0.4.6 bundle, so a nested provider is a NO-OP when a
+      parent exists. This one wins, and AuthView follows the console's theme
+      rather than the OS.
+
+      `attribute="class"` because that is what Neon's own CSS reads: its dark
+      values live under `:root.dark`. tokens.css matches that convention, so one
+      class moves both.
+
+      defaultTheme="dark" with enableSystem={false}: apps/landing ships dark
+      only, so a visitor arriving through its Launch CTA must not cross a light
+      flash. Light is a choice the toggle offers, not a thing the OS imposes.
+
+      disableTransitionOnChange stops every colour-transition in the tree from
+      animating at once during the swap, which reads as a smear rather than a
+      change.
+    */}
+    <ThemeProvider
+      attribute="class"
+      defaultTheme="dark"
+      enableSystem={false}
+      disableTransitionOnChange
+    >
+      <QueryClientProvider client={queryClient}>
+        <RouterProvider router={router} />
+      </QueryClientProvider>
+    </ThemeProvider>
   </StrictMode>,
 );

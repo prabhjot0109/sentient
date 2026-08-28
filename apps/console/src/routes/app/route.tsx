@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 
 import { NavRow } from "@/components/shell/NavRow";
 import { Sidebar } from "@/components/shell/Sidebar";
+import { ThemeToggle } from "@/components/shell/ThemeToggle";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { RequireSession, useSession, useSignOut } from "@/features/auth";
 import { ProjectList } from "@/features/projects";
@@ -103,6 +104,7 @@ function UserRow() {
       <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground" title={email}>
         {email ?? "Signed in"}
       </span>
+      <ThemeToggle />
       <button
         type="button"
         onClick={signOut}

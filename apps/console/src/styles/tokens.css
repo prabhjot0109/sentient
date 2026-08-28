@@ -1,5 +1,8 @@
 /*
- * The console's palette, ported verbatim from apps/landing/src/styles.css.
+ * The console's palette. The DARK half is ported from apps/landing/src/styles.css;
+ * the LIGHT half is authored here, because landing ships dark only -- its :root
+ * holds the dark palette and its .dark block is vestigial. See the :root block
+ * below for the full list of intentional divergences the drift diff will show.
  *
  * A copy, not an import, because the three apps are separate builds with
  * separate lockfiles and no workspace tool (D5, deliberately unbuilt). A
@@ -81,9 +84,124 @@
   --color-ink: var(--ink);
 }
 
+/*
+ * SHARED, then LIGHT. `:root` carries the light palette and `:root.dark` the
+ * dark one, which is not an arbitrary choice: it is EXACTLY the convention
+ * @neondatabase/neon-js already uses for its own auth-UI theme, whose dark
+ * values sit under `:root.dark` and whose light ones sit at `:root` inside
+ * @layer neon-auth. Matching it means one class on <html> moves the console and
+ * Neon's prebuilt AuthView together, with no per-component work -- the same
+ * mechanism F11 found for colour, extended to the theme axis.
+ *
+ * next-themes writes that class (`attribute="class"` in main.tsx) and also sets
+ * `color-scheme`, so native scrollbars, form controls and the browser's own
+ * dark-mode heuristics follow without a line here.
+ *
+ * DARK IS THE DEFAULT, set in main.tsx rather than by making `:root` dark.
+ * apps/landing is dark-ONLY -- its `:root` holds the dark palette and its
+ * `.dark` block is vestigial -- so a visitor arriving through the Launch CTA
+ * must not cross a light flash to reach a dark console.
+ */
 :root {
   --radius: 0.375rem;
 
+  /* Console-only, and theme-independent. Neon hardcodes --neon-radius at
+     0.625rem with no consumer hook, and its @theme maps the whole --radius-*
+     scale off it, so the auth card would keep Neon's rounder corners while
+     everything else took landing's 0.375rem. This is the one value that has to
+     be overridden by name rather than filled in. */
+  --neon-radius: 0.375rem;
+
+  /* Cinematic easings. Not colour, so they are shared. */
+  --ease-out-quint: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+
+  /*
+   * THE LIGHT PALETTE IS AUTHORED, NOT PORTED. This is the one place the
+   * console has no landing counterpart to copy: landing ships dark only. So
+   * `diff apps/landing/src/styles.css apps/console/src/styles/tokens.css` now
+   * has a known, intentional divergence -- this block and :root.dark's
+   * addressing -- on top of the --destructive-foreground note in the header.
+   *
+   * Every pair below was MEASURED, with the formula calibrated against the
+   * figure this repo already recorded independently (muted-foreground on the
+   * dark background = 5.75:1) before any new number was trusted:
+   *
+   *   foreground on background              18.86:1
+   *   muted-foreground on background         7.23:1
+   *   muted-foreground on card               7.44:1
+   *   muted-foreground on sidebar            6.92:1
+   *   muted-foreground on sidebar-accent     5.87:1
+   *   primary-foreground on primary          18.27:1   (button label)
+   *   white on destructive                   5.44:1    (button label)
+   *   destructive as TEXT on background      5.29:1
+   *   brand as TEXT on background            5.68:1    (the persona eyebrow)
+   *   brand as a DOT on sidebar              5.43:1    (UI, needs 3:1)
+   *
+   * --brand is DARKER here than in dark mode (0.52 vs 0.68). The same amber
+   * that reads as torchlight against near-black is a 2:1 smear on white.
+   */
+  --ink: oklch(0.16 0.004 260);
+  --background: oklch(0.99 0.002 260);
+  --foreground: oklch(0.16 0.004 260);
+  --graphite: oklch(0.93 0.003 260);
+  --midnight: oklch(0.96 0.004 260);
+
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.16 0.004 260);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.16 0.004 260);
+
+  --primary: oklch(0.18 0.004 260);
+  --primary-foreground: oklch(0.99 0 0);
+
+  --secondary: oklch(0.955 0.002 260);
+  --secondary-foreground: oklch(0.16 0.004 260);
+
+  --muted: oklch(0.955 0.002 260);
+  --muted-foreground: oklch(0.45 0.008 260);
+
+  /* Mirrors dark mode's role rather than its value. There --accent is
+     near-WHITE: a bright accent on a dark page, never a subtle hover fill.
+     Here the bright-against-the-page colour is near-black. The standing
+     warning holds in both themes -- do not write `hover:bg-accent`, use
+     `bg-muted`. */
+  --accent: oklch(0.16 0.004 260);
+  --accent-foreground: oklch(0.99 0 0);
+
+  /* Darker than dark mode's 0.62, which is what lets the label be white here
+     and forces it dark there. One token, two themes, opposite labels. */
+  --destructive: oklch(0.55 0.22 25);
+  --destructive-foreground: oklch(1 0 0);
+
+  --border: oklch(0.16 0.004 260 / 12%);
+  --input: oklch(0.16 0.004 260 / 18%);
+  --ring: oklch(0.16 0.004 260 / 40%);
+
+  --brand: oklch(0.52 0.14 45);
+  --cyan-glow: oklch(0.52 0.14 45);
+  --violet-glow: oklch(0.52 0.14 45);
+
+  --sidebar: oklch(0.975 0.002 260);
+  --sidebar-foreground: oklch(0.16 0.004 260);
+  --sidebar-accent: oklch(0.92 0.003 260);
+  --sidebar-accent-foreground: oklch(0.16 0.004 260);
+  --sidebar-border: oklch(0.16 0.004 260 / 10%);
+  --sidebar-primary: oklch(0.18 0.004 260);
+  --sidebar-primary-foreground: oklch(0.99 0 0);
+  --sidebar-ring: oklch(0.16 0.004 260 / 40%);
+
+  /* Light mode cannot use dark mode's shadows: a 0.6-alpha black bloom on a
+     white page reads as dirt. Tighter, weaker, and with a real hairline. */
+  --shadow-glow:
+    0 0 0 1px oklch(0.16 0.004 260 / 0.08), 0 12px 32px -12px oklch(0.16 0.004 260 / 0.16);
+  --shadow-elevated:
+    0 18px 44px -18px oklch(0.16 0.004 260 / 0.2), 0 0 0 1px oklch(0.16 0.004 260 / 0.08);
+  --shadow-card:
+    0 1px 2px 0 oklch(0.16 0.004 260 / 0.06), 0 12px 32px -20px oklch(0.16 0.004 260 / 0.18);
+}
+
+:root.dark {
   /* Neutral, cinematic black -- very slight blue in the shadows */
   --ink: oklch(0.055 0.004 260);
   --background: oklch(0.055 0.004 260);
@@ -165,11 +283,4 @@
   --shadow-glow: 0 0 0 1px oklch(1 0 0 / 0.06), 0 20px 60px -20px oklch(0 0 0 / 0.6);
   --shadow-elevated: 0 30px 80px -30px oklch(0 0 0 / 0.7), 0 0 0 1px oklch(1 0 0 / 0.06);
   --shadow-card: 0 1px 0 0 oklch(1 0 0 / 0.04) inset, 0 20px 60px -30px oklch(0 0 0 / 0.6);
-
-  /* Console-only. Neon hardcodes --neon-radius at 0.625rem with no consumer
-     hook, and its @theme maps the whole --radius-* scale off it, so the auth
-     card would keep Neon's rounder corners while everything else took
-     landing's 0.375rem. This is the one value that has to be overridden by
-     name rather than filled in. */
-  --neon-radius: 0.375rem;
 }
