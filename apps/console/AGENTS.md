@@ -517,6 +517,45 @@ text, where it must contrast with the page (5.16:1, passing). Darkening the fill
 first breaks the second. Darkening the label fixes both: 4.85:1. The header comment in
 `tokens.css` carries the full table.
 
+## Themes: `:root` is LIGHT, `:root.dark` is DARK, and that is Neon's convention
+
+Not an arbitrary split. `@neondatabase/neon-js` puts its auth-UI dark values under
+`:root.dark` and its light ones at `:root` inside `@layer neon-auth`, so matching it means
+**one class on `<html>` moves the console and Neon's prebuilt `AuthView` together**, with no
+per-component work. Verified in Chrome: removing the class repaints the sign-in card, the
+inputs, the Login button and the Google button, none of which this repo owns.
+
+**The light palette is authored, not ported.** `apps/landing` ships dark only — its `:root`
+holds the dark palette and its `.dark` block is vestigial — so `diff apps/landing/src/styles.css
+apps/console/src/styles/tokens.css` now has known intentional divergences. They are listed in
+tokens.css; read that before "fixing" the drift.
+
+**`next-themes` is mounted once, in `main.tsx`.** `NeonAuthUIProvider` mounts its own with
+`enableSystem: true`, but next-themes is
+`useContext(ctx) ? <Fragment>{children}</Fragment> : <Provider/>` — read out of the installed
+0.4.6 bundle — so **a nested provider is a no-op when a parent exists** and the root one wins.
+`attribute="class"` is required (Neon's CSS reads `.dark`); `enableColorScheme` defaults true,
+so `color-scheme` follows for free. `defaultTheme="dark"` with `enableSystem={false}`, because
+landing is dark-only and the Launch CTA must not cross a light flash.
+
+**Adding a colour: never reach for a Tailwind palette shade.** Six hardcoded
+`amber-*`/`emerald-*` strings were found in 2026-08-28's audit and four were failing AA —
+three of them in DARK mode, i.e. before light mode existed, because the banner and the status
+pills had been written in shades that suit a light page. Use `--warning` / `--success` /
+`--destructive` / `--brand`, which are defined per theme. `grep -rn "amber-\|emerald-" src`
+should stay empty. The two black scrims (drawer overlay, dialog backdrop) are the deliberate
+exception: a scrim is dark in both themes.
+
+**Measure a tint composited in LINEAR light.** A `bg-x/10` pill is text on a blend, not text
+on the page, and the blend happens in linear light — computing it in gamma space gives a
+number that is wrong in the safe direction sometimes and the unsafe direction others.
+
+**Calibrate the contrast formula before trusting a number from it.** The OKLab→sRGB matrix
+in every snippet you will paste emits **linear** sRGB already; applying a gamma-linearisation
+step to it reports 16.76:1 where the truth is 7.23:1. The cheap check is this repo's own
+recorded figure: `--muted-foreground` on the dark `--background` is **5.75:1**. If your script
+does not reproduce that, it is wrong and every other number it printed is too.
+
 ## The `--sidebar*` family had no landing counterpart, and defaulted LIGHT
 
 Landing has no sidebar, so `tokens.css`'s port had nothing to copy and left the family
