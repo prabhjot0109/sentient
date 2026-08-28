@@ -1,7 +1,7 @@
 import { useNavigate } from "@tanstack/react-router";
 import { useEffect, useRef } from "react";
 
-import { useChatTurn, useMessages } from "../hooks";
+import { useChatTurn, useMessages, useThreads } from "../hooks";
 import { showDraft } from "../transcript";
 import { Composer } from "./Composer";
 import { MessageList } from "./MessageList";
@@ -34,6 +34,13 @@ export function ChatScreen({
   // and what makes the second message continue the SAME thread.
   const activeId = threadId ?? turn.threadId;
   const { data: messages = [] } = useMessages(activeId, turn.draft, turn.isStreaming);
+
+  // Whose voice this transcript is in. Read off the rail's already-cached thread
+  // list rather than fetched again -- npc_name is set by the game path and null
+  // for a conversation this console started, which is the same discriminator the
+  // rail uses to mark an in-game memory.
+  const { data: threads = [] } = useThreads(projectId);
+  const speaker = threads.find((t) => t.id === activeId)?.npc_name;
   const draftVisible = showDraft(messages, turn.draft, turn.isStreaming);
 
   /*
@@ -77,6 +84,7 @@ export function ChatScreen({
           draft={turn.draft}
           showDraft={draftVisible}
           isStreaming={turn.isStreaming}
+          speaker={speaker}
         />
         <div ref={endRef} />
       </div>

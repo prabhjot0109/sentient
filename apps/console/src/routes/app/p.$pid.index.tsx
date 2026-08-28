@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 
 import { ErrorState } from "@/components/ui/ErrorState";
-import { ProjectHeader, useProject } from "@/features/projects";
+import { ProjectHeader, useProject, VoiceHero } from "@/features/projects";
 import { ChatScreen } from "@/features/threads";
 
 /**
@@ -11,7 +11,7 @@ import { ChatScreen } from "@/features/threads";
  */
 function ProjectHome() {
   const { pid } = Route.useParams();
-  const { error, isPending } = useProject(pid);
+  const { data: project, error, isPending } = useProject(pid);
 
   if (isPending) return <p className="p-8 text-sm text-muted-foreground">Loading…</p>;
 
@@ -22,6 +22,7 @@ function ProjectHome() {
   return (
     <div className="mx-auto flex min-h-full max-w-3xl flex-col px-6 py-8 md:px-10">
       <ProjectHeader projectId={pid} />
+      <VoiceHero project={project} />
       <ChatScreen projectId={pid} threadId={null} />
     </div>
   );

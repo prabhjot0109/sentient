@@ -10,3 +10,4 @@ export {
 export { ProjectHeader } from "./components/ProjectHeader";
 export { ProjectList } from "./components/ProjectList";
 export { ProjectsEmptyState } from "./components/ProjectsEmptyState";
+export { VoiceHero } from "./components/VoiceHero";
