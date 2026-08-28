@@ -8,7 +8,13 @@
 export const GITHUB_REPO_URL = "https://github.com/prabhjot0109/sentient";
 
 /**
- * Where "Get Started" goes: the console's sign-in screen.
+ * Where "Get Started" / "Launch" goes: the console's sign-UP screen.
+ *
+ * Sign-up, not sign-in. Someone arriving from a marketing page is, by default,
+ * a person who does not have an account yet; landing them on a password prompt
+ * asks them to remember something they never set. The prebuilt AuthView carries
+ * its own "already have an account? Sign in" switch, so the other direction
+ * costs one click and no extra link here.
  *
  * A plain cross-origin link on purpose. The console is a separate build on a
  * separate origin with no cross-origin token handoff, which is what lets the two
@@ -19,4 +25,4 @@ export const GITHUB_REPO_URL = "https://github.com/prabhjot0109/sentient";
  * http://127.0.0.1:<port> as an untrusted origin, so a console served from the IP
  * literal fails every sign-up. See apps/console/AGENTS.md.
  */
-export const CONSOLE_URL = import.meta.env.VITE_CONSOLE_URL ?? "http://localhost:5175/auth/sign-in";
+export const CONSOLE_URL = import.meta.env.VITE_CONSOLE_URL ?? "http://localhost:5175/auth/sign-up";
