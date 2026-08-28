@@ -14,7 +14,7 @@ export function ProjectList({
   const { data: projects, isPending, error } = useProjects();
 
   return (
-    <div className="space-y-2">
+    <div className="mt-3 space-y-2 border-t border-sidebar-border pt-3">
       <div className="flex items-center justify-between px-2">
         <span className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
           Projects

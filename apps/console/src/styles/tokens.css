@@ -116,6 +116,44 @@
   --input: oklch(1 0 0 / 10%);
   --ring: oklch(1 0 0 / 30%);
 
+  /*
+   * The sidebar family, which landing has no counterpart for -- it has no
+   * sidebar -- so there was nothing to port and it was left undefined.
+   *
+   * That was a live regression, and it is the same shape as the hover:bg-accent
+   * one F11 found, in the one family F11 had nothing to diff against. Neon
+   * declares --neon-sidebar as `var(--sidebar, <default>)` TWICE: the LIGHT
+   * default sits at :root inside @layer neon-auth, and the dark one under
+   * `:root.dark`, which this console never sets. With --sidebar undefined the
+   * rail therefore resolved to Neon's light fallback. Measured in the built CSS
+   * and then by contrast:
+   *
+   *   bg-sidebar            oklch(98.5% 0 0)  a near-WHITE rail on a near-black app
+   *   muted-foreground on it        3.49:1    FAILS AA -- the "Projects" label,
+   *                                           the reindex note, the footer links
+   *   sidebar-accent vs sidebar     1.04:1    the OPEN project had no visible
+   *                                           highlight at all
+   *
+   * Defining them here fills the hook Neon already left open, exactly as the
+   * rest of this file does, rather than switching on a `.dark` class whose other
+   * effects nothing has audited.
+   *
+   * --sidebar-accent is chosen on oklch LIGHTNESS, not on a WCAG ratio. WCAG's
+   * +0.05 flare term crushes the difference between two dark surfaces -- 0.19 on
+   * 0.075 scores 1.07:1 and is plainly visible -- so the ratio is the wrong
+   * yardstick for a fill against a fill. dL is +0.115, and oklch L is near
+   * perceptually uniform. What IS checked by ratio is the text on it:
+   * muted-foreground 5.07:1, sidebar-foreground 16.93:1, both clearing AA.
+   */
+  --sidebar: oklch(0.075 0.004 260);
+  --sidebar-foreground: oklch(0.97 0 0);
+  --sidebar-accent: oklch(0.19 0.003 260);
+  --sidebar-accent-foreground: oklch(0.97 0 0);
+  --sidebar-border: oklch(1 0 0 / 8%);
+  --sidebar-primary: oklch(0.98 0 0);
+  --sidebar-primary-foreground: oklch(0.08 0 0);
+  --sidebar-ring: oklch(1 0 0 / 30%);
+
   --brand: oklch(0.68 0.11 45);
   --cyan-glow: oklch(0.68 0.11 45);
   --violet-glow: oklch(0.68 0.11 45);

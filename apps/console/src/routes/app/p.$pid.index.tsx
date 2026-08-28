@@ -20,7 +20,7 @@ function ProjectHome() {
   if (error) return <ErrorState error={error} size="page" />;
 
   return (
-    <div className="mx-auto flex min-h-full max-w-3xl flex-col px-6 py-8 md:px-10">
+    <div className="mx-auto flex min-h-full max-w-3xl flex-col px-6 pt-8 md:px-10">
       <ProjectHeader projectId={pid} />
       <VoiceHero project={project} />
       <ChatScreen projectId={pid} threadId={null} />

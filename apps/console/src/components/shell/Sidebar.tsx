@@ -1,8 +1,8 @@
 import type { ReactNode } from "react";
 
 /**
- * Layout only. It does not know what a project is, which is what lets F5 nest
- * threads inside project rows without touching this file.
+ * Layout only. It does not know what a project is, which is what lets the
+ * projects feature nest threads inside project rows without touching this file.
  *
  * A drawer below md, a rail above. The closed drawer is `hidden` rather than
  * translated off-screen on purpose: an off-screen aside is still in the tab
@@ -11,11 +11,13 @@ import type { ReactNode } from "react";
  * costs the slide animation, which is the cheaper thing to lose.
  */
 export function Sidebar({
+  header,
   children,
   footer,
   open,
   onClose,
 }: {
+  header: ReactNode;
   children: ReactNode;
   footer: ReactNode;
   open: boolean;
@@ -36,7 +38,8 @@ export function Sidebar({
           open ? "fixed inset-y-0 left-0 z-40 flex" : "hidden"
         } w-64 shrink-0 flex-col border-r border-sidebar-border bg-sidebar md:static md:flex`}
       >
-        <div className="flex-1 overflow-y-auto p-3">{children}</div>
+        <div className="px-3 pt-4 pb-2">{header}</div>
+        <div className="flex-1 overflow-y-auto px-2 pb-3">{children}</div>
         <div className="border-t border-sidebar-border p-3">{footer}</div>
       </aside>
     </>
