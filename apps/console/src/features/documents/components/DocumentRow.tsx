@@ -4,9 +4,9 @@ import { formatBytes, statusLabel } from "../format";
 
 const PILL: Record<SourceDocument["status"], string> = {
   processing: "bg-muted text-muted-foreground",
-  ready: "bg-emerald-500/10 text-emerald-600",
+  ready: "bg-success/10 text-success",
   failed: "bg-destructive/10 text-destructive",
-  reindexing: "bg-amber-500/10 text-amber-600",
+  reindexing: "bg-warning/10 text-warning",
 };
 
 export function DocumentRow({

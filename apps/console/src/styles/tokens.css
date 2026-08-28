@@ -76,6 +76,8 @@
   --color-input: var(--input);
   --color-ring: var(--ring);
 
+  --color-warning: var(--warning);
+  --color-success: var(--success);
   --color-brand: var(--brand);
   --color-cyan-glow: var(--cyan-glow);
   --color-violet-glow: var(--violet-glow);
@@ -178,6 +180,39 @@
   --input: oklch(0.16 0.004 260 / 18%);
   --ring: oklch(0.16 0.004 260 / 40%);
 
+  /*
+   * STATUS COLOURS, and they replace four hardcoded Tailwind palette shades
+   * that were failing WCAG AA -- three of them in DARK mode, i.e. before light
+   * mode existed. Light mode did not cause this; measuring for light mode found
+   * it. Text on its own 10% tint, as every one of these is actually rendered:
+   *
+   *   text-amber-700  ReindexBanner      2.21:1  dark    <- nearly invisible
+   *   text-amber-600  reindexing pill    3.50:1  dark
+   *   text-emerald-600  ready pill       3.88:1  dark  /  3.31:1  light
+   *   text-amber-500  persona eyebrow    9.76:1  dark  /  2.08:1  light
+   *
+   * The banner and the pills were written in Tailwind shades that suit a LIGHT
+   * page, on an app that only had a dark one.
+   *
+   * Chosen as the RICHEST lightness that still clears 4.8:1 (AA plus margin)
+   * both on the 10% tint and on the page, with the tint composited in LINEAR
+   * light, which is where it is actually blended. Passing ranges were
+   * L 0.73-0.99 dark and 0.20-0.53 light for warning; the ends nearest mid
+   * lightness are taken because that is where the colour still looks like amber
+   * rather than cream or brown.
+   *
+   *   dark   warning 5.48:1 tint / 10.89:1 page     success 5.51 / 11.04
+   *   light  warning 5.05:1 tint /  5.50:1 page     success 4.92 /  5.35
+   *
+   * KNOWN GAP, measured and deliberately not fixed here: `--destructive` is used
+   * the same way by the `failed` pill (bg-destructive/10 text-destructive) and
+   * scores 3.64:1 on its own tint in DARK mode. Re-tuning --destructive would
+   * disturb the button-label balance this file already documents, so it wants
+   * its own change rather than a drive-by.
+   */
+  --warning: oklch(0.52 0.16 70);
+  --success: oklch(0.5 0.13 160);
+
   --brand: oklch(0.52 0.14 45);
   --cyan-glow: oklch(0.52 0.14 45);
   --violet-glow: oklch(0.52 0.14 45);
@@ -271,6 +306,10 @@
   --sidebar-primary: oklch(0.98 0 0);
   --sidebar-primary-foreground: oklch(0.08 0 0);
   --sidebar-ring: oklch(1 0 0 / 30%);
+
+  /* See the light block for the measurements and why these two exist. */
+  --warning: oklch(0.8 0.16 70);
+  --success: oklch(0.78 0.13 160);
 
   --brand: oklch(0.68 0.11 45);
   --cyan-glow: oklch(0.68 0.11 45);

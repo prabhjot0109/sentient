@@ -110,7 +110,7 @@ export function ChatScreen({
             mean the same thing.
           */}
           {turn.isReindexing ? (
-            <p className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm">
+            <p className="rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-sm">
               This project&rsquo;s lore is re-embedding. NPCs can&rsquo;t cite it until that
               finishes — send again in a moment.
             </p>

@@ -31,7 +31,7 @@ export function VoiceHero({ project }: { project: ProjectDetail }) {
       <p className="font-mono mb-3 text-[11px] tracking-[0.14em] text-muted-foreground uppercase">
         The voice
         <span className="mx-2 text-border">/</span>
-        <span className={project.persona_source === "generic" ? "text-amber-500" : "text-brand"}>
+        <span className={project.persona_source === "generic" ? "text-warning" : "text-brand"}>
           {SOURCE[project.persona_source]}
         </span>
       </p>
