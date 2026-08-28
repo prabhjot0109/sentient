@@ -55,7 +55,13 @@ export function ThreadRow({
         {label}
       </Link>
 
-      <span className="absolute right-1 hidden items-center gap-0.5 group-focus-within:flex group-hover:flex">
+      {/*
+        Always shown below md. Hover does not exist on a touch device, and
+        `hidden` is display:none, so these two would be unreachable on a phone --
+        unlike ProjectRow's opacity-0 icons, which stay hit-testable. Revealing
+        them costs a little noise in the drawer and is the cheaper trade.
+      */}
+      <span className="absolute right-1 hidden items-center gap-0.5 group-focus-within:flex group-hover:flex max-md:flex">
         <button
           type="button"
           aria-label={`Rename ${label}`}

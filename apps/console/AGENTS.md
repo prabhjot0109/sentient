@@ -187,13 +187,34 @@ So the streamed draft is provisional UI that is **handed off**, not dropped:
 
 ## Routes: a sibling file turns its neighbour into a layout
 
-Flat file routing means `p.$pid.chat.tsx` makes `p.$pid.tsx` the **parent** of `/chat`. A
-parent that does not render an `<Outlet/>` renders itself and **silently drops the child** —
-no error, no warning, no missing route. The project home is therefore `p.$pid.index.tsx`,
-and it and `p.$pid.chat.tsx` are two sibling leaves with no layout between them;
-`/app/p/$pid` still resolves to the index. Anything adding a third project screen (F3's
-settings) does the same. `src/routeTree.gen.ts` is generated during `vite build` and is
-gitignored — never hand-edit it, and read it after adding a route to confirm the nesting.
+Flat file routing means `p.$pid.settings.tsx` makes `p.$pid.tsx` the **parent** of
+`/settings`. A parent that does not render an `<Outlet/>` renders itself and **silently drops
+the child** — no error, no warning, no missing route. The project home is therefore
+`p.$pid.index.tsx`, and the project screens are sibling leaves with no layout between them;
+`/app/p/$pid` still resolves to the index. `src/routeTree.gen.ts` is generated during
+`vite build` and is gitignored — never hand-edit it, and read it after adding a route to
+confirm the nesting.
+
+**A conversation is a URL, and that is load-bearing rather than cosmetic.** Until 2026-08-28
+the selected thread lived in `ChatScreen`'s `useState` at a route called
+`p.$pid.chat.tsx`. Reload dropped you to a blank composer and Back did nothing — but the
+structural cost was the rail: it **could not** nest conversations under a project, which the
+design spec §4.6 requires of `ui.png` in as many words ("keep it literal"), because there was
+nothing to link to. Selection is navigation. The five project-scoped routes are now
+`p.$pid.index` (home / new chat), `p.$pid.t.$tid` (one conversation), `p.$pid.documents`,
+`p.$pid.settings`, and they share `ProjectHeader` for the tab strip.
+
+`ProjectHeader` derives its active tab from the pathname rather than using `activeProps`,
+because neither of that prop's modes is right: exact matching leaves every tab dark while you
+read a conversation at `/t/$tid`, and prefix matching lights "Conversation" on the lore and
+settings pages too, since its path is a prefix of both.
+
+**A new conversation navigates to its own URL on the transcript's settlement signal, not on
+`[DONE]`.** Navigating on the meta frame unmounts the stream mid-flight; navigating on
+`[DONE]` lands 1.3–1.7 s _before_ the deferred write and remounts into a transcript missing
+the reply the user just watched arrive — the exact bug `transcript.ts` exists to close. So
+`ChatScreen` waits on `showDraft()` going false, by which point the messages are already
+cached under the key the new route reads and the remount is a cache hit.
 
 ## Error bodies are not always strings
 
@@ -495,6 +516,29 @@ where the label must contrast with it (white on it is 3.83:1, failing AA), and i
 text, where it must contrast with the page (5.16:1, passing). Darkening the fill to fix the
 first breaks the second. Darkening the label fixes both: 4.85:1. The header comment in
 `tokens.css` carries the full table.
+
+## The `--sidebar*` family had no landing counterpart, and defaulted LIGHT
+
+Landing has no sidebar, so `tokens.css`'s port had nothing to copy and left the family
+undefined. Neon declares `--neon-sidebar` as `var(--sidebar, <default>)` **twice**: the light
+default at `:root` inside `@layer neon-auth`, the dark one under `:root.dark` — which this
+console never sets. So until 2026-08-28 the rail resolved to Neon's light fallback:
+`bg-sidebar` was `oklch(98.5% 0 0)`, a near-**white** rail on a near-black app,
+`muted-foreground` on it was **3.49:1 (fails AA)**, and `bg-sidebar-accent` against it was
+**1.04:1** — the open project had no visible highlight at all. Same shape as the
+`hover:bg-accent` bug below, in the one family that bug's migration had nothing to diff
+against.
+
+The family is now declared at bare `:root` in `tokens.css`, which beats `@layer neon-auth` on
+layer precedence — the same mechanism `--neon-radius` uses. **Check the built CSS, not the
+source**, when a token looks wrong: `grep -oE '\-\-neon-[a-z-]*: *[^;]*;' dist/assets/*.css`
+shows what each one actually defers to and what it falls back to.
+
+`--sidebar-accent` was chosen on **oklch lightness, not on a WCAG ratio**. WCAG's `+0.05`
+flare term crushes the difference between two dark surfaces — `0.19` on `0.075` scores
+`1.07:1` and is plainly visible — so the ratio is the wrong yardstick for a fill against a
+fill. Use ΔL for surface separation and keep the ratio for text on it (here 5.07:1 muted,
+16.93:1 foreground).
 
 ## Landing's `--accent` is nearly white
 
