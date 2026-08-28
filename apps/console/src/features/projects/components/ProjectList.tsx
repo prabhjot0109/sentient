@@ -4,7 +4,13 @@ import { ProjectRow } from "./ProjectRow";
 import { ErrorState } from "@/components/ui/ErrorState";
 
 /** The rail. The feature's top-level component, and the only one that fetches. */
-export function ProjectList({ activeProjectId }: { activeProjectId?: string }) {
+export function ProjectList({
+  activeProjectId,
+  activeThreadId,
+}: {
+  activeProjectId?: string;
+  activeThreadId?: string;
+}) {
   const { data: projects, isPending, error } = useProjects();
 
   return (
@@ -33,6 +39,7 @@ export function ProjectList({ activeProjectId }: { activeProjectId?: string }) {
             key={project.id}
             project={project}
             isActive={project.id === activeProjectId}
+            activeThreadId={activeThreadId}
           />
         ))}
       </nav>

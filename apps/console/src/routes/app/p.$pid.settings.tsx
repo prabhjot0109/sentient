@@ -1,20 +1,13 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
 
+import { ProjectHeader } from "@/features/projects";
 import { SettingsScreen } from "@/features/settings";
 
 function ProjectSettings() {
   const { pid } = Route.useParams();
   return (
-    <div className="space-y-6 p-8">
-      <header className="space-y-1">
-        <Link to="/app/p/$pid" params={{ pid }} className="text-sm text-muted-foreground">
-          ← Back to project
-        </Link>
-        <h1 className="text-xl font-semibold">Settings</h1>
-        <p className="text-sm text-muted-foreground">
-          How NPCs in this project think, and how they sound.
-        </p>
-      </header>
+    <div className="mx-auto max-w-3xl px-6 py-8 md:px-10">
+      <ProjectHeader projectId={pid} />
       <SettingsScreen projectId={pid} />
     </div>
   );

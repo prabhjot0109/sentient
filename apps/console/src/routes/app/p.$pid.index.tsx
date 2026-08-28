@@ -1,56 +1,28 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
 
-import { DocumentsScreen } from "@/features/documents";
-import { useProject } from "@/features/projects";
 import { ErrorState } from "@/components/ui/ErrorState";
+import { ProjectHeader, useProject } from "@/features/projects";
+import { ChatScreen } from "@/features/threads";
 
+/**
+ * "Project home / new chat", which is what the design spec's route map calls
+ * this surface. It used to be the document manager; lore has its own route now,
+ * the one the map always gave it.
+ */
 function ProjectHome() {
   const { pid } = Route.useParams();
-  const { data: project, error, isPending } = useProject(pid);
+  const { error, isPending } = useProject(pid);
 
   if (isPending) return <p className="p-8 text-sm text-muted-foreground">Loading…</p>;
 
-  // Both branches collapse here: describe() already distinguishes a 404 from
-  // everything else, and its 404 copy is the same sentence this route used to
-  // hand-roll.
+  // describe() already distinguishes a 404 from everything else, and its 404
+  // copy is the sentence this route used to hand-roll.
   if (error) return <ErrorState error={error} size="page" />;
 
   return (
-    <div className="space-y-6 p-8">
-      <header className="flex items-start justify-between gap-4">
-        <div className="space-y-1">
-          <h1 className="text-xl font-semibold">{project.name}</h1>
-          <p className="text-sm text-muted-foreground">
-            Preset <code>{project.base_preset}</code> · persona from{" "}
-            <strong>{project.persona_source}</strong>
-          </p>
-        </div>
-        <div className="flex shrink-0 gap-4">
-          <Link
-            to="/app/p/$pid/chat"
-            params={{ pid }}
-            className="text-sm underline underline-offset-4"
-          >
-            Conversations →
-          </Link>
-          <Link
-            to="/app/p/$pid/settings"
-            params={{ pid }}
-            className="text-sm underline underline-offset-4"
-          >
-            Settings →
-          </Link>
-        </div>
-      </header>
-
-      <section className="space-y-1">
-        <h2 className="text-sm font-medium">Persona</h2>
-        <p className="max-w-2xl rounded-md border border-border bg-card p-3 text-sm text-muted-foreground">
-          {project.persona_prompt || "No persona: NPCs answer without an in-world voice."}
-        </p>
-      </section>
-
-      <DocumentsScreen projectId={pid} />
+    <div className="mx-auto flex min-h-full max-w-3xl flex-col px-6 py-8 md:px-10">
+      <ProjectHeader projectId={pid} />
+      <ChatScreen projectId={pid} threadId={null} />
     </div>
   );
 }

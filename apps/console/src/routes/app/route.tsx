@@ -21,7 +21,7 @@ function AppShell() {
 
   // strict:false because this layout renders above both /app/ and /app/p/$pid,
   // and only one of those has a pid.
-  const { pid } = useParams({ strict: false });
+  const { pid, tid } = useParams({ strict: false });
 
   return (
     <RequireSession>
@@ -53,7 +53,7 @@ function AppShell() {
             </div>
           }
         >
-          <ProjectList activeProjectId={pid} />
+          <ProjectList activeProjectId={pid} activeThreadId={tid} />
         </Sidebar>
         <main className="min-w-0 flex-1 overflow-y-auto">
           <OfflineBanner />

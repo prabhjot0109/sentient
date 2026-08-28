@@ -1,113 +1,123 @@
-import { useState } from "react";
+import { useNavigate } from "@tanstack/react-router";
+import { useEffect, useRef } from "react";
 
-import type { Thread } from "@/types/threads";
-
-import { useChatTurn, useDeleteThread, useMessages, useRenameThread, useThreads } from "../hooks";
+import { useChatTurn, useMessages } from "../hooks";
 import { showDraft } from "../transcript";
 import { Composer } from "./Composer";
-import { DeleteThreadDialog } from "./DeleteThreadDialog";
 import { MessageList } from "./MessageList";
-import { RenameThreadDialog } from "./RenameThreadDialog";
 import { SourcesPanel } from "./SourcesPanel";
-import { ThreadList } from "./ThreadList";
-import { ErrorState } from "@/components/ui/ErrorState";
 
 /**
- * Holds the selected thread and the in-flight turn. `routes/` may not hold
- * domain state, which is the same reason `KeysScreen` and `DocumentsScreen`
- * exist.
+ * One conversation: the transcript, the turn in flight, and the composer.
+ *
+ * It no longer owns the thread LIST or the selected id. Selection is navigation
+ * and now lives in the URL, which is what let the rail nest a conversation under
+ * its project -- see `ProjectThreadNav`.
+ *
+ * `threadId` is null on the project home, where the composer starts a
+ * conversation that does not exist yet.
  */
-export function ChatScreen({ projectId }: { projectId: string }) {
-  const { data: threads = [], error: threadsError } = useThreads(projectId);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [renaming, setRenaming] = useState<Thread | null>(null);
-  const [deleting, setDeleting] = useState<Thread | null>(null);
-
-  const rename = useRenameThread(projectId);
-  const remove = useDeleteThread(projectId);
+export function ChatScreen({
+  projectId,
+  threadId,
+}: {
+  projectId: string;
+  threadId: string | null;
+}) {
+  const navigate = useNavigate();
   const turn = useChatTurn(projectId);
+  const endRef = useRef<HTMLDivElement>(null);
 
   // A new conversation gets its id from the meta frame, which arrives BEFORE the
   // first token. Deriving the active thread rather than assigning it after the
-  // stream is what mounts the transcript query while the reply is still
-  // arriving, and what makes the second message continue the SAME thread instead
-  // of opening another one.
-  const activeId = selectedId ?? turn.threadId;
+  // stream is what mounts the transcript query while the reply is still arriving,
+  // and what makes the second message continue the SAME thread.
+  const activeId = threadId ?? turn.threadId;
   const { data: messages = [] } = useMessages(activeId, turn.draft, turn.isStreaming);
+  const draftVisible = showDraft(messages, turn.draft, turn.isStreaming);
 
-  const select = (id: string | null) => {
-    setSelectedId(id);
-    turn.reset();
-  };
+  /*
+   * Give a conversation started here its own URL -- but only once the server has
+   * written it down.
+   *
+   * The two obvious moments are both wrong, and for measured reasons. Navigating
+   * on the meta frame unmounts the stream mid-flight. Navigating on `[DONE]`
+   * lands 1.3-1.7 s BEFORE the deferred transcript write (measured 2026-08-23,
+   * three trials), so the remount would render a transcript missing the reply the
+   * user just watched arrive -- the exact bug `transcript.ts` exists to close.
+   *
+   * So it waits on that same settlement signal. By the time it fires, this
+   * thread's messages are already in the query cache under the key the new route
+   * will read, so the remount is a cache hit with no flash. `replace` keeps Back
+   * pointing at the project home rather than at a home that would now redirect
+   * straight back here.
+   */
+  useEffect(() => {
+    if (threadId === null && turn.threadId && !draftVisible) {
+      void navigate({
+        to: "/app/p/$pid/t/$tid",
+        params: { pid: projectId, tid: turn.threadId },
+        replace: true,
+      });
+    }
+  }, [threadId, turn.threadId, draftVisible, projectId, navigate]);
+
+  // Follow the reply as it streams. `block: "end"` on a trailing anchor rather
+  // than a scrollTop assignment, so it works inside whichever ancestor actually
+  // scrolls without this component having to know which one that is.
+  useEffect(() => {
+    endRef.current?.scrollIntoView({ block: "end", behavior: "smooth" });
+  }, [messages.length, turn.draft]);
 
   return (
-    // Stacked below md: a 256px thread list beside the transcript leaves the
-    // conversation about 100px wide on a phone.
-    <section className="flex flex-col gap-4 md:flex-row">
-      <ThreadList
-        threads={threads}
-        activeId={activeId}
-        onSelect={(thread) => select(thread.id)}
-        onRename={setRenaming}
-        onDelete={setDeleting}
-        onNew={() => select(null)}
-      />
-
-      <div className="min-w-0 flex-1 space-y-4">
-        {threadsError && <ErrorState error={threadsError} />}
-
+    <div className="flex min-h-0 flex-1 flex-col">
+      <div className="flex-1">
         <MessageList
           messages={messages}
           draft={turn.draft}
-          showDraft={showDraft(messages, turn.draft, turn.isStreaming)}
+          showDraft={draftVisible}
           isStreaming={turn.isStreaming}
         />
-        <SourcesPanel sources={turn.sources} />
-
-        {/*
-          The 409 is not a failure and must not read as one: retrieval is awaited
-          before the response starts, so a reindexing project answers a clean
-          status code rather than opening a stream and breaking it.
-        */}
-        {turn.isReindexing ? (
-          <p className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm">
-            This project&rsquo;s lore is re-embedding. NPCs can&rsquo;t cite it until that finishes
-            — send again in a moment.
-          </p>
-        ) : (
-          turn.error && <p className="text-sm text-destructive">{turn.error}</p>
-        )}
-
-        <Composer
-          onSend={(message) => void turn.send(message, activeId)}
-          disabled={turn.isStreaming}
-        />
+        <div ref={endRef} />
       </div>
 
-      <RenameThreadDialog
-        thread={renaming}
-        isPending={rename.isPending}
-        onClose={() => setRenaming(null)}
-        onConfirm={(title) =>
-          rename.mutate({ id: renaming!.id, title }, { onSuccess: () => setRenaming(null) })
-        }
-      />
-      <DeleteThreadDialog
-        thread={deleting}
-        isPending={remove.isPending}
-        onClose={() => setDeleting(null)}
-        onConfirm={() =>
-          remove.mutate(deleting!.id, {
-            onSuccess: () => {
-              // Clearing `selectedId` alone is not enough: the turn may still be
-              // holding this id from its meta frame, and `activeId` would fall
-              // back to it and refetch a transcript that is now a 404.
-              if (deleting!.id === activeId) select(null);
-              setDeleting(null);
-            },
-          })
-        }
-      />
-    </section>
+      {/*
+        Sticky rather than fixed: the composer stays reachable while the
+        transcript scrolls under it, without this component having to own the
+        page's scroll container.
+      */}
+      <div className="sticky bottom-0 mt-6 bg-background/85 pt-3 pb-6 backdrop-blur">
+        <div className="space-y-3">
+          <SourcesPanel sources={turn.sources} />
+
+          {/*
+            The 409 is not a failure and must not read as one: retrieval is
+            awaited before the response starts, so a reindexing project answers a
+            clean status code rather than opening a stream and breaking it.
+          */}
+          {/*
+            Amber, matching ErrorState's `warning` tone rather than --brand:
+            --brand is the console's identity colour and is spent on the rail's
+            provenance marker. A status message borrowing it would make the two
+            mean the same thing.
+          */}
+          {turn.isReindexing ? (
+            <p className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm">
+              This project&rsquo;s lore is re-embedding. NPCs can&rsquo;t cite it until that
+              finishes — send again in a moment.
+            </p>
+          ) : (
+            // Already human copy: useChatTurn stores `ApiError.detail`, the
+            // backend's own sentence, never `.message` with its HTTP status.
+            turn.error && <p className="text-sm text-destructive">{turn.error}</p>
+          )}
+
+          <Composer
+            onSend={(message) => void turn.send(message, activeId)}
+            disabled={turn.isStreaming}
+          />
+        </div>
+      </div>
+    </div>
   );
 }
