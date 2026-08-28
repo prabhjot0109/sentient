@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 
+import { PageColumn } from "@/components/shell/PageColumn";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { ProjectHeader, useProject, VoiceHero } from "@/features/projects";
 import { ChatScreen } from "@/features/threads";
@@ -20,9 +21,11 @@ function ProjectHome() {
   if (error) return <ErrorState error={error} size="page" />;
 
   return (
-    <div className="mx-auto flex min-h-full max-w-3xl flex-col px-6 pt-8 md:px-10">
-      <ProjectHeader projectId={pid} />
-      <VoiceHero project={project} />
+    <div className="flex min-h-full flex-col">
+      <PageColumn className="pt-8">
+        <ProjectHeader projectId={pid} />
+        <VoiceHero project={project} />
+      </PageColumn>
       <ChatScreen projectId={pid} threadId={null} />
     </div>
   );

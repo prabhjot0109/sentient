@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 
+import { PageColumn } from "@/components/shell/PageColumn";
 import { ProjectHeader } from "@/features/projects";
 import { ChatScreen } from "@/features/threads";
 
@@ -19,8 +20,13 @@ import { ChatScreen } from "@/features/threads";
 function ThreadRoute() {
   const { pid, tid } = Route.useParams();
   return (
-    <div className="mx-auto flex min-h-full max-w-3xl flex-col px-6 pt-8 md:px-10">
-      <ProjectHeader projectId={pid} />
+    // min-h-full is what lets the composer dock at the bottom of the viewport
+    // on a short transcript: without a full-height page the sticky element has
+    // nothing to stick to and rides up under the header.
+    <div className="flex min-h-full flex-col">
+      <PageColumn className="pt-8">
+        <ProjectHeader projectId={pid} />
+      </PageColumn>
       {/*
         Keyed on the thread so switching conversations remounts rather than
         carrying the previous turn's draft and retrieved sources into the next

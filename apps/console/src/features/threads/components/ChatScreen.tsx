@@ -1,6 +1,8 @@
 import { useNavigate } from "@tanstack/react-router";
 import { useEffect, useRef } from "react";
 
+import { PageColumn } from "@/components/shell/PageColumn";
+
 import { useChatTurn, useMessages, useThreads } from "../hooks";
 import { showDraft } from "../transcript";
 import { Composer } from "./Composer";
@@ -78,7 +80,13 @@ export function ChatScreen({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="flex-1">
+      {/*
+        The transcript and the dock each carry their own PageColumn rather than
+        sharing one around both. The dock's backdrop has to span the full width
+        of <main> so the transcript dissolves into it edge to edge; only the
+        control inside it is column-width.
+      */}
+      <PageColumn className="flex-1">
         <MessageList
           messages={messages}
           draft={turn.draft}
@@ -87,43 +95,55 @@ export function ChatScreen({
           speaker={speaker}
         />
         <div ref={endRef} />
-      </div>
+      </PageColumn>
 
       {/*
         Sticky rather than fixed: the composer stays reachable while the
         transcript scrolls under it, without this component having to own the
         page's scroll container.
       */}
-      <div className="sticky bottom-0 mt-6 bg-background/85 pt-3 pb-6 backdrop-blur">
-        <div className="space-y-3">
-          <SourcesPanel sources={turn.sources} />
+      <div className="sticky bottom-0 mt-8">
+        {/*
+          A fade, not a blur. Blurred text behind a translucent bar is still
+          legible enough to read as a rendering fault; a gradient to the page
+          colour ends the transcript deliberately. The strip must sit OUTSIDE
+          the opaque block, or it would be painted over by it.
+        */}
+        <div
+          aria-hidden
+          className="pointer-events-none h-8 bg-gradient-to-b from-transparent to-background"
+        />
+        <div className="bg-background pb-6">
+          <PageColumn className="space-y-3">
+            <SourcesPanel sources={turn.sources} />
 
-          {/*
-            The 409 is not a failure and must not read as one: retrieval is
-            awaited before the response starts, so a reindexing project answers a
-            clean status code rather than opening a stream and breaking it.
-          */}
-          {/*
-            Amber, matching ErrorState's `warning` tone rather than --brand:
-            --brand is the console's identity colour and is spent on the rail's
-            provenance marker. A status message borrowing it would make the two
-            mean the same thing.
-          */}
-          {turn.isReindexing ? (
-            <p className="rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-sm">
-              This project&rsquo;s lore is re-embedding. NPCs can&rsquo;t cite it until that
-              finishes — send again in a moment.
-            </p>
-          ) : (
-            // Already human copy: useChatTurn stores `ApiError.detail`, the
-            // backend's own sentence, never `.message` with its HTTP status.
-            turn.error && <p className="text-sm text-destructive">{turn.error}</p>
-          )}
+            {/*
+              The 409 is not a failure and must not read as one: retrieval is
+              awaited before the response starts, so a reindexing project answers a
+              clean status code rather than opening a stream and breaking it.
+            */}
+            {/*
+              Amber, matching ErrorState's `warning` tone rather than --brand:
+              --brand is the console's identity colour and is spent on the rail's
+              provenance marker. A status message borrowing it would make the two
+              mean the same thing.
+            */}
+            {turn.isReindexing ? (
+              <p className="rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-sm">
+                This project&rsquo;s lore is re-embedding. NPCs can&rsquo;t cite it until that
+                finishes — send again in a moment.
+              </p>
+            ) : (
+              // Already human copy: useChatTurn stores `ApiError.detail`, the
+              // backend's own sentence, never `.message` with its HTTP status.
+              turn.error && <p className="text-sm text-destructive">{turn.error}</p>
+            )}
 
-          <Composer
-            onSend={(message) => void turn.send(message, activeId)}
-            disabled={turn.isStreaming}
-          />
+            <Composer
+              onSend={(message) => void turn.send(message, activeId)}
+              disabled={turn.isStreaming}
+            />
+          </PageColumn>
         </div>
       </div>
     </div>
