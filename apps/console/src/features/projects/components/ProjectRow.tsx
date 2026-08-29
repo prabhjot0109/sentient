@@ -1,7 +1,8 @@
 import { Link, useNavigate } from "@tanstack/react-router";
-import { Pencil, Trash2 } from "lucide-react";
+import { FileText, Pencil, SlidersHorizontal, Trash2 } from "lucide-react";
 import { useState } from "react";
 
+import { Menu } from "@/components/ui/Menu";
 import { ProjectThreadNav } from "@/features/threads";
 import { REINDEXING, type Project } from "@/types/projects";
 
@@ -12,9 +13,25 @@ import { RenameProjectDialog } from "./RenameProjectDialog";
  * A project in the rail, and -- when it is the open one -- its conversations
  * nested underneath.
  *
- * Rename and delete are two always-rendered icon buttons rather than an overflow
- * menu. A correct menu is a focus trap plus outside-click plus Escape plus roving
- * tabindex; two buttons reach the same two actions with none of it.
+ * WHY THIS IS A MENU NOW. It used to be two always-rendered icon buttons, on the
+ * reasoning that two buttons beat a menu because a correct menu is a focus trap
+ * plus outside-click plus Escape plus roving tabindex. That reasoning was sound
+ * and the conclusion was still wrong, because of what the two buttons cost to
+ * avoid it: they were 22px targets held at `opacity-0` until the row was
+ * hovered, crammed against the right edge of a 256px rail, and they were the
+ * ONLY route to rename or delete anywhere in the console. Measured in a headless
+ * browser, the click handler fired and the dialog opened correctly every time --
+ * the control worked and could not be found, which reaches the user as "the
+ * buttons don't work".
+ *
+ * The machinery that argument was avoiding is free now: `Menu` is built on the
+ * native Popover API, which gives light-dismiss, Escape and top-layer stacking
+ * from the platform. So the trade the original comment priced no longer exists,
+ * and what is left is one 32px control that is visible at rest.
+ *
+ * It is also no longer the only route. The same four actions are on the project
+ * header and in the command palette, so a user who never opens this menu can
+ * still reach them.
  */
 export function ProjectRow({
   project,
@@ -31,41 +48,55 @@ export function ProjectRow({
   return (
     <div>
       <div
-        className={`group flex items-center gap-1 rounded-md px-2 py-1.5 transition-colors ${
+        className={`group flex items-center gap-1 rounded-md pr-1 pl-2 transition-colors duration-[--duration-instant] ${
           isActive ? "bg-sidebar-accent" : "hover:bg-sidebar-accent/50"
         }`}
       >
         <Link
           to="/app/p/$pid"
           params={{ pid: project.id }}
-          className="min-w-0 flex-1 text-sm font-medium text-sidebar-foreground"
+          className="min-w-0 flex-1 rounded-md py-1.5 text-sm font-medium text-sidebar-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
         >
           <span className="block truncate">{project.name}</span>
           {project.status === REINDEXING && (
             // Surfaced in the rail rather than left for the user to discover as a
             // 409 mid-conversation: retrieval and chat both refuse while it holds.
-            <span className="text-xs font-normal text-muted-foreground">
+            <span className="flex items-center gap-1.5 text-xs font-normal text-warning">
+              <span
+                aria-hidden
+                className="size-1.5 shrink-0 rounded-full bg-warning motion-safe:animate-pulse"
+              />
               re-embedding your lore…
             </span>
           )}
         </Link>
 
-        <button
-          type="button"
-          aria-label={`Rename ${project.name}`}
-          onClick={() => setDialog("rename")}
-          className="rounded p-1 opacity-0 group-focus-within:opacity-60 group-hover:opacity-60 hover:!opacity-100"
-        >
-          <Pencil className="size-3.5" />
-        </button>
-        <button
-          type="button"
-          aria-label={`Delete ${project.name}`}
-          onClick={() => setDialog("delete")}
-          className="rounded p-1 opacity-0 group-focus-within:opacity-60 group-hover:opacity-60 hover:!opacity-100"
-        >
-          <Trash2 className="size-3.5" />
-        </button>
+        {/*
+          `opacity-60` at rest, not `opacity-0`. The control is legible without
+          hovering -- which is the entire fix -- and hover still promotes it, so
+          the rail does not read as a column of identical dots. Touch devices have
+          no hover at all and get the resting state, which is now a usable one.
+        */}
+        <Menu
+          label={`Actions for ${project.name}`}
+          className="opacity-60 group-focus-within:opacity-100 group-hover:opacity-100"
+          items={[
+            { label: "Rename", icon: Pencil, onSelect: () => setDialog("rename") },
+            {
+              label: "Lore",
+              icon: FileText,
+              onSelect: () =>
+                void navigate({ to: "/app/p/$pid/documents", params: { pid: project.id } }),
+            },
+            {
+              label: "Settings",
+              icon: SlidersHorizontal,
+              onSelect: () =>
+                void navigate({ to: "/app/p/$pid/settings", params: { pid: project.id } }),
+            },
+            { label: "Delete", icon: Trash2, danger: true, onSelect: () => setDialog("delete") },
+          ]}
+        />
       </div>
 
       {/*
@@ -88,7 +119,7 @@ export function ProjectRow({
         // Only when the deleted project is the one on screen. Navigating away from
         // a project the user is not looking at would yank them out of their work.
         onDeleted={() => {
-          if (isActive) navigate({ to: "/app" });
+          if (isActive) void navigate({ to: "/app" });
         }}
       />
     </div>
