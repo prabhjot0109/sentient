@@ -24,13 +24,27 @@ Mapping owned by the routers, measured from api.py on 2026-08-15:
     VaultUnavailable    -> 503
     QueueFull           -> 503
     UpstreamFailure     -> 502
+
+Each class also carries a stable ``code``. A status code alone is not always
+enough for a client to know what happened: 409 is answered BOTH by the reindex
+guard and by the API-key cap, and those two lead to opposite next actions ("wait,
+it finishes on its own" against "revoke a key you are not using"). The console
+mapped every 409 to the reindex sentence and so told a user at the key cap that
+their lore was re-embedding. ``code`` is what lets a caller tell them apart; it
+is a machine name, not HTTP, which is why it lives here rather than in api/.
 """
 
 from __future__ import annotations
 
 
 class SentientError(Exception):
-    """Base for every domain error. Routers catch this to build a 500 fallback."""
+    """Base for every domain error. Routers catch this to build a 500 fallback.
+
+    ``code`` is part of the public API surface once a client branches on it, so
+    treat these strings as you would a status code: add freely, never rename.
+    """
+
+    code: str = "error"
 
 
 class Unauthenticated(SentientError):
@@ -38,6 +52,8 @@ class Unauthenticated(SentientError):
 
     Covers both "authentication required" and the Bearer-scheme complaint.
     """
+
+    code = "unauthenticated"
 
 
 class NotOwned(SentientError):
@@ -51,6 +67,8 @@ class NotOwned(SentientError):
     must stay disjoint.
     """
 
+    code = "not_owned"
+
 
 class NotFound(SentientError):
     """A named resource does not exist, or is hidden from this caller. -> 404
@@ -59,6 +77,8 @@ class NotFound(SentientError):
     exact wording.
     """
 
+    code = "not_found"
+
 
 class InvalidRequest(SentientError):
     """The request is well-formed but semantically wrong. -> 400
@@ -66,6 +86,8 @@ class InvalidRequest(SentientError):
     e.g. "thread_id requires project_id", an unsupported upload type, a
     missing filename, an unknown provider.
     """
+
+    code = "invalid_request"
 
 
 class OutOfRange(SentientError):
@@ -77,9 +99,13 @@ class OutOfRange(SentientError):
     the 400 used for semantic errors.
     """
 
+    code = "out_of_range"
+
 
 class ReindexInProgress(SentientError):
     """The project's index is being rebuilt; retrieval is unavailable. -> 409"""
+
+    code = "reindex_in_progress"
 
 
 class QuotaExceeded(SentientError):
@@ -92,13 +118,19 @@ class QuotaExceeded(SentientError):
     correct reaction is the same: stop, and come back later.
     """
 
+    code = "quota_exceeded"
+
 
 class QueueFull(SentientError):
     """The in-process ingest queue has no capacity for this job. -> 503"""
 
+    code = "queue_full"
+
 
 class VaultUnavailable(SentientError):
     """The credential vault is unconfigured or its key cannot be used. -> 503"""
+
+    code = "vault_unavailable"
 
 
 class UpstreamFailure(SentientError):
@@ -106,3 +138,5 @@ class UpstreamFailure(SentientError):
 
     Today only the STT proxy raises this.
     """
+
+    code = "upstream_failure"

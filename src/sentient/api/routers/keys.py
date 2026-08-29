@@ -12,6 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from sentient.adapters.auth import generate_api_key
 from sentient.api import deps
+from sentient.api.responses import error_headers
 from sentient.api.schemas.keys import KeyInput
 
 router = APIRouter()
@@ -37,6 +38,9 @@ async def create_key(
                 status_code=409,
                 detail=f"you already have {len(live)} active API keys (limit {limit}); "
                 "revoke one before creating another",
+                # The reindex guard answers 409 too, and a client that cannot
+                # tell the two apart shows one of them the other's advice.
+                headers=error_headers("api_key_limit"),
             )
 
     raw_key, key_hash = generate_api_key()

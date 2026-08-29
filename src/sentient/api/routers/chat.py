@@ -22,6 +22,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 
 from sentient.api import deps
+from sentient.api.responses import error_headers
 from sentient.api.schemas.chat import (
     ChatInput,
     ChatResponse,
@@ -177,7 +178,7 @@ async def chat_endpoint(
     except QuotaExceeded as e:
         raise HTTPException(status_code=429, detail=str(e)) from e
     except ReindexInProgress as e:
-        raise HTTPException(status_code=409, detail=str(e)) from e
+        raise HTTPException(status_code=409, detail=str(e), headers=error_headers(e)) from e
     except HTTPException:
         raise  # ownership/validation statuses must survive the catch-all below
     except Exception as e:
@@ -246,7 +247,7 @@ async def retrieve_endpoint(
             chunks=serialized_chunks,
         )
     except ReindexInProgress as e:
-        raise HTTPException(status_code=409, detail=str(e)) from e
+        raise HTTPException(status_code=409, detail=str(e), headers=error_headers(e)) from e
     except HTTPException:
         raise
     except Exception as e:

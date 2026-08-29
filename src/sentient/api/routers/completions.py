@@ -37,6 +37,7 @@ from sentient.adapters.llm.openai_wire import (
     error_body,
 )
 from sentient.api import deps
+from sentient.api.responses import error_headers
 from sentient.core.concurrency import defer
 from sentient.core.config import load_rag_settings
 from sentient.core.errors import QuotaExceeded, ReindexInProgress
@@ -102,7 +103,7 @@ async def _run_completions(
     except QuotaExceeded as e:
         raise HTTPException(status_code=429, detail=str(e)) from e
     except ReindexInProgress as e:
-        raise HTTPException(status_code=409, detail=str(e)) from e
+        raise HTTPException(status_code=409, detail=str(e), headers=error_headers(e)) from e
 
     if request.stream:
         log.info("streaming reply")

@@ -16,6 +16,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from sentient.api import deps
 from sentient.api.middleware import RateLimitMiddleware
+from sentient.api.responses import ERROR_CODE_HEADER
 from sentient.api.routers import (
     audio,
     chat,
@@ -134,6 +135,11 @@ def configure_middleware(app: FastAPI, settings) -> None:
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
+        # `allow_headers=["*"]` governs the REQUEST direction only. A
+        # response header stays unreadable to `fetch` until it is named here,
+        # and the symptom is a client seeing `null` for a header the server
+        # demonstrably sent.
+        expose_headers=[ERROR_CODE_HEADER],
     )
 
 
