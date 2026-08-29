@@ -37,6 +37,30 @@ export function MessageList({
 }) {
   const npc = speaker || "NPC";
 
+  /*
+   * An empty transcript is a REAL state, not a loading one: the project home
+   * mounts with no thread at all, and that is where a new user lands after
+   * creating their first project. It rendered as nothing above a composer --
+   * a blank page with a text box, which says neither what this box does nor
+   * that the answer will be grounded in the lore they may not have uploaded yet.
+   */
+  if (messages.length === 0 && !showDraft) {
+    return (
+      <div className="flex min-h-[40vh] flex-col justify-center py-10">
+        <p className="font-mono mb-2 text-[11px] tracking-[0.14em] text-muted-foreground uppercase">
+          No conversation yet
+        </p>
+        <p className="max-w-prose text-[15px] leading-relaxed text-muted-foreground">
+          Say something below and{" "}
+          <span className="text-foreground">{speaker ? npc : "an NPC from this world"}</span>{" "}
+          answers in this project&rsquo;s voice, citing only this project&rsquo;s lore. What you
+          send here goes through the same grounding path the game does, so it is a real test of what
+          an NPC will say — not a preview of it.
+        </p>
+      </div>
+    );
+  }
+
   return (
     // aria-live announces the reply a screen reader would otherwise never hear:
     // the transcript grows without a navigation. aria-busy is what keeps that
