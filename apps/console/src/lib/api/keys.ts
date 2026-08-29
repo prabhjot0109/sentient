@@ -1,4 +1,4 @@
-import type { ApiKey, CreatedApiKey } from "@/types/keys";
+import type { ApiKey, ApiKeyList, CreatedApiKey } from "@/types/keys";
 
 import { apiFetch } from "./client";
 
@@ -15,8 +15,21 @@ type ApiKeyRow = Omit<ApiKey, "revoked"> & { revoked: boolean | number };
  */
 const normalise = (row: ApiKeyRow): ApiKey => ({ ...row, revoked: Boolean(row.revoked) });
 
-export const listKeys = () =>
-  apiFetch<{ keys: ApiKeyRow[] }>("/v1/keys").then((r) => r.keys.map(normalise));
+/**
+ * The envelope is KEPT here, unlike `listProjects`, which unwraps its array.
+ * `limit` is a second value every consumer of this list wants -- the count beside
+ * the heading and the disabled Create button both read it -- so unwrapping to a
+ * bare array would mean a second request for a number that arrived with the first.
+ *
+ * `limit` is defaulted rather than required: a backend older than the field
+ * returns no `limit`, and 0 is already the uncapped sentinel, so the console
+ * degrades to "no ceiling known" instead of rendering `NaN of undefined`.
+ */
+export const listKeys = (): Promise<ApiKeyList> =>
+  apiFetch<{ keys: ApiKeyRow[]; limit?: number }>("/v1/keys").then((r) => ({
+    keys: r.keys.map(normalise),
+    limit: r.limit ?? 0,
+  }));
 
 export const createKey = (label: string | null) =>
   apiFetch<CreatedApiKey>("/v1/keys", {
