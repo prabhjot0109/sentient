@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import os
 import unittest
-from unittest.mock import patch
+from types import SimpleNamespace
+from unittest.mock import MagicMock, patch
 
 from langchain_core.documents import Document
 from langchain_core.embeddings import Embeddings
@@ -163,6 +164,56 @@ class QdrantBackendTests(unittest.IsolatedAsyncioTestCase):
             for d, _ in await backend.retrieve("alpha beta", k=5, min_score=0.0)
         }
         self.assertNotIn("a.txt", sources)
+
+
+class QdrantPayloadIndexTests(unittest.TestCase):
+    """Every filtered field must be indexed, on a collection that already exists.
+
+    A Qdrant Cloud cluster runs strict mode, where a filter on an unindexed
+    payload field is refused with INVALID_ARGUMENT rather than answered slowly.
+    `services/chat._retrieve` catches that and answers ungrounded, so the whole
+    failure surfaces to a player as an NPC that ignores its own lore.
+    """
+
+    def _backend(self):
+        from sentient.adapters.retrieval.qdrant_store import QdrantBackend
+
+        return QdrantBackend(_qdrant_settings(), _FakeDense(), location=":memory:")
+
+    def test_missing_indexes_are_created_on_an_existing_collection(self):
+        from sentient.adapters.retrieval import qdrant_store
+
+        client = MagicMock()
+        client.collection_exists.return_value = True
+        client.get_collection.return_value = SimpleNamespace(
+            payload_schema={"metadata.user_key": object()}
+        )
+        backend = self._backend()
+        # Pre-set so `_ensure_collection_sync` skips building a QdrantVectorStore,
+        # which would introspect the mock's collection config. The store is not
+        # what this test is about.
+        backend._store = MagicMock()
+        with patch.object(backend, "_sync_client", return_value=client):
+            backend._ensure_collection_sync()
+
+        client.create_collection.assert_not_called()
+        indexed = {c.kwargs["field_name"] for c in client.create_payload_index.call_args_list}
+        self.assertEqual(
+            indexed,
+            {
+                qdrant_store._PROJECT_ID,
+                qdrant_store._SIGNATURE,
+                qdrant_store._SOURCE,
+            },
+        )
+
+    def test_index_creation_failure_does_not_block_startup(self):
+        client = MagicMock()
+        client.get_collection.side_effect = RuntimeError("no such collection")
+        client.create_payload_index.side_effect = RuntimeError("refused")
+        backend = self._backend()
+        backend._ensure_indexes_sync(client)
+        self.assertEqual(client.create_payload_index.call_count, 4)
 
 
 class QdrantFactoryTests(unittest.TestCase):

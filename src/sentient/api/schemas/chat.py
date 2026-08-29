@@ -31,6 +31,15 @@ class ChatResponse(BaseModel):
     response: str
     success: bool
     sources: list[RetrievedChunk] = Field(default_factory=list)
+    # Set when the lore lookup itself failed, which is NOT the same as matching
+    # nothing: the reply came from the persona alone and the client must be able
+    # to say so rather than showing an empty source list.
+    retrieval_error: str | None = None
+    # True when the lookup ran cleanly, matched nothing, and the project's
+    # documents were embedded under a different signature than the one queried.
+    # That combination is not "no lore": it is lore this deployment can no longer
+    # reach, and the only fix is a reindex.
+    stale_index: bool = False
     top_k: int | None = None
     retrieval_ms: float | None = None
     thread_id: str | None = None

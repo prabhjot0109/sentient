@@ -49,7 +49,7 @@ log = get_logger(__name__)
 router = APIRouter()
 
 
-def _schedule_deferred_turn_work(ctx, request, reply: str, usage: TokenUsage) -> None:
+def _schedule_deferred_turn_work(ctx, request, reply: str, usage: TokenUsage, grounding) -> None:
     """Queue the transcript write. Requires only a project — B2's session_id
     requirement is gone, because Mantella never sent one and the thread is now
     identified from the payload itself."""
@@ -63,18 +63,21 @@ def _schedule_deferred_turn_work(ctx, request, reply: str, usage: TokenUsage) ->
             usage,
             state_store=deps.state_store,
             session_locks=deps.session_locks,
+            grounding=grounding,
         ),
         label="game-turn",
     )
 
 
-async def _stream_with_deferred_turn_work(llm, messages, model_name, ctx, request):
+async def _stream_with_deferred_turn_work(llm, messages, model_name, ctx, request, grounding):
     """Keep the response path lock-free; queue post-turn work after streaming ends."""
     async for event in service.stream_completion(
         llm,
         messages,
         model_name,
-        on_complete=lambda reply, usage: _schedule_deferred_turn_work(ctx, request, reply, usage),
+        on_complete=lambda reply, usage: _schedule_deferred_turn_work(
+            ctx, request, reply, usage, grounding
+        ),
     ):
         yield event
 
@@ -92,7 +95,7 @@ async def _run_completions(
         # the request that spends the money. One seam for all three path shapes,
         # because every one of them arrives here.
         await assert_within_quota(deps.state_store, deps._settings, user_id=ctx.user_id)
-        llm, messages, model_name = await service.prepare_completion(
+        llm, messages, model_name, grounding = await service.prepare_completion(
             request,
             ctx,
             settings=deps._settings,
@@ -108,7 +111,7 @@ async def _run_completions(
     if request.stream:
         log.info("streaming reply")
         return StreamingResponse(
-            _stream_with_deferred_turn_work(llm, messages, model_name, ctx, request),
+            _stream_with_deferred_turn_work(llm, messages, model_name, ctx, request, grounding),
             media_type="text/event-stream",
         )
 
@@ -129,7 +132,7 @@ async def _run_completions(
 
     reply = str(result.content)
     log.info("reply", extra={"chars": len(reply), "reply": reply})
-    _schedule_deferred_turn_work(ctx, request, reply, usage_of(result, model_name))
+    _schedule_deferred_turn_work(ctx, request, reply, usage_of(result, model_name), grounding)
     return build_completion_response(reply, model_name)
 
 

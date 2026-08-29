@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import sqlite3
 from contextlib import closing
 from datetime import UTC, datetime
@@ -8,7 +9,11 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
-from sentient.adapters.state.schema import _CONFIG_COLUMNS, _DEFAULT_USER_SENTINEL
+from sentient.adapters.state.schema import (
+    _CONFIG_COLUMNS,
+    _DEFAULT_USER_SENTINEL,
+    _decode_sources,
+)
 
 
 def _now() -> str:
@@ -74,7 +79,7 @@ class SQLiteStateStore:
                   id TEXT PRIMARY KEY, thread_id TEXT NOT NULL, role TEXT NOT NULL,
                   content TEXT NOT NULL, created_at TEXT,
                   model TEXT, prompt_tokens INTEGER, completion_tokens INTEGER,
-                  total_tokens INTEGER,
+                  total_tokens INTEGER, sources TEXT,
                   FOREIGN KEY(thread_id) REFERENCES chat_threads(id) ON DELETE CASCADE);
                 CREATE INDEX IF NOT EXISTS chat_messages_thread_idx
                   ON chat_messages(thread_id, created_at);
@@ -107,6 +112,7 @@ class SQLiteStateStore:
                     "prompt_tokens": "INTEGER",
                     "completion_tokens": "INTEGER",
                     "total_tokens": "INTEGER",
+                    "sources": "TEXT",
                 },
             )
             _ensure_columns("documents", {"size_bytes": "INTEGER"})
@@ -638,6 +644,7 @@ class SQLiteStateStore:
         prompt_tokens: int | None,
         completion_tokens: int | None,
         total_tokens: int | None,
+        sources: list[dict[str, Any]] | None,
     ) -> dict[str, Any]:
         message_id = uuid4().hex
         now = _now()
@@ -645,7 +652,7 @@ class SQLiteStateStore:
             conn.execute(
                 "INSERT INTO chat_messages "
                 "(id, thread_id, role, content, created_at, model, prompt_tokens, "
-                " completion_tokens, total_tokens) VALUES (?,?,?,?,?,?,?,?,?)",
+                " completion_tokens, total_tokens, sources) VALUES (?,?,?,?,?,?,?,?,?,?)",
                 (
                     message_id,
                     thread_id,
@@ -656,6 +663,7 @@ class SQLiteStateStore:
                     prompt_tokens,
                     completion_tokens,
                     total_tokens,
+                    None if sources is None else json.dumps(sources),
                 ),
             )
             conn.execute("UPDATE chat_threads SET updated_at=? WHERE id=?", (now, thread_id))
@@ -669,6 +677,7 @@ class SQLiteStateStore:
             "prompt_tokens": prompt_tokens,
             "completion_tokens": completion_tokens,
             "total_tokens": total_tokens,
+            "sources": sources,
         }
 
     async def add_message(
@@ -681,6 +690,7 @@ class SQLiteStateStore:
         prompt_tokens: int | None = None,
         completion_tokens: int | None = None,
         total_tokens: int | None = None,
+        sources: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         return await asyncio.to_thread(
             self._add_message,
@@ -691,6 +701,7 @@ class SQLiteStateStore:
             prompt_tokens,
             completion_tokens,
             total_tokens,
+            sources,
         )
 
     def _list_threads(self, project_id: str) -> list[dict[str, Any]]:
@@ -711,14 +722,14 @@ class SQLiteStateStore:
             # window and the chronological re-sort disagree and the turn order inverts.
             rows = conn.execute(
                 "SELECT id, thread_id, role, content, created_at, model, prompt_tokens, "
-                "completion_tokens, total_tokens FROM "
+                "completion_tokens, total_tokens, sources FROM "
                 "(SELECT rowid AS seq, id, thread_id, role, content, created_at, model, "
-                "prompt_tokens, completion_tokens, total_tokens FROM chat_messages "
+                "prompt_tokens, completion_tokens, total_tokens, sources FROM chat_messages "
                 "WHERE thread_id=? ORDER BY created_at DESC, seq DESC LIMIT ?) "
                 "ORDER BY created_at ASC, seq ASC",
                 (thread_id, limit),
             ).fetchall()
-        return [dict(row) for row in rows]
+        return [_decode_sources(dict(row)) for row in rows]
 
     async def list_messages(self, thread_id: str, limit: int = 50) -> list[dict[str, Any]]:
         return await asyncio.to_thread(self._list_messages, thread_id, limit)

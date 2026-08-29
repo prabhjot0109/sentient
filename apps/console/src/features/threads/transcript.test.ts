@@ -14,6 +14,7 @@ const message = (role: ChatMessage["role"], content: string): ChatMessage => ({
   prompt_tokens: null,
   completion_tokens: null,
   total_tokens: null,
+  sources: null,
 });
 
 const REPLY = "I am a humble Nord of the north.";

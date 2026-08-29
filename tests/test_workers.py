@@ -8,6 +8,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 from sentient.api.routers import completions as completions_router
+from sentient.services.chat import Grounding
 from sentient.services.usage import TokenUsage
 
 
@@ -193,11 +194,12 @@ class DeferredTurnTests(unittest.IsolatedAsyncioTestCase):
 
         ctx = SimpleNamespace()
         request = SimpleNamespace(messages=[])
+        grounding = Grounding()
         with patch.object(completions_router, "_schedule_deferred_turn_work") as schedule:
             events = [
                 event
                 async for event in completions_router._stream_with_deferred_turn_work(
-                    _LLM(), [], "test-model", ctx, request
+                    _LLM(), [], "test-model", ctx, request, grounding
                 )
             ]
 
@@ -205,7 +207,11 @@ class DeferredTurnTests(unittest.IsolatedAsyncioTestCase):
         # G4: the streamed reply reaches the scheduler, which is what lets the
         # deferred writer persist the assistant side of a streamed turn. H4: so
         # does the usage the provider reported on the stream.
-        schedule.assert_called_once_with(ctx, request, "Done.", TokenUsage("test-model", 9, 2, 11))
+        # The lore the turn was grounded in rides along, so the deferred writer can
+        # store it on the assistant row rather than losing it with the stream.
+        schedule.assert_called_once_with(
+            ctx, request, "Done.", TokenUsage("test-model", 9, 2, 11), grounding
+        )
 
 
 class SessionLockEvictionTests(unittest.IsolatedAsyncioTestCase):

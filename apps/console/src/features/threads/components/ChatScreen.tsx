@@ -7,7 +7,6 @@ import { useChatTurn, useMessages, useThreads } from "../hooks";
 import { showDraft } from "../transcript";
 import { Composer } from "./Composer";
 import { MessageList } from "./MessageList";
-import { SourcesPanel } from "./SourcesPanel";
 
 /**
  * One conversation: the transcript, the turn in flight, and the composer.
@@ -93,6 +92,9 @@ export function ChatScreen({
           showDraft={draftVisible}
           isStreaming={turn.isStreaming}
           speaker={speaker}
+          draftSources={turn.sources}
+          draftRetrievalError={turn.retrievalError}
+          draftStaleIndex={turn.staleIndex}
         />
         <div ref={endRef} />
       </PageColumn>
@@ -115,8 +117,6 @@ export function ChatScreen({
         />
         <div className="bg-background pb-6">
           <PageColumn className="space-y-3">
-            <SourcesPanel sources={turn.sources} />
-
             {/*
               The 409 is not a failure and must not read as one: retrieval is
               awaited before the response starts, so a reindexing project answers a

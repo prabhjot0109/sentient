@@ -8,7 +8,24 @@ import { parseSseFrames } from "./sse";
  * three callbacks, so a consumer that forgets a case fails to typecheck.
  */
 export type ChatStreamEvent =
-  | { kind: "meta"; threadId: string; sources: RetrievedChunk[]; topK: number | null }
+  | {
+      kind: "meta";
+      threadId: string;
+      sources: RetrievedChunk[];
+      /**
+       * Set when the lore lookup FAILED, which an empty `sources` alone cannot
+       * say. The reply then came from the persona with no lore behind it, and
+       * the transcript has to admit that rather than render nothing.
+       */
+      retrievalError: string | null;
+      /**
+       * The lookup ran, matched nothing, and this project's documents were
+       * embedded under a different signature than the one queried. Not "no lore":
+       * lore this deployment can no longer reach. Only a reindex fixes it.
+       */
+      staleIndex: boolean;
+      topK: number | null;
+    }
   | { kind: "token"; text: string }
   | { kind: "error"; message: string };
 
@@ -80,6 +97,8 @@ export async function streamChat(
         kind: "meta",
         threadId: frame.thread_id as string,
         sources: (frame.sources ?? []) as RetrievedChunk[],
+        retrievalError: (frame.retrieval_error ?? null) as string | null,
+        staleIndex: (frame.stale_index ?? false) as boolean,
         topK: (frame.top_k ?? null) as number | null,
       });
       continue;

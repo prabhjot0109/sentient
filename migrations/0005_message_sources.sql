@@ -1,0 +1,11 @@
+-- The lore each reply was actually grounded in, kept with the reply.
+--
+-- The retrieved chunks used to exist only in the `sentient.chat.meta` frame of
+-- the turn that produced them, so reloading a thread lost every trace of what
+-- the NPC had read. That is the one question this console exists to answer, and
+-- it also has to answer it for a conversation Mantella held in-game hours ago.
+--
+-- jsonb and nullable. NULL means "not recorded" -- every row written before this
+-- migration, and every row from a surface that does not retrieve. An empty array
+-- is a different and real answer: retrieval ran and matched nothing.
+alter table chat_messages add column if not exists sources jsonb;

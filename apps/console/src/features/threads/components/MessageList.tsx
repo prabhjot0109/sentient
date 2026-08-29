@@ -1,5 +1,7 @@
-import type { ChatMessage } from "@/types/threads";
+import type { ChatMessage, RetrievedChunk } from "@/types/threads";
 import { CopyButton } from "@/components/ui/CopyButton";
+
+import { SourcesPanel } from "./SourcesPanel";
 
 /**
  * The transcript, plus the provisional bubble for a turn the server has not
@@ -20,6 +22,10 @@ import { CopyButton } from "@/components/ui/CopyButton";
  * is neither "while streaming" (the reply would blank for the 1.3-1.7s the
  * deferred write takes) nor "whenever there is a draft" (it would render twice
  * once the row lands).
+ *
+ * Each reply carries its own lore disclosure above it, read from the message row
+ * rather than from the turn in flight. That is what survives a reload and what
+ * lets an in-game conversation show what the NPC actually read.
  */
 export function MessageList({
   messages,
@@ -27,6 +33,9 @@ export function MessageList({
   showDraft,
   isStreaming,
   speaker,
+  draftSources = null,
+  draftRetrievalError = null,
+  draftStaleIndex = false,
 }: {
   messages: ChatMessage[];
   draft: string;
@@ -34,6 +43,14 @@ export function MessageList({
   isStreaming: boolean;
   /** The NPC this thread belongs to, when the game path named one. */
   speaker?: string | null;
+  /**
+   * The turn in flight. Its lore arrives in the meta frame BEFORE the first
+   * token, so the disclosure is readable while the reply is still being typed --
+   * and it hands over to the stored row on the message once that lands.
+   */
+  draftSources?: RetrievedChunk[] | null;
+  draftRetrievalError?: string | null;
+  draftStaleIndex?: boolean;
 }) {
   const npc = speaker || "NPC";
 
@@ -80,6 +97,7 @@ export function MessageList({
           // than sitting permanently in the margin of every line.
           <li key={message.id} className="group">
             <Speaker name={npc} />
+            <SourcesPanel sources={message.sources} />
             <p className="text-[15px] leading-[1.7] whitespace-pre-wrap text-foreground">
               {message.content}
             </p>
@@ -110,6 +128,11 @@ export function MessageList({
       {showDraft && (
         <li>
           <Speaker name={npc} />
+          <SourcesPanel
+            sources={draftSources}
+            retrievalError={draftRetrievalError}
+            staleIndex={draftStaleIndex}
+          />
           <p className="text-[15px] leading-[1.7] whitespace-pre-wrap text-foreground">
             {draft}
             {/*

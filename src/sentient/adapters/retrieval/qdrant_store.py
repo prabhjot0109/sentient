@@ -9,6 +9,9 @@ from langchain_qdrant import FastEmbedSparse, QdrantVectorStore, RetrievalMode
 from qdrant_client import QdrantClient, models
 
 from sentient.core.config import RAGSettings
+from sentient.core.logging import get_logger
+
+log = get_logger(__name__)
 
 DENSE = "dense"
 SPARSE = "sparse"
@@ -20,6 +23,16 @@ _USER_KEY = "metadata.user_key"
 _PROJECT_ID = "metadata.project_id"
 _SIGNATURE = "metadata.embedding_signature"
 _SOURCE = "metadata.source"
+
+# EVERY field this backend ever puts in a Filter needs a keyword payload index.
+# Not for speed. A Qdrant Cloud cluster runs strict mode with
+# `unindexed_filtering_retrieve` disabled, so filtering on an unindexed field is
+# refused outright with INVALID_ARGUMENT "Index required but not found" -- which
+# `services/chat._retrieve` catches and downgrades to an ungrounded answer. The
+# result is a project whose lore is indexed, whose upload succeeded, and whose
+# NPC quietly ignores all of it. Measured 2026-08-29 against Qdrant Cloud with
+# only user_key and project_id indexed.
+_INDEXED_FIELDS = (_USER_KEY, _PROJECT_ID, _SIGNATURE, _SOURCE)
 
 # One asyncio.Lock per event loop guards the one-time collection setup so
 # concurrent first writes don't both try to create the collection. asyncio.Lock
@@ -96,14 +109,7 @@ class QdrantBackend:
                     )
                 ),
             )
-            # Keyword indexes make the tenant/project filters index-accelerated on a
-            # Qdrant server (no-op in local mode, so tests just warn).
-            for field in (_USER_KEY, _PROJECT_ID):
-                client.create_payload_index(
-                    collection_name=self.collection,
-                    field_name=field,
-                    field_schema=models.PayloadSchemaType.KEYWORD,
-                )
+        self._ensure_indexes_sync(client)
         if self._store is None:
             self._store = QdrantVectorStore(
                 client=client,
@@ -114,6 +120,39 @@ class QdrantBackend:
                 vector_name=DENSE,
                 sparse_vector_name=SPARSE,
             )
+
+    def _ensure_indexes_sync(self, client: QdrantClient) -> None:
+        """Bring the collection's payload indexes up to `_INDEXED_FIELDS`.
+
+        Deliberately OUTSIDE the create-collection branch. A collection created
+        by an earlier version of this file, or by hand, or before a field joined
+        a filter, exists but is missing indexes, and a create-time-only pass can
+        never repair it -- which is exactly how a live cluster ended up rejecting
+        every retrieval on `metadata.embedding_signature`. Running it on each
+        setup makes the operation converge instead of depending on when the
+        collection happened to be born.
+
+        Existing indexes are skipped rather than recreated, so the common startup
+        costs one `get_collection` call. A failure is logged and swallowed: an
+        index is an optimisation on a self-hosted server and only a hard
+        requirement under strict mode, so refusing to start would be worse than
+        the degraded read it protects.
+        """
+        try:
+            existing = set(client.get_collection(self.collection).payload_schema or {})
+        except Exception:
+            existing = set()
+        for field in _INDEXED_FIELDS:
+            if field in existing:
+                continue
+            try:
+                client.create_payload_index(
+                    collection_name=self.collection,
+                    field_name=field,
+                    field_schema=models.PayloadSchemaType.KEYWORD,
+                )
+            except Exception:
+                log.warning("qdrant payload index not created", extra={"field": field})
 
     async def _ensure_ready(self) -> QdrantVectorStore:
         if not self._ready:

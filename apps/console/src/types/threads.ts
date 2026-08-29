@@ -43,7 +43,7 @@ export type Thread = {
   updated_at: string;
 };
 
-/** A row of `chat_messages`. Both stores return these nine fields identically. */
+/** A row of `chat_messages`. Both stores return these ten fields identically. */
 export type ChatMessage = {
   id: string;
   thread_id: string;
@@ -59,6 +59,18 @@ export type ChatMessage = {
   prompt_tokens: number | null;
   completion_tokens: number | null;
   total_tokens: number | null;
+  /**
+   * The lore this reply was grounded in, stored with the reply so a reload -- or
+   * a conversation Mantella held in-game hours ago -- still shows what the NPC
+   * read.
+   *
+   * THREE states, not two. `null` is "not recorded": every message written
+   * before the column existed, every user message, and any turn whose lookup
+   * failed. `[]` is "retrieval ran and matched nothing". A non-empty array is
+   * the provenance. Rendering null and [] the same way is fine; conflating them
+   * in a count is not.
+   */
+  sources: RetrievedChunk[] | null;
 };
 
 /** One retrieved chunk, as the `sentient.chat.meta` frame carries it. */

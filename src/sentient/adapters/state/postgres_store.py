@@ -1,12 +1,17 @@
 from __future__ import annotations
 
+import json
 from datetime import datetime
 from typing import Any
 from uuid import UUID
 
 import asyncpg
 
-from sentient.adapters.state.schema import _CONFIG_COLUMNS, _DEFAULT_USER_SENTINEL
+from sentient.adapters.state.schema import (
+    _CONFIG_COLUMNS,
+    _DEFAULT_USER_SENTINEL,
+    _decode_sources,
+)
 
 
 def _is_uuid(value: Any) -> bool:
@@ -508,15 +513,17 @@ class PostgresStateStore:
         prompt_tokens: int | None = None,
         completion_tokens: int | None = None,
         total_tokens: int | None = None,
+        sources: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         pool = await self._pool_()
         async with pool.acquire() as conn, conn.transaction():
             row = await conn.fetchrow(
                 "INSERT INTO chat_messages "
-                "(thread_id, role, content, model, prompt_tokens, completion_tokens, total_tokens) "
-                "VALUES ($1,$2,$3,$4,$5,$6,$7) "
+                "(thread_id, role, content, model, prompt_tokens, completion_tokens, "
+                " total_tokens, sources) "
+                "VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb) "
                 "RETURNING id::text, thread_id::text, role, content, created_at, model, "
-                "prompt_tokens, completion_tokens, total_tokens",
+                "prompt_tokens, completion_tokens, total_tokens, sources",
                 thread_id,
                 role,
                 content,
@@ -524,9 +531,12 @@ class PostgresStateStore:
                 prompt_tokens,
                 completion_tokens,
                 total_tokens,
+                # asyncpg binds jsonb from TEXT, not from a Python list: without the
+                # explicit dumps and the ::jsonb cast it raises rather than encoding.
+                None if sources is None else json.dumps(sources),
             )
             await conn.execute("UPDATE chat_threads SET updated_at=now() WHERE id=$1", thread_id)
-        return dict(row)
+        return _decode_sources(dict(row))
 
     async def list_threads(self, project_id: str) -> list[dict[str, Any]]:
         if not _is_uuid(project_id):
@@ -547,11 +557,11 @@ class PostgresStateStore:
         async with pool.acquire() as conn:
             rows = await conn.fetch(
                 "SELECT id::text, thread_id::text, role, content, created_at, model, "
-                "prompt_tokens, completion_tokens, total_tokens FROM "
+                "prompt_tokens, completion_tokens, total_tokens, sources FROM "
                 "(SELECT id, thread_id, role, content, created_at, model, prompt_tokens, "
-                "completion_tokens, total_tokens FROM chat_messages WHERE thread_id=$1 "
+                "completion_tokens, total_tokens, sources FROM chat_messages WHERE thread_id=$1 "
                 "ORDER BY created_at DESC, id DESC LIMIT $2) tail ORDER BY created_at, id",
                 thread_id,
                 limit,
             )
-        return [dict(row) for row in rows]
+        return [_decode_sources(dict(row)) for row in rows]

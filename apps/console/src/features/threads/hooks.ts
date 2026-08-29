@@ -22,7 +22,20 @@ export const useDeleteThread = useDeleteThreadMutation;
 export type TurnState = {
   /** Tokens received so far. Rendered as a provisional assistant bubble. */
   draft: string;
-  sources: RetrievedChunk[];
+  /**
+   * `null` until the meta frame lands. Not `[]`: an empty array is the real claim
+   * "retrieval ran and matched nothing", and the disclosure says so out loud, so
+   * starting there would flash a false statement over every turn.
+   */
+  sources: RetrievedChunk[] | null;
+  /**
+   * Set when the lore lookup FAILED. Distinct from `sources: []`, which means it
+   * ran and matched nothing -- the two rendered identically before, which is how
+   * a Qdrant cluster rejecting every query looked like an NPC with no lore.
+   */
+  retrievalError: string | null;
+  /** This project's lore is indexed under a different embedding signature. */
+  staleIndex: boolean;
   isStreaming: boolean;
   error: string | null;
   /**
@@ -42,7 +55,9 @@ export type TurnState = {
 
 const EMPTY: TurnState = {
   draft: "",
-  sources: [],
+  sources: null,
+  retrievalError: null,
+  staleIndex: false,
   isStreaming: false,
   error: null,
   isReindexing: false,
@@ -78,7 +93,13 @@ export const useChatTurn = (projectId: string) => {
         await streamChat({ message, projectId, threadId: threadId ?? undefined }, (event) => {
           if (event.kind === "meta") {
             landedThreadId = event.threadId;
-            setState((s) => ({ ...s, sources: event.sources, threadId: event.threadId }));
+            setState((s) => ({
+              ...s,
+              sources: event.sources,
+              retrievalError: event.retrievalError,
+              staleIndex: event.staleIndex,
+              threadId: event.threadId,
+            }));
           } else if (event.kind === "token") {
             setState((s) => ({ ...s, draft: s.draft + event.text }));
           } else {

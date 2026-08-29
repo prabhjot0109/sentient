@@ -54,6 +54,127 @@ class ThreadStoreTests(unittest.IsolatedAsyncioTestCase):
         tail = await self.store.list_messages(thread["id"], limit=4)
         self.assertEqual([row["content"] for row in tail], ["m2", "m3", "m4", "m5"])
 
+    async def test_sources_round_trip_and_distinguish_empty_from_unrecorded(self):
+        """`sources` has three states and the store must not flatten them.
+
+        NULL is "not recorded" -- every row written before the column existed.
+        `[]` is "retrieval ran and matched nothing". A list is the provenance.
+        Both stores keep the column as JSON text, so a list that came back as a
+        string would silently become an unreadable disclosure in the console.
+        """
+        _, project = await self._project()
+        thread = await self.store.upsert_thread(project["id"], "session")
+        chunks = [
+            {
+                "content": "Nords resist frost.",
+                "score": 0.5,
+                "source": "a.pdf",
+                "page_label": "3",
+                "chunk_id": 0,
+            }
+        ]
+        await self.store.add_message(thread["id"], "user", "who are you")
+        await self.store.add_message(thread["id"], "assistant", "grounded", sources=chunks)
+        await self.store.add_message(thread["id"], "assistant", "nothing matched", sources=[])
+        await self.store.add_message(thread["id"], "assistant", "unrecorded")
+
+        rows = await self.store.list_messages(thread["id"], limit=10)
+        self.assertEqual([row["sources"] for row in rows], [None, chunks, [], None])
+
+    async def test_grounding_persists_the_rendered_fields_and_nothing_else(self):
+        """The stored chunk drops `metadata`, which carries the tenant key, the
+        project id and the embedding signature -- routing internals that would be
+        duplicated onto every chunk of every turn forever."""
+        from sentient.services.chat import Grounding
+
+        grounding = Grounding(
+            sources=[
+                {
+                    "content": "c",
+                    "score": 0.5,
+                    "source": "a.pdf",
+                    "page_label": "3",
+                    "chunk_id": 0,
+                    "metadata": {"user_key": "secret", "project_id": "p"},
+                }
+            ]
+        )
+        self.assertEqual(
+            grounding.persistable(),
+            [{"content": "c", "score": 0.5, "source": "a.pdf", "page_label": "3", "chunk_id": 0}],
+        )
+
+    async def test_a_failed_lookup_records_nothing_rather_than_an_empty_list(self):
+        """`[]` would claim retrieval ran and matched nothing. It did not run."""
+        from sentient.services.chat import Grounding
+
+        self.assertIsNone(Grounding(sources=[], error="InactiveRpcError: no index").persistable())
+
+
+class StaleIndexDetectionTests(unittest.IsolatedAsyncioTestCase):
+    """An empty result has two causes and only one of them is the user's fault.
+
+    Measured 2026-08-29 on a live deployment: a project whose documents were
+    embedded under signature 71d147258a02c83c kept being queried with
+    8df2da26ff37503b after the embedding model changed. The payload filter
+    excluded every chunk, retrieval raised nothing, and every question answered
+    "no lore matched" -- so the owner rephrased questions for an hour when the
+    fix was a reindex.
+    """
+
+    def _ctx(self):
+        return SimpleNamespace(
+            project_id="p1",
+            status="active",
+            user_key="u1",
+            system_prompt="You are a Nord.",
+            llm_settings={"model": "test-model"},
+            rag_settings={
+                "top_k": 4,
+                "search_type": "similarity",
+                "score_threshold": 0.0,
+                "embedding_provider": "google",
+                "embedding_model": "gemini-embedding-2",
+                "mrl_vector_size": None,
+            },
+        )
+
+    async def _ground(self, stored_signature, chunks):
+        from sentient.services import chat as service
+
+        archives = SimpleNamespace(retrieve=AsyncMock(return_value=chunks))
+        _, _, grounding = await service._ground_project_turn(
+            self._ctx(),
+            [],
+            "what skills do nords have",
+            None,
+            get_archives=AsyncMock(return_value=archives),
+            get_llm=AsyncMock(return_value=object()),
+            stored_signature=stored_signature,
+        )
+        return grounding
+
+    async def test_empty_under_a_foreign_signature_is_reported_as_stale(self):
+        grounding = await self._ground("71d147258a02c83c", [])
+        self.assertTrue(grounding.stale_index)
+        self.assertIsNone(grounding.error)
+
+    async def test_empty_under_the_matching_signature_is_just_empty(self):
+        from sentient.services.runtime import embedding_signature
+
+        current = embedding_signature(self._ctx().rag_settings)
+        self.assertFalse((await self._ground(current, [])).stale_index)
+
+    async def test_a_project_that_still_returns_chunks_is_never_called_stale(self):
+        from langchain_core.documents import Document
+
+        chunks = [(Document(page_content="Nords resist frost.", metadata={}), 0.5)]
+        self.assertFalse((await self._ground("71d147258a02c83c", chunks)).stale_index)
+
+    async def test_an_unconfigured_project_makes_no_claim(self):
+        """No stored signature means nothing to compare, not a stale index."""
+        self.assertFalse((await self._ground(None, [])).stale_index)
+
 
 class ThreadMemoryEndpointTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):

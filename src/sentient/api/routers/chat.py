@@ -94,13 +94,17 @@ async def chat_endpoint(
                 session_id=thread["id"],
                 provider_key=provider_key,
             )
-            history_window = (
-                await deps.state_store.get_project_config(payload.project_id) or {}
-            ).get("history_window") or 20
+            config = await deps.state_store.get_project_config(payload.project_id) or {}
+            history_window = config.get("history_window") or 20
+            # The signature the project's vectors were WRITTEN under. When it no
+            # longer matches the one this turn queries with, the filter excludes
+            # every chunk and retrieval answers an honest empty list -- which is
+            # indistinguishable from "no lore uploaded" unless we say otherwise.
+            stored_signature = config.get("embedding_signature")
             bind(thread_id=thread["id"])
             history = await deps.state_store.list_messages(thread["id"], limit=history_window)
 
-            def _persist(reply: str, usage) -> None:
+            def _persist(reply: str, usage, grounding) -> None:
                 # An empty reply means the client disconnected before a token
                 # arrived, or the provider died first. Neither is a turn.
                 if not reply.strip():
@@ -113,6 +117,7 @@ async def chat_endpoint(
                         payload.message,
                         reply,
                         usage,
+                        grounding,
                     ),
                     label="thread-memory",
                 )
@@ -128,6 +133,7 @@ async def chat_endpoint(
                         get_archives=deps.get_archives_for_context,
                         get_llm=deps.get_llm,
                         on_complete=_persist,
+                        stored_signature=stored_signature,
                     ),
                     media_type="text/event-stream",
                 )
@@ -139,13 +145,17 @@ async def chat_endpoint(
                 payload.top_k,
                 get_archives=deps.get_archives_for_context,
                 get_llm=deps.get_llm,
+                stored_signature=stored_signature,
             )
-            _persist(result["answer"], result["usage"])
+            grounding = result["grounding"]
+            _persist(result["answer"], result["usage"], grounding)
             elapsed_ms = round((perf_counter() - started_at) * 1000, 2)
             return ChatResponse(
                 response=result["answer"],
                 success=True,
-                sources=[RetrievedChunk(**source) for source in result["sources"]],
+                sources=[RetrievedChunk(**source) for source in grounding.sources],
+                retrieval_error=grounding.error,
+                stale_index=grounding.stale_index,
                 top_k=result["top_k"],
                 retrieval_ms=elapsed_ms,
                 thread_id=thread["id"],

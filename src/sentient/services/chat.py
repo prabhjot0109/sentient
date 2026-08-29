@@ -20,6 +20,7 @@ import asyncio
 import hashlib
 import json
 from collections.abc import AsyncIterator
+from dataclasses import dataclass, field
 from time import perf_counter
 from typing import Any
 from uuid import uuid4
@@ -41,6 +42,58 @@ from sentient.services.runtime import embedding_signature
 from sentient.services.usage import TokenUsage, usage_of
 
 log = get_logger(__name__)
+
+
+# The fields a transcript renders. The full `metadata` blob is deliberately not
+# among them: it carries the tenant key, the project id and the embedding
+# signature, which are routing internals, and it would be duplicated onto every
+# stored chunk of every turn forever.
+_PERSISTED_CHUNK_FIELDS = ("content", "score", "source", "page_label", "chunk_id")
+
+
+@dataclass(frozen=True)
+class Grounding:
+    """What retrieval produced for one turn.
+
+    `error` exists because the alternative is what shipped: retrieval is
+    best-effort, so a failure returned an empty list and the turn answered from
+    the persona alone. An empty list and a failed lookup then looked identical to
+    every consumer, and a Qdrant cluster refusing every filtered query for want
+    of a payload index read to the player as an NPC with nothing to say. The two
+    are different sentences and the console has to be able to tell them apart.
+    """
+
+    sources: list[dict[str, Any]] = field(default_factory=list)
+    error: str | None = None
+    #: The project's documents were embedded under a different signature than the
+    #: one this turn queried with, and nothing matched. Set only when both hold,
+    #: because a project that still returns chunks is not worth alarming about.
+    stale_index: bool = False
+
+    def persistable(self) -> list[dict[str, Any]] | None:
+        """The rows to store on the assistant message, or None when unknown.
+
+        None when the lookup failed: the turn's provenance is genuinely unknown,
+        and recording `[]` would claim retrieval ran and matched nothing.
+        """
+        if self.error is not None:
+            return None
+        return [{k: chunk.get(k) for k in _PERSISTED_CHUNK_FIELDS} for chunk in self.sources]
+
+
+def _as_sources(chunks: list) -> list[dict[str, Any]]:
+    """The wire shape for retrieved chunks, built once for both chat surfaces."""
+    return [
+        {
+            "content": document.page_content,
+            "score": score,
+            "source": document.metadata.get("source", "unknown"),
+            "page_label": document.metadata.get("page_label", ""),
+            "chunk_id": document.metadata.get("chunk_id"),
+            "metadata": dict(document.metadata),
+        }
+        for document, score in chunks
+    ]
 
 
 def _hash_pairs(pairs: list[tuple[str, str]]) -> str:
@@ -109,8 +162,9 @@ async def _ground_project_turn(
     *,
     get_archives,
     get_llm,
-) -> tuple[Any, list, list[dict[str, Any]]]:
-    """Everything both renderers of a web turn need: model, prompt, sources.
+    stored_signature: str | None = None,
+) -> tuple[Any, list, Grounding]:
+    """Everything both renderers of a web turn need: model, prompt, grounding.
 
     Factored out rather than duplicated. F8 existed as a backlog item precisely
     because the two chat surfaces each re-implemented this once before, and one
@@ -118,10 +172,10 @@ async def _ground_project_turn(
     """
     assert_retrievable(ctx)
 
-    async def _retrieve():
+    async def _retrieve() -> tuple[list, str | None]:
         try:
             archives = await get_archives(ctx)
-            return await archives.retrieve(
+            chunks = await archives.retrieve(
                 message,
                 k=top_k or ctx.rag_settings["top_k"],
                 search_type=ctx.rag_settings["search_type"],
@@ -130,29 +184,47 @@ async def _ground_project_turn(
                 project_id=ctx.project_id,
                 embedding_signature=embedding_signature(ctx.rag_settings),
             )
-        except Exception:
+            return chunks, None
+        except Exception as exc:
             # Grounding is best-effort: a retrieval failure degrades the answer,
-            # it does not fail the turn.
+            # it does not fail the turn. It is REPORTED rather than swallowed,
+            # though -- see Grounding.error.
             log.warning("retrieval failed; answering ungrounded", exc_info=True)
-            return []
+            return [], f"{type(exc).__name__}: {exc}"[:400]
 
-    llm, chunks = await asyncio.gather(get_llm(ctx), _retrieve())
+    llm, (chunks, retrieval_error) = await asyncio.gather(get_llm(ctx), _retrieve())
     turn_messages = [OpenAIMessage(role=row["role"], content=row["content"]) for row in history]
     turn_messages.append(OpenAIMessage(role="user", content=message))
     messages = inject_persona(to_langchain(turn_messages), ctx.system_prompt)
     messages = inject_lore(messages, format_lore(chunks))
-    sources = [
-        {
-            "content": document.page_content,
-            "score": score,
-            "source": document.metadata.get("source", "unknown"),
-            "page_label": document.metadata.get("page_label", ""),
-            "chunk_id": document.metadata.get("chunk_id"),
-            "metadata": dict(document.metadata),
-        }
-        for document, score in chunks
-    ]
-    return llm, messages, sources
+    # The game path has logged this since R5; the console path had no equivalent,
+    # so "the NPC ignored my lore" could only be diagnosed by reproducing it. One
+    # line answers whether retrieval ran, how much it found, and under which
+    # signature -- a mismatch there returns zero chunks and raises nothing.
+    signature = embedding_signature(ctx.rag_settings)
+    log.info(
+        "lore retrieved",
+        extra={
+            "chunks": len(chunks),
+            "signature": signature,
+            "stored_signature": stored_signature,
+            "retrieval_error": retrieval_error,
+        },
+    )
+    return (
+        llm,
+        messages,
+        Grounding(
+            sources=_as_sources(chunks),
+            error=retrieval_error,
+            stale_index=(
+                not chunks
+                and retrieval_error is None
+                and stored_signature is not None
+                and stored_signature != signature
+            ),
+        ),
+    )
 
 
 async def run_project_turn(
@@ -163,15 +235,22 @@ async def run_project_turn(
     *,
     get_archives,
     get_llm,
+    stored_signature: str | None = None,
 ) -> dict[str, Any]:
     """Generate a project web turn with bounded durable history before the new turn."""
-    llm, messages, sources = await _ground_project_turn(
-        ctx, history, message, top_k, get_archives=get_archives, get_llm=get_llm
+    llm, messages, grounding = await _ground_project_turn(
+        ctx,
+        history,
+        message,
+        top_k,
+        get_archives=get_archives,
+        get_llm=get_llm,
+        stored_signature=stored_signature,
     )
     result = await llm.ainvoke(messages)
     return {
         "answer": str(result.content),
-        "sources": sources,
+        "grounding": grounding,
         "top_k": top_k or ctx.rag_settings["top_k"],
         "usage": usage_of(result, ctx.llm_settings["model"]),
     }
@@ -187,6 +266,7 @@ async def stream_project_turn(
     get_archives,
     get_llm,
     on_complete,
+    stored_signature: str | None = None,
 ) -> AsyncIterator[str]:
     """Render a web turn as SSE.
 
@@ -202,22 +282,36 @@ async def stream_project_turn(
     skipped, which is also what makes the error frame and future metadata frames
     free to add.
     """
-    llm, messages, sources = await _ground_project_turn(
-        ctx, history, message, top_k, get_archives=get_archives, get_llm=get_llm
+    llm, messages, grounding = await _ground_project_turn(
+        ctx,
+        history,
+        message,
+        top_k,
+        get_archives=get_archives,
+        get_llm=get_llm,
+        stored_signature=stored_signature,
     )
     meta = json.dumps(
         {
             "object": "sentient.chat.meta",
             "thread_id": thread_id,
-            "sources": sources,
+            "sources": grounding.sources,
+            "retrieval_error": grounding.error,
+            "stale_index": grounding.stale_index,
             "top_k": top_k or ctx.rag_settings["top_k"],
         }
     )
 
     async def _frames() -> AsyncIterator[str]:
         yield f"data: {meta}\n\n"
+        # `stream_completion`'s callback stays (reply, usage): the game path
+        # shares it and grounds itself differently. The chunks are closed over
+        # here instead, the one place that has both them and the finished reply.
         async for event in stream_completion(
-            llm, messages, ctx.llm_settings["model"], on_complete=on_complete
+            llm,
+            messages,
+            ctx.llm_settings["model"],
+            on_complete=lambda reply, usage: on_complete(reply, usage, grounding),
         ):
             yield event
 
@@ -231,6 +325,7 @@ async def store_thread_turn(
     message: str,
     reply: str,
     usage: TokenUsage,
+    grounding: Grounding | None = None,
 ) -> None:
     """Append the user line and the reply under the thread's lock.
 
@@ -242,7 +337,13 @@ async def store_thread_turn(
     """
     async with session_locks.lock(thread_id):
         await state_store.add_message(thread_id, "user", message)
-        await state_store.add_message(thread_id, "assistant", reply, **usage.as_kwargs())
+        await state_store.add_message(
+            thread_id,
+            "assistant",
+            reply,
+            **usage.as_kwargs(),
+            sources=None if grounding is None else grounding.persistable(),
+        )
 
 
 async def prepare_completion(
@@ -256,8 +357,8 @@ async def prepare_completion(
 ):
     """Resolve the model and build the grounded prompt for an OpenAI-wire turn.
 
-    Returns `(llm, messages, model_name)`. The caller decides how to render the
-    result — streamed SSE or a single completion body — which is what makes
+    Returns `(llm, messages, model_name, grounding)`. The caller decides how to
+    render the result — streamed SSE or a single completion body — which is what makes
     both chat surfaces renderers over one call.
     """
     assert_retrievable(ctx)
@@ -274,6 +375,8 @@ async def prepare_completion(
         },
     )
 
+    errors: list[str] = []
+
     async def _retrieve(retrieval_query: str, archives=None) -> list:
         if not retrieval_query.strip():
             return []
@@ -289,8 +392,9 @@ async def prepare_completion(
                 project_id=ctx.project_id,
                 embedding_signature=embedding_signature(ctx.rag_settings),
             )
-        except Exception:
+        except Exception as exc:
             log.warning("retrieval failed; answering ungrounded", exc_info=True)
+            errors.append(f"{type(exc).__name__}: {exc}"[:400])
             return []
 
     ground_started = perf_counter()
@@ -320,7 +424,12 @@ async def prepare_completion(
             "prompt_ms": round(prompt_ms, 1),
         },
     )
-    return llm, messages, model_name
+    return (
+        llm,
+        messages,
+        model_name,
+        Grounding(sources=_as_sources(chunks), error=errors[0] if errors else None),
+    )
 
 
 async def stream_completion(llm, messages, model_name: str, *, on_complete):
@@ -352,6 +461,7 @@ async def record_game_turn(
     *,
     state_store,
     session_locks,
+    grounding: Grounding | None = None,
 ) -> None:
     """Persist both sides of an in-game turn so the console can replay it.
 
@@ -405,5 +515,11 @@ async def record_game_turn(
             )
 
         await state_store.add_message(thread["id"], "user", user_text)
-        await state_store.add_message(thread["id"], "assistant", reply, **usage.as_kwargs())
+        await state_store.add_message(
+            thread["id"],
+            "assistant",
+            reply,
+            **usage.as_kwargs(),
+            sources=None if grounding is None else grounding.persistable(),
+        )
         await state_store.set_thread_prefix(thread["id"], outgoing)

@@ -190,9 +190,12 @@ and cost tokens on every turn. The transcript is written for the **console** to 
 `{"stream": true}` renders the turn as SSE instead of JSON. Omitting the flag returns
 exactly the body it always did. The frames are:
 
-1. one `{"object":"sentient.chat.meta","thread_id":"…","sources":[…],"top_k":4}` — the
-   `ChatResponse` fields that cannot be appended after the stream, because the client
-   renders as it reads,
+1. one `{"object":"sentient.chat.meta","thread_id":"…","sources":[…],"retrieval_error":null,"top_k":4}`
+   — the `ChatResponse` fields that cannot be appended after the stream, because the client
+   renders as it reads. `retrieval_error` is set when the lore lookup itself FAILED, which
+   an empty `sources` alone cannot say: the reply then came from the persona with no lore
+   behind it, and a client that renders the two identically reports a broken retrieval
+   backend as an NPC with nothing to say,
 2. then standard OpenAI `chat.completion.chunk` frames,
 3. then `data: [DONE]`.
 
