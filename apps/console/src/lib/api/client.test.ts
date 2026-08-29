@@ -5,16 +5,17 @@ vi.mock("@/lib/auth", () => ({ getAccessToken: () => getAccessToken() }));
 
 import { apiFetch } from "./client";
 import {
+  ApiKeyLimitError,
   NetworkError,
   NotFoundError,
   ReindexInProgressError,
   UnauthenticatedError,
 } from "./errors";
 
-function jsonResponse(status: number, body: unknown) {
+function jsonResponse(status: number, body: unknown, extraHeaders: Record<string, string> = {}) {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { "content-type": "application/json" },
+    headers: { "content-type": "application/json", ...extraHeaders },
   });
 }
 
@@ -179,5 +180,48 @@ describe("transport failures", () => {
     vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new ReferenceError("x is not defined")));
 
     await expect(apiFetch("/v1/projects")).rejects.toBeInstanceOf(ReferenceError);
+  });
+});
+
+describe("the X-Error-Code header", () => {
+  beforeEach(() => {
+    getAccessToken.mockReset();
+    getAccessToken.mockResolvedValue("token-1");
+    vi.stubGlobal("fetch", vi.fn());
+  });
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("splits the API-key cap out of the reindex 409", async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      jsonResponse(
+        409,
+        { detail: "you already have 25 active API keys" },
+        {
+          "x-error-code": "api_key_limit",
+        },
+      ),
+    );
+    await expect(apiFetch("/v1/keys", { method: "POST" })).rejects.toBeInstanceOf(ApiKeyLimitError);
+  });
+
+  it("still reads a coded reindex 409 as the reindex case", async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      jsonResponse(
+        409,
+        { detail: "project is reindexing" },
+        {
+          "x-error-code": "reindex_in_progress",
+        },
+      ),
+    );
+    await expect(apiFetch("/v1/chat")).rejects.toBeInstanceOf(ReindexInProgressError);
+  });
+
+  it("falls back to the reindex case when the header is absent", async () => {
+    // A proxy that strips the header, or a backend older than it, must keep the
+    // behaviour every 409 had before the header existed -- not degrade to a
+    // generic failure.
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(409, { detail: "project is reindexing" }));
+    await expect(apiFetch("/v1/chat")).rejects.toBeInstanceOf(ReindexInProgressError);
   });
 });

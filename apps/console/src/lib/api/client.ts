@@ -92,9 +92,20 @@ async function request(path: string, init: ApiInit = {}): Promise<Response> {
   return send(path, withAuth(rest, refreshed));
 }
 
+/**
+ * The backend's machine-readable error name, when it sent one.
+ *
+ * Readable only because `X-Error-Code` is in the CORS `expose_headers` list --
+ * `allow_headers` covers the request direction and does nothing for this. A
+ * missing header is normal (older backend, or a proxy that strips it) and
+ * `toApiError` has a documented fallback for that case.
+ */
+const errorCode = (response: Response) => response.headers.get("x-error-code");
+
 export async function apiFetch<T>(path: string, init: ApiInit = {}): Promise<T> {
   const response = await request(path, init);
-  if (!response.ok) throw toApiError(response.status, await readDetail(response));
+  if (!response.ok)
+    throw toApiError(response.status, await readDetail(response), errorCode(response));
   if (response.status === 204) return undefined as T;
   return (await response.json()) as T;
 }
@@ -106,6 +117,7 @@ export async function apiFetch<T>(path: string, init: ApiInit = {}): Promise<T> 
  */
 export async function apiStream(path: string, init: ApiInit = {}): Promise<Response> {
   const response = await request(path, init);
-  if (!response.ok) throw toApiError(response.status, await readDetail(response));
+  if (!response.ok)
+    throw toApiError(response.status, await readDetail(response), errorCode(response));
   return response;
 }

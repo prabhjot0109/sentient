@@ -1,5 +1,7 @@
 import {
   ApiError,
+  ApiKeyLimitError,
+  ConflictError,
   ForbiddenError,
   NetworkError,
   NotFoundError,
@@ -58,6 +60,27 @@ export function describe(error: unknown): ErrorCopy {
       title: "Not found",
       body: "It has been deleted, or it belongs to another account.",
       tone: "failure",
+    };
+  }
+
+  if (error instanceof ApiKeyLimitError) {
+    // The backend already wrote the numbers into its own sentence -- "you
+    // already have 25 active API keys (limit 25); revoke one before creating
+    // another" -- so covering it with generic copy would throw away the only
+    // part the reader can act on. Rule 2, the same one B4's provider text and
+    // F3+F4's flattened 422 follow.
+    return {
+      title: "You're at your API key limit",
+      body: error.detail,
+      tone: "warning",
+    };
+  }
+
+  if (error instanceof ConflictError) {
+    return {
+      title: "That conflicts with the current state",
+      body: error.detail,
+      tone: "warning",
     };
   }
 

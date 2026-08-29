@@ -2,6 +2,8 @@ import { describe as suite, expect, it } from "vitest";
 
 import {
   ApiError,
+  ApiKeyLimitError,
+  ConflictError,
   ForbiddenError,
   NetworkError,
   NotFoundError,
@@ -25,6 +27,24 @@ suite("describe", () => {
     );
     expect(copy.title).toBe("Your lore is re-embedding");
     expect(copy.tone).toBe("warning");
+  });
+
+  it("does not send a user at the API-key cap to the reindex sentence", () => {
+    // The bug this pins: 409 is answered by the reindex guard AND by the
+    // per-user key cap, and mapping on status alone told someone who had run
+    // out of key slots that their lore was re-embedding -- naming a subsystem
+    // they were not touching.
+    const copy = describe(
+      new ApiKeyLimitError(409, "you already have 25 active API keys (limit 25); revoke one"),
+    );
+    expect(copy.title).toBe("You're at your API key limit");
+    expect(copy.body).toContain("revoke one");
+    expect(copy.body).not.toMatch(/re-embedding/i);
+  });
+
+  it("passes an unrecognised conflict's own sentence through", () => {
+    const copy = describe(new ConflictError(409, "that name is already taken"));
+    expect(copy.body).toBe("that name is already taken");
   });
 
   it("does not invent a progress fraction the backend never sends", () => {
