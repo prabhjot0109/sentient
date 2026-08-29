@@ -84,6 +84,22 @@
   --color-midnight: var(--midnight);
   --color-graphite: var(--graphite);
   --color-ink: var(--ink);
+
+  /*
+   * MOTION. Durations are the product register's 150-250ms band: users here are
+   * in a task, not watching a page arrive. `--dur-instant` is for state that must
+   * feel like a direct response to a press; `--dur-slow` is the ceiling and is
+   * only for something entering from off-surface, such as the mobile drawer.
+   *
+   * Every easing is an ease-OUT. A menu that eases in starts slowly, which reads
+   * as lag on a control the user has already committed to.
+   */
+  --duration-instant: 90ms;
+  --duration-fast: 150ms;
+  --duration-base: 200ms;
+  --duration-slow: 260ms;
+
+  --ease-out-quart: cubic-bezier(0.25, 1, 0.5, 1);
 }
 
 /*
@@ -322,4 +338,47 @@
   --shadow-glow: 0 0 0 1px oklch(1 0 0 / 0.06), 0 20px 60px -20px oklch(0 0 0 / 0.6);
   --shadow-elevated: 0 30px 80px -30px oklch(0 0 0 / 0.7), 0 0 0 1px oklch(1 0 0 / 0.06);
   --shadow-card: 0 1px 0 0 oklch(1 0 0 / 0.04) inset, 0 20px 60px -30px oklch(0 0 0 / 0.6);
+}
+
+/*
+ * THE Z SCALE, named by what sits at each level rather than by number. Before
+ * this the console had exactly one z-index in the shell (`z-30` on the drawer
+ * scrim, `z-40` on the drawer, `z-10` on the mobile top bar) and every new
+ * overlay had to guess a value that cleared them.
+ *
+ * The native top layer -- `<dialog>.showModal()` and `popover` -- sits ABOVE all
+ * of these unconditionally and takes no z-index at all, which is exactly why
+ * Modal and Menu are built on it. These values order the things that cannot use
+ * the top layer: in-flow sticky chrome, and the drawer.
+ */
+:root {
+  --z-base: 0;
+  --z-sticky: 10;
+  --z-drawer-scrim: 30;
+  --z-drawer: 40;
+  --z-toast: 50;
+}
+
+@theme inline {
+  --z-index-sticky: var(--z-sticky);
+  --z-index-drawer-scrim: var(--z-drawer-scrim);
+  --z-index-drawer: var(--z-drawer);
+  --z-index-toast: var(--z-toast);
+}
+
+/*
+ * Reduced motion is not "no motion": a control that changes state with no
+ * transition at all can leave the user unsure whether the press registered.
+ * Transitions collapse to a duration below the threshold of feeling animated
+ * while still repainting, and anything that MOVES or loops is removed outright.
+ */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

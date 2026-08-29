@@ -33,3 +33,45 @@
     letter-spacing: -0.025em;
   }
 }
+
+/*
+ * Keyframes, declared here rather than inline so `motion-safe:animate-[...]`
+ * call sites name one thing. Both are ENTRANCES only: nothing in this console
+ * loops, and the reduced-motion block in tokens.css caps any of it at 0.01ms.
+ */
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes overlay-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.99);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@layer base {
+  /*
+   * The console scrolls in several places at once (the rail, the transcript, the
+   * settings column). The default Windows scrollbar is a light, wide band that
+   * reads as a seam between panels on a near-black page, so it is thinned and
+   * tinted to the surface it sits on. `scrollbar-*` is the standard property --
+   * not a rebuilt scrollbar, which the product register bans -- so the control
+   * keeps its native behaviour and only its colour changes.
+   */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-border) transparent;
+  }
+}
