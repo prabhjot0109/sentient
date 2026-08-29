@@ -66,7 +66,25 @@ export function Modal({
       ref={ref}
       // Escape closes the dialog without React knowing. Without this the state
       // stays "open" and the next open() is a no-op -- the dialog never reappears.
-      onClose={onClose}
+      //
+      // The guard is for the OTHER direction. `close()` does not fire its event
+      // synchronously, it QUEUES one -- so an effect that closes and immediately
+      // reopens the dialog still leaves a `close` event in flight, and by the
+      // time it lands the dialog is open again. React cannot tell that event
+      // from a real dismissal, so it tore the whole dialog down.
+      //
+      // StrictMode does exactly that on every dialog that mounts ALREADY open
+      // (`<Modal open>` rather than `<Modal open={state}>`): the double-invoked
+      // unmount guard below closes it, the effect above reopens it, and the
+      // queued event then reported a dismissal the user never made. Six dialogs
+      // mount that way and none of them could be opened in dev.
+      //
+      // A close that leaves the dialog OPEN is therefore ours; only a real
+      // dismissal leaves it closed.
+      onClose={() => {
+        if (ref.current?.open) return;
+        onClose();
+      }}
       onClick={(event) => {
         // The backdrop is part of the <dialog> box, so a click that lands on the
         // element itself rather than on its content is a backdrop click.
