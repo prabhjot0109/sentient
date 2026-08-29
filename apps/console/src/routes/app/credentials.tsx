@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 
+import { PageColumn } from "@/components/shell/PageColumn";
 import { VaultScreen } from "@/features/credentials";
 
 /**
@@ -10,8 +11,11 @@ import { VaultScreen } from "@/features/credentials";
  */
 export const Route = createFileRoute("/app/credentials")({
   component: () => (
-    <div className="p-8">
+    // PageColumn, like every other page inside /app. Two of the account-level
+    // screens used a bare `p-8` instead, so their content started at a different
+    // x-position from the project pages and did not share the reading measure.
+    <PageColumn className="py-10">
       <VaultScreen />
-    </div>
+    </PageColumn>
   ),
 });

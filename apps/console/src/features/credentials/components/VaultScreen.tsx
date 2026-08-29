@@ -2,6 +2,8 @@ import { useState } from "react";
 
 import { EmptyState } from "@/components/ui/EmptyState";
 import { ErrorState } from "@/components/ui/ErrorState";
+import { SkeletonRows } from "@/components/ui/Skeleton";
+import { useToast } from "@/components/ui/Toast";
 import { ServiceUnavailableError } from "@/lib/api/errors";
 
 import { useCredentials, useDeleteCredential, useStoreCredential } from "../hooks";
@@ -13,6 +15,7 @@ export function VaultScreen() {
   const store = useStoreCredential();
   const remove = useDeleteCredential();
   const [removing, setRemoving] = useState<string | null>(null);
+  const toast = useToast();
 
   // The 503 is a STATE, not a failure. "The vault is not configured on this
   // server" and "you have no keys" lead to opposite next actions, and every one
@@ -41,16 +44,16 @@ export function VaultScreen() {
   }
 
   return (
-    <div className="max-w-2xl space-y-4">
-      <header className="space-y-1">
-        <h1 className="text-xl font-semibold">Provider keys</h1>
-        <p className="text-sm text-muted-foreground">
+    <div className="space-y-6">
+      <header className="space-y-2">
+        <h1 className="font-display text-2xl font-semibold tracking-tight">Provider keys</h1>
+        <p className="max-w-prose text-sm text-muted-foreground">
           Your own API keys, encrypted at rest. A project that names a provider uses your key for it
           instead of the server&rsquo;s. These are shared across all of your projects.
         </p>
       </header>
 
-      {isPending && <p className="text-sm text-muted-foreground">Loading…</p>}
+      {isPending && <SkeletonRows rows={2} className="h-14" />}
       {error && <ErrorState error={error} />}
       {remove.error && <ErrorState error={remove.error} />}
 
@@ -66,7 +69,17 @@ export function VaultScreen() {
             deletingProvider={removing}
             onDelete={(provider) => {
               setRemoving(provider);
-              remove.mutate(provider, { onSettled: () => setRemoving(null) });
+              remove.mutate(provider, {
+                // The row simply vanishes, which on a one-row list is
+                // indistinguishable from the list having failed to load.
+                onSuccess: () =>
+                  toast({
+                    tone: "success",
+                    title: `Removed your ${provider} key`,
+                    body: "Projects naming that provider fall back to the server's own key.",
+                  }),
+                onSettled: () => setRemoving(null),
+              });
             }}
           />
         ))}
@@ -75,7 +88,11 @@ export function VaultScreen() {
         existingProviders={(credentials ?? []).map((c) => c.provider)}
         isPending={store.isPending}
         error={store.error}
-        onSubmit={(provider, apiKey) => store.mutateAsync({ provider, apiKey })}
+        onSubmit={async (provider, apiKey) => {
+          const result = await store.mutateAsync({ provider, apiKey });
+          toast({ tone: "success", title: `Stored your ${provider} key` });
+          return result;
+        }}
       />
     </div>
   );
