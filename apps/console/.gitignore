@@ -7,6 +7,7 @@ node_modules
 dist
 dist-ssr
 *.local
+.tanstack/
 
 # Environment: .env.example is checked in, real values never are.
 .env

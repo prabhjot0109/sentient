@@ -6,6 +6,7 @@ data/chat_sessions.json
 
 # Generated FAISS index (rebuilt automatically from data/*.pdf on ingestion)
 data/faiss_index/
+data/projects/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
