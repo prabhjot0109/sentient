@@ -41,22 +41,22 @@ export function MantellaSetupCard({ created }: { created: CreatedApiKey | null }
   const real = key && projectId ? `${API_ORIGIN}/v1/${key}/${projectId}` : null;
 
   return (
-    <section className="space-y-4 rounded-lg border border-border p-5">
-      <div>
+    <section className="space-y-5 rounded-xl border border-border bg-card p-5 sm:p-6">
+      <div className="space-y-1">
         <h2 className="text-base font-semibold">Point Mantella at this project</h2>
-        <p className="text-sm text-muted-foreground">
+        <p className="max-w-prose text-sm text-muted-foreground">
           The key and the project are both in the URL, because Mantella cannot send request headers.
           That is why this looks unlike a normal API base URL.
         </p>
       </div>
 
       {projects && projects.length > 1 && (
-        <label className="block space-y-1">
+        <label className="block max-w-xs space-y-1">
           <span className="text-sm font-medium">Project</span>
           <select
             value={projectId ?? ""}
             onChange={(event) => setPickedId(event.target.value)}
-            className="w-full max-w-xs rounded-md border border-input bg-background px-3 py-2 text-sm"
+            className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
           >
             {projects.map((project) => (
               <option key={project.id} value={project.id}>
@@ -67,35 +67,47 @@ export function MantellaSetupCard({ created }: { created: CreatedApiKey | null }
         </label>
       )}
 
-      <code className="block rounded-md border border-border bg-muted p-3 font-mono text-xs break-all">
-        {shown}
-      </code>
+      <div className="space-y-2">
+        <code className="block rounded-lg border border-border bg-muted p-3 font-mono text-xs break-all">
+          {shown}
+        </code>
 
-      {real ? (
-        <CopyButton value={real} label="Copy full URL" />
-      ) : (
-        <p className="text-sm text-muted-foreground">
-          {projects?.length
-            ? "Create a key above and the full URL appears here, ready to copy."
-            : "Create a project first — the URL names the project whose lore the NPC is grounded in."}
-        </p>
-      )}
+        {real ? (
+          <CopyButton value={real} label="Copy the full URL" />
+        ) : (
+          <p className="text-sm text-muted-foreground">
+            {projects?.length
+              ? "The masked key above is a placeholder. Create a key and the full, copyable URL appears here — it is shown once, in this tab, and cannot be rebuilt from a key you already made."
+              : "Create a project first — the URL names the project whose lore the NPC is grounded in."}
+          </p>
+        )}
+      </div>
 
-      <div className="space-y-2 border-t border-border pt-4 text-sm">
+      <div className="space-y-3 border-t border-border pt-5 text-sm">
         <p className="font-medium">Setup</p>
-        <ol className="list-decimal space-y-1 pl-5 text-muted-foreground">
-          <li>In Mantella, set the LLM service to a custom OpenAI-compatible endpoint.</li>
-          <li>Paste this base URL.</li>
-          <li>
-            Leave Mantella&rsquo;s own API-key field blank, or set it to anything. The key is
-            already in the URL.
-          </li>
-          <li>
-            Upload your lore to this project. The NPC is grounded only in the lore of the project
-            named in that URL.
-          </li>
+        <ol className="space-y-2 text-muted-foreground">
+          {[
+            "In Mantella, set the LLM service to a custom OpenAI-compatible endpoint.",
+            "Paste this base URL.",
+            "Leave Mantella's own API-key field blank, or set it to anything. The key is already in the URL.",
+            "Upload your lore to this project. The NPC is grounded only in the lore of the project named in that URL.",
+          ].map((step, index) => (
+            // A numbered SEQUENCE, which these genuinely are -- the order carries
+            // information, since step 2 cannot be done before step 1. Not the
+            // decorative "01 / 02 / 03" markers that get scattered above unordered
+            // sections.
+            <li key={step} className="flex gap-3">
+              <span
+                aria-hidden
+                className="font-mono mt-px grid size-5 shrink-0 place-items-center rounded-full border border-border text-[11px] text-foreground"
+              >
+                {index + 1}
+              </span>
+              <span className="flex-1">{step}</span>
+            </li>
+          ))}
         </ol>
-        <p className="rounded-md bg-muted p-3 text-muted-foreground">
+        <p className="rounded-lg bg-muted p-3 text-muted-foreground">
           <strong className="text-foreground">
             Use <code>127.0.0.1</code>, not <code>localhost</code>.
           </strong>{" "}

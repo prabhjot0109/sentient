@@ -1,7 +1,9 @@
 import { useState } from "react";
 
+import { PageColumn } from "@/components/shell/PageColumn";
 import type { CreatedApiKey } from "@/types/keys";
 
+import { useKeys } from "../hooks";
 import { KeyList } from "./KeyList";
 import { MantellaSetupCard } from "./MantellaSetupCard";
 import { NewKeyDialog } from "./NewKeyDialog";
@@ -16,21 +18,41 @@ import { RevealedKey } from "./RevealedKey";
 export function KeysScreen() {
   const [created, setCreated] = useState<CreatedApiKey | null>(null);
   const [revealing, setRevealing] = useState(false);
+  const { data } = useKeys();
+
+  const live = data?.keys.filter((key) => !key.revoked).length ?? 0;
+  // 0 is the uncapped sentinel on both sides of the wire, so `atCap` must never
+  // be `live >= limit` alone -- that is true for every user on an uncapped server.
+  const limit = data?.limit ?? 0;
+  const atCap = limit > 0 && live >= limit;
 
   return (
-    <div className="max-w-2xl space-y-8 p-8">
-      <header className="space-y-1">
-        <h1 className="text-xl font-semibold">API keys</h1>
-        <p className="text-sm text-muted-foreground">
+    <PageColumn className="space-y-10 py-10">
+      <header className="space-y-2">
+        <h1 className="font-display text-2xl font-semibold tracking-tight">API keys</h1>
+        <p className="max-w-prose text-sm text-muted-foreground">
           One key authenticates the game. Keys belong to your account, not to a single project — the
           project is named separately in the URL below.
         </p>
       </header>
 
-      <section className="space-y-3">
-        <div className="flex items-center justify-between">
-          <h2 className="text-base font-semibold">Your keys</h2>
+      <section className="space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="text-base font-semibold">Your keys</h2>
+            {/*
+              The ceiling, before it is hit. `MAX_API_KEYS_PER_USER` answers 409
+              on the 26th key, and until the list route reported `limit` the only
+              way to learn the cap existed was to run into it -- which reads as a
+              bug the first time rather than as a limit.
+            */}
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              {limit > 0 ? `${live} of ${limit} active` : `${live} active`}
+            </p>
+          </div>
           <NewKeyDialog
+            atCap={atCap}
+            limit={limit}
             onCreated={(key) => {
               setCreated(key);
               setRevealing(true);
@@ -45,6 +67,6 @@ export function KeysScreen() {
       {created && revealing && (
         <RevealedKey created={created} onDismiss={() => setRevealing(false)} />
       )}
-    </div>
+    </PageColumn>
   );
 }
