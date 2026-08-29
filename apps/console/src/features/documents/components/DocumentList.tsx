@@ -10,7 +10,7 @@ export function DocumentList({
   onDelete: (document: SourceDocument) => void;
 }) {
   return (
-    <ul className="rounded-md border border-border px-4">
+    <ul className="rounded-lg border border-border px-4">
       {documents.map((document) => (
         <DocumentRow key={document.id} document={document} onDelete={onDelete} />
       ))}
