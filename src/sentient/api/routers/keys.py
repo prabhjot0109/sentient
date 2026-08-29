@@ -50,8 +50,18 @@ async def create_key(
 
 @router.get("/v1/keys")
 async def list_keys(user: tuple[str, str] = Depends(deps.current_user)):
+    """List the caller's keys, and the ceiling they count against.
+
+    `limit` is additive -- the `keys` array is unchanged, so an existing client
+    is unaffected -- and it exists so a console can say "3 of 25" and refuse the
+    26th BEFORE the request. A cap a user can only discover by hitting it is a
+    cap that reads as a bug the first time.
+
+    0 means no cap, matching the `if limit > 0` guard on the POST.
+    """
     user_id, _ = user
-    return {"keys": await deps.state_store.list_api_keys(user_id)}
+    keys = await deps.state_store.list_api_keys(user_id)
+    return {"keys": keys, "limit": deps._settings.max_api_keys_per_user}
 
 
 @router.delete("/v1/keys/{key_id}")
