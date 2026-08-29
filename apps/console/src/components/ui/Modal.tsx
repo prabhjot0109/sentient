@@ -1,4 +1,12 @@
 import { useEffect, useRef, type ReactNode } from "react";
+import { twMerge } from "tailwind-merge";
+
+const SIZE = {
+  md: "max-w-md",
+  lg: "max-w-lg",
+  /** The command palette. Wide enough to read a project name and a hint on one line. */
+  palette: "max-w-xl",
+} as const;
 
 /**
  * Built on the native <dialog> rather than a hand-rolled overlay. showModal()
@@ -7,16 +15,29 @@ import { useEffect, useRef, type ReactNode } from "react";
  * is usually reimplemented wrong.
  *
  * Domain-free on purpose -- components/ui may not know what a project is.
+ *
+ * ONE dialog implementation, not two. The command palette wants a different
+ * shape -- wider, its own header, no `<h2>` above the input -- and the product
+ * register is explicit that two components for one idea is how a surface starts
+ * feeling untrustworthy. So the shape is parameterised and the behaviour is
+ * shared: `titleHidden` keeps the accessible name while removing the visible
+ * heading, and `bodyClassName` lets the palette drop the padding it fills itself.
  */
 export function Modal({
   open,
   onClose,
   title,
+  titleHidden = false,
+  size = "md",
+  className,
   children,
 }: {
   open: boolean;
   onClose: () => void;
   title: string;
+  titleHidden?: boolean;
+  size?: keyof typeof SIZE;
+  className?: string;
   children: ReactNode;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
@@ -51,10 +72,22 @@ export function Modal({
         // element itself rather than on its content is a backdrop click.
         if (event.target === ref.current) onClose();
       }}
-      className="m-auto w-full max-w-md rounded-lg border border-border bg-card p-6 text-card-foreground shadow-lg backdrop:bg-black/40"
+      className={twMerge(
+        "m-auto w-[calc(100%-2rem)] rounded-xl border border-border bg-card p-0 text-card-foreground shadow-elevated backdrop:bg-black/50 backdrop:backdrop-blur-[2px] open:motion-safe:animate-[overlay-in_var(--duration-fast)_var(--ease-out-quart)]",
+        SIZE[size],
+        className,
+      )}
     >
-      <h2 className="mb-4 text-lg font-semibold">{title}</h2>
-      {children}
+      {/*
+        Padding lives on an inner element rather than on the <dialog> itself.
+        On the dialog it made every click in the 24px gutter land on the element
+        and read as a backdrop click, so the panel closed when a user pressed
+        just outside a field they were aiming for.
+      */}
+      <div className={size === "palette" ? "" : "p-6"}>
+        <h2 className={titleHidden ? "sr-only" : "mb-4 text-lg font-semibold"}>{title}</h2>
+        {children}
+      </div>
     </dialog>
   );
 }
