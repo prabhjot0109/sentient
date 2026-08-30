@@ -1,3 +1,5 @@
+import type { RecentTranscriptions } from "@/types/voice";
+
 import { apiFetch } from "./client";
 
 /**
@@ -24,3 +26,15 @@ export const transcribe = (audio: Blob) => {
   body.append("file", audio, "mic.wav");
   return apiFetch<{ text: string }>("/v1/audio/transcriptions", { method: "POST", body });
 };
+
+/**
+ * The last few utterances with their measured mic levels.
+ *
+ * Scoped to the caller on the server, which is why identity matters here: a
+ * request that arrives anonymous lands in the shared `"default"` bucket, and a
+ * signed-in console reading its OWN bucket would see an empty list even though
+ * the utterances exist. That is what accepting `sk-sent-` in Mantella's Bearer
+ * slot fixes.
+ */
+export const recentTranscriptions = (limit = 20) =>
+  apiFetch<RecentTranscriptions>(`/v1/audio/transcriptions/recent?limit=${limit}`);

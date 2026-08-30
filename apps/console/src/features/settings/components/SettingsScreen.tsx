@@ -2,6 +2,7 @@ import { useState } from "react";
 
 import { useDocuments } from "@/features/documents";
 import { useProject } from "@/features/projects";
+import { MicHistory } from "@/features/voice";
 import { ErrorState } from "@/components/ui/ErrorState";
 import type { ConfigPatch } from "@/lib/api/config";
 
@@ -48,6 +49,12 @@ export function SettingsScreen({ projectId }: { projectId: string }) {
       />
 
       <SpeechProviderNote />
+
+      {/* Directly under the provider note, because the two answer halves of one
+          question: which service will hear you, and what it heard last. Both are
+          deployment-wide rather than per project, so they read oddly on a
+          project settings page in isolation and sensibly as a pair. */}
+      <MicHistory />
 
       <ReindexWarningDialog
         open={confirming !== null}
