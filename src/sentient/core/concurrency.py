@@ -83,6 +83,16 @@ class IngestQueue:
             raise RuntimeError("ingest queue is not running")
         self._queue.put_nowait(job)
 
+    def depth(self) -> int:
+        """Jobs waiting, excluding the one in flight.
+
+        Sync and non-blocking so the readiness route can report it without awaiting
+        anything: a probe that can block is a probe that can hang the thing it is
+        supposed to be watching. Reads 0 before `start()`, which is correct rather
+        than incidental -- nothing can be queued before the worker exists.
+        """
+        return self._queue.qsize()
+
     async def stop(self) -> None:
         task = self._task
         if task is None:
