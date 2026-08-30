@@ -37,6 +37,22 @@ def bearer_token(authorization: str | None) -> str | None:
     return token or None
 
 
+def looks_like_jwt(token: str) -> bool:
+    """Whether a bearer token is an identity JWT rather than a provider key.
+
+    Two dots and a ``eyJ`` prefix: a JWT is three base64url segments, and the
+    header always begins ``{"alg"`` — which base64url-encodes to ``eyJ``. No
+    provider key has that shape, so the check is cheap and one-directional.
+
+    This exists because ``Authorization: Bearer`` means two different things on
+    the transcription route. Mantella sends its own Whisper credential there,
+    while the console sends a Neon Auth JWT for identity. Telling them apart by
+    SHAPE keeps that free: verifying the token to find out would put a JWKS
+    round trip on the critical path of every spoken line.
+    """
+    return token.count(".") == 2 and token.startswith("eyJ")
+
+
 def provider_of_key(key: str) -> str | None:
     """Which STT provider a raw key belongs to. Only Groq and OpenAI serve Whisper.
 
@@ -44,7 +60,7 @@ def provider_of_key(key: str) -> str | None:
     keys share OpenAI's prefix, and classifying one as an OpenAI credential would
     forward a Sentient identity key to a third party.
     """
-    if key.startswith(SENTIENT_KEY_PREFIX):
+    if key.startswith(SENTIENT_KEY_PREFIX) or looks_like_jwt(key):
         return None
     if key.startswith("gsk_"):
         return "groq"
@@ -103,9 +119,13 @@ async def resolve_stt_credential(
     request rather than building a client that cannot authenticate.
     """
     inbound = bearer_token(authorization)
-    if inbound and inbound.startswith(SENTIENT_KEY_PREFIX):
-        # Identity arriving in the wrong header. Fall through to the vault/env as if
-        # no key had been forwarded at all.
+    if inbound and (inbound.startswith(SENTIENT_KEY_PREFIX) or looks_like_jwt(inbound)):
+        # Identity arriving in the credential header -- a Sentient product key, or
+        # the console's Neon Auth JWT. Fall through to the vault/env as if no key
+        # had been forwarded at all. Dropping it HERE rather than at the first
+        # branch matters: the trailing fallback below forwards an unrecognised
+        # token to Groq, so leaving `inbound` set would transmit a user's identity
+        # token to a third party whenever no vault or env credential resolved.
         inbound = None
 
     if inbound:

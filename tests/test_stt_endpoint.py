@@ -369,3 +369,60 @@ class TranscriptionHistoryScopingTests(unittest.TestCase):
             transcription._STT_HISTORY_LIMIT,
         )
         self.assertEqual(transcription.recent_history("user-b", 200)["count"], 1)
+
+
+# A Neon Auth JWT, shaped like the real thing: three dot-separated base64url
+# segments with a leading "eyJ". The signature is deliberate nonsense -- nothing
+# in the credential resolver should ever verify it, and proving it never reaches
+# a provider is the whole point of the class below.
+FAKE_JWT = "eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ1c2VyXzEyMyJ9.c2lnbmF0dXJl"
+
+
+class JwtIsNeverAProviderKeyTests(unittest.IsolatedAsyncioTestCase):
+    """A console identity token must never reach a third-party STT provider.
+
+    `resolve_stt_credential` used to end with an unconditional "try the forwarded
+    key against Groq anyway" branch. That is right for an unrecognised *provider*
+    key and catastrophic for an identity token: with no vault key and no env key,
+    a user's JWT was transmitted to Groq as an API key. Latent until the console
+    started sending one, which is exactly what the voice work does.
+    """
+
+    async def test_a_jwt_is_not_classified_as_a_provider_key(self):
+        from sentient.adapters.stt.client import provider_of_key
+
+        self.assertIsNone(provider_of_key(FAKE_JWT))
+
+    async def test_a_jwt_does_not_leak_when_no_other_credential_resolves(self):
+        from sentient.adapters.stt.client import resolve_stt_credential
+
+        settings = SimpleNamespace(sentient_secret_key=None)
+        with patch.dict("os.environ", {}, clear=True):
+            provider, key, source = await resolve_stt_credential(
+                None, settings, authorization=f"Bearer {FAKE_JWT}", user_id=None
+            )
+        self.assertIsNone(provider)
+        self.assertIsNone(key)
+        self.assertEqual(source, "none")
+
+    async def test_a_jwt_does_not_displace_the_env_key(self):
+        from sentient.adapters.stt.client import resolve_stt_credential
+
+        settings = SimpleNamespace(sentient_secret_key=None)
+        with patch.dict("os.environ", {"GROQ_API_KEY": "gsk_from_env"}, clear=True):
+            provider, key, _ = await resolve_stt_credential(
+                None, settings, authorization=f"Bearer {FAKE_JWT}", user_id=None
+            )
+        self.assertEqual((provider, key), ("groq", "gsk_from_env"))
+
+    async def test_an_unrecognised_provider_key_is_still_tried(self):
+        """The forwarded-key fallback is preserved for everything that is NOT a JWT."""
+        from sentient.adapters.stt.client import resolve_stt_credential
+
+        settings = SimpleNamespace(sentient_secret_key=None)
+        with patch.dict("os.environ", {}, clear=True):
+            provider, key, source = await resolve_stt_credential(
+                None, settings, authorization="Bearer some-unknown-shape", user_id=None
+            )
+        self.assertEqual((provider, key), ("groq", "some-unknown-shape"))
+        self.assertIn("unrecognised", source)
