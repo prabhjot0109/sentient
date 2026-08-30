@@ -20,7 +20,6 @@ from dotenv import load_dotenv
 from langchain_core.language_models import BaseChatModel
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_groq import ChatGroq
-from langchain_huggingface import ChatHuggingFace, HuggingFaceEndpoint
 from langchain_openai import ChatOpenAI
 
 load_dotenv()
@@ -76,6 +75,10 @@ def build_chat_model(
         )
 
     if provider == "huggingface":
+        # Deferred for the reason documents.py:build_embeddings states: this import
+        # drags torch and transformers in, and every other provider pays for it.
+        from langchain_huggingface import ChatHuggingFace, HuggingFaceEndpoint
+
         return ChatHuggingFace(
             # HuggingFaceEndpoint's stub requires `model` and an int timeout; at
             # runtime a validator fills `model` from `repo_id` and the timeout is

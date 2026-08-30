@@ -3017,7 +3017,6 @@ dependencies = [
     { name = "pytesseract" },
     { name = "python-dotenv" },
     { name = "python-multipart" },
-    { name = "sentence-transformers" },
     { name = "uvicorn" },
 ]
 
@@ -3027,6 +3026,9 @@ dev = [
     { name = "mypy" },
     { name = "pytest" },
     { name = "ruff" },
+]
+local-embeddings = [
+    { name = "sentence-transformers" },
 ]
 
 [package.metadata]
@@ -3051,7 +3053,6 @@ requires-dist = [
     { name = "pytesseract" },
     { name = "python-dotenv" },
     { name = "python-multipart", specifier = ">=0.0.21" },
-    { name = "sentence-transformers", specifier = ">=5.2.0" },
     { name = "uvicorn", specifier = ">=0.40.0" },
 ]
 
@@ -3062,6 +3063,7 @@ dev = [
     { name = "pytest", specifier = ">=9.1.1" },
     { name = "ruff", specifier = ">=0.16.3" },
 ]
+local-embeddings = [{ name = "sentence-transformers", specifier = ">=5.2.0" }]
 
 [[package]]
 name = "setuptools"
