@@ -70,15 +70,50 @@ def recent_history(user_key: str, limit: int) -> dict[str, Any]:
     }
 
 
-async def resolve_identity(state_store, settings, identity_cache, x_api_key):
-    """Sentient identity for this request, or None when no key was sent."""
-    if not x_api_key:
+async def resolve_identity(state_store, settings, identity_cache, x_api_key, *, authorization=None):
+    """Sentient identity for this request, or None when no credential was sent.
+
+    Two callers, two conventions, and one header that means different things to
+    each. Mantella puts its Sentient product key in `X-API-Key` and its *Whisper*
+    credential in `Authorization: Bearer`, where it is a provider secret and not
+    identity at all. The console has no provider key and puts a Neon Auth JWT in
+    that same header.
+
+    They are told apart by SHAPE (`looks_like_jwt`) rather than by attempting a
+    verification and seeing what happens. Trying it the other way would put a
+    JWKS round trip on the critical path of every spoken line and answer a
+    perfectly valid Mantella request with a confusing 401.
+
+    Returning None is a normal outcome, not a failure: the anonymous path is the
+    single-user local mode, and it resolves credentials from the env floor.
+    """
+    bearer = stt.bearer_token(authorization)
+    jwt_token = bearer if bearer and stt.looks_like_jwt(bearer) else None
+
+    # Mantella has ONE secret field for its Whisper URL and no `X-API-Key` header
+    # at all, so a Sentient product key can only reach us in the credential slot.
+    # It was already refused as a provider secret; read as identity here too, it
+    # stops every in-game utterance arriving anonymous -- using the server's env
+    # key instead of the player's vault key, and filling the shared "default"
+    # diagnostics bucket that the console, reading its own, can never see.
+    #
+    # `X-API-Key` still wins. It is the unambiguous header; Bearer is the
+    # overloaded one, so the explicit statement of identity beats the inferred one.
+    api_key = x_api_key
+    if not api_key and bearer and bearer.startswith(stt.SENTIENT_KEY_PREFIX):
+        api_key = bearer
+
+    if not api_key and not jwt_token:
         return None
     try:
         from sentient.adapters.auth import resolve_user
 
         user_id, _ = await resolve_user(
-            state_store, settings, api_key=x_api_key, cache=identity_cache
+            state_store,
+            settings,
+            jwt_token=jwt_token,
+            api_key=api_key,
+            cache=identity_cache,
         )
     except AuthError as e:
         raise Unauthenticated(str(e)) from e
@@ -159,7 +194,7 @@ async def transcribe(
     try:
         # The SDK call is blocking; running it inline would stall the event loop for
         # the whole upload + transcription, starving every other tenant's turn.
-        client = stt.stt_client(provider, api_key)
+        client = stt.stt_client(provider, api_key, stt.configured_base_url(settings))
         response = await asyncio.to_thread(client.audio.transcriptions.create, **options)
     except Exception as e:
         block.append(f"   [ERROR] {provider} transcription failed: {e}")

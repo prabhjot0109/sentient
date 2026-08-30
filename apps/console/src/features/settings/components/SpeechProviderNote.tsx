@@ -6,12 +6,15 @@ const WHISPER_PROVIDERS = ["groq", "openai"] as const;
 /**
  * Which speech-to-text provider an in-game utterance will reach.
  *
- * This is a READ, not a control, and that is the whole point. `order.md` listed
- * "H9's STT selection" as shipping inside F3; there is no `stt_*` column in
- * `project_configs` and no STT knob in `core/config.py`, so a settings pane has
- * nothing to set. What it can honestly show is what
- * `adapters/stt/client.resolve_stt_credential` will pick, and that is derived
- * from the vault -- which is one of the reasons F3 and F4 are one plan.
+ * This is a READ, not a control. Selection now EXISTS -- `STT_PROVIDER` and
+ * `STT_BASE_URL` are in `core/config.py`, and `adapters/stt/client.PROVIDERS`
+ * carries groq, openai and a custom OpenAI-compatible endpoint -- but it is
+ * deployment-wide, not per project. There is still no `stt_*` column in
+ * `project_configs`, so a per-project pane would have nothing to write to.
+ * H9's remaining half is that column, a migration and a `ConfigInput` field.
+ *
+ * What this can honestly show is what `resolve_stt_credential` will pick, which
+ * is partly derived from the vault -- one of the reasons F3 and F4 are one plan.
  *
  * The precedence, read off that function rather than assumed: a Whisper key
  * Mantella forwards wins outright; otherwise it walks Groq then OpenAI and, for

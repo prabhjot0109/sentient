@@ -180,7 +180,8 @@ class TranscriptionEndpointTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["text"], "hello there")
-        build.assert_called_once_with("groq", "gsk_forwarded")
+        # The third argument is the self-hosted base URL, None for a real provider.
+        build.assert_called_once_with("groq", "gsk_forwarded", None)
 
     async def test_text_invented_from_silence_is_discarded(self):
         import sentient.adapters.stt.client as stt
@@ -369,3 +370,306 @@ class TranscriptionHistoryScopingTests(unittest.TestCase):
             transcription._STT_HISTORY_LIMIT,
         )
         self.assertEqual(transcription.recent_history("user-b", 200)["count"], 1)
+
+
+# A Neon Auth JWT, shaped like the real thing: three dot-separated base64url
+# segments with a leading "eyJ". The signature is deliberate nonsense -- nothing
+# in the credential resolver should ever verify it, and proving it never reaches
+# a provider is the whole point of the class below.
+FAKE_JWT = "eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ1c2VyXzEyMyJ9.c2lnbmF0dXJl"
+
+
+class JwtIsNeverAProviderKeyTests(unittest.IsolatedAsyncioTestCase):
+    """A console identity token must never reach a third-party STT provider.
+
+    `resolve_stt_credential` used to end with an unconditional "try the forwarded
+    key against Groq anyway" branch. That is right for an unrecognised *provider*
+    key and catastrophic for an identity token: with no vault key and no env key,
+    a user's JWT was transmitted to Groq as an API key. Latent until the console
+    started sending one, which is exactly what the voice work does.
+    """
+
+    async def test_a_jwt_is_not_classified_as_a_provider_key(self):
+        from sentient.adapters.stt.client import provider_of_key
+
+        self.assertIsNone(provider_of_key(FAKE_JWT))
+
+    async def test_a_jwt_does_not_leak_when_no_other_credential_resolves(self):
+        from sentient.adapters.stt.client import resolve_stt_credential
+
+        settings = SimpleNamespace(sentient_secret_key=None)
+        with patch.dict("os.environ", {}, clear=True):
+            provider, key, source = await resolve_stt_credential(
+                None, settings, authorization=f"Bearer {FAKE_JWT}", user_id=None
+            )
+        self.assertIsNone(provider)
+        self.assertIsNone(key)
+        self.assertEqual(source, "none")
+
+    async def test_a_jwt_does_not_displace_the_env_key(self):
+        from sentient.adapters.stt.client import resolve_stt_credential
+
+        settings = SimpleNamespace(sentient_secret_key=None)
+        with patch.dict("os.environ", {"GROQ_API_KEY": "gsk_from_env"}, clear=True):
+            provider, key, _ = await resolve_stt_credential(
+                None, settings, authorization=f"Bearer {FAKE_JWT}", user_id=None
+            )
+        self.assertEqual((provider, key), ("groq", "gsk_from_env"))
+
+    async def test_an_unrecognised_provider_key_is_still_tried(self):
+        """The forwarded-key fallback is preserved for everything that is NOT a JWT."""
+        from sentient.adapters.stt.client import resolve_stt_credential
+
+        settings = SimpleNamespace(sentient_secret_key=None)
+        with patch.dict("os.environ", {}, clear=True):
+            provider, key, source = await resolve_stt_credential(
+                None, settings, authorization="Bearer some-unknown-shape", user_id=None
+            )
+        self.assertEqual((provider, key), ("groq", "some-unknown-shape"))
+        self.assertIn("unrecognised", source)
+
+
+class ProviderSelectionTests(unittest.IsolatedAsyncioTestCase):
+    """Selection, not inference. The gap H9 names.
+
+    `provider_of_key` infers the provider from whichever key happened to be
+    pasted. That makes the choice an accident of credential shape, so an explicit
+    `STT_PROVIDER` is authoritative here: it is tried alone rather than moved to
+    the front of the list. Silent provider substitution is the exact failure V1
+    recorded when a harness quietly resolved a different embedding provider than
+    the server, and a wrong-but-working answer is the expensive kind.
+    """
+
+    async def test_an_explicit_provider_is_used_even_when_another_is_available(self):
+        from sentient.adapters.stt.client import resolve_stt_credential
+
+        settings = SimpleNamespace(sentient_secret_key=None, stt_provider="openai")
+        env = {"GROQ_API_KEY": "gsk_from_env", "OPENAI_API_KEY": "sk-from-env"}
+        with patch.dict("os.environ", env, clear=True):
+            provider, key, _ = await resolve_stt_credential(
+                None, settings, authorization=None, user_id=None
+            )
+        self.assertEqual((provider, key), ("openai", "sk-from-env"))
+
+    async def test_an_explicit_provider_does_not_silently_fall_back(self):
+        from sentient.adapters.stt.client import resolve_stt_credential
+
+        settings = SimpleNamespace(sentient_secret_key=None, stt_provider="openai")
+        with patch.dict("os.environ", {"GROQ_API_KEY": "gsk_from_env"}, clear=True):
+            provider, key, source = await resolve_stt_credential(
+                None, settings, authorization=None, user_id=None
+            )
+        self.assertIsNone(provider)
+        self.assertEqual(source, "none")
+
+    async def test_no_explicit_provider_keeps_the_groq_then_openai_order(self):
+        from sentient.adapters.stt.client import resolve_stt_credential
+
+        settings = SimpleNamespace(sentient_secret_key=None)
+        env = {"GROQ_API_KEY": "gsk_from_env", "OPENAI_API_KEY": "sk-from-env"}
+        with patch.dict("os.environ", env, clear=True):
+            provider, key, _ = await resolve_stt_credential(
+                None, settings, authorization=None, user_id=None
+            )
+        self.assertEqual((provider, key), ("groq", "gsk_from_env"))
+
+
+class CustomEndpointTests(unittest.IsolatedAsyncioTestCase):
+    """Any OpenAI-compatible transcription server, including a local one.
+
+    This is the multi-provider extension point AND the lowest-latency option:
+    whisper.cpp, faster-whisper-server and LocalAI all serve OpenAI-shaped
+    `/v1/audio/transcriptions`, so pointing STT_BASE_URL at one on the same
+    machine removes the provider network hop entirely. It costs no new
+    dependency -- the `openai` SDK is already here and takes a base_url.
+    """
+
+    async def test_a_custom_endpoint_resolves_without_any_api_key(self):
+        """whisper.cpp in server mode requires no secret, so a key must be optional."""
+        from sentient.adapters.stt.client import resolve_stt_credential
+
+        settings = SimpleNamespace(
+            sentient_secret_key=None,
+            stt_provider="custom",
+            stt_base_url="http://127.0.0.1:8080/v1",
+        )
+        with patch.dict("os.environ", {}, clear=True):
+            provider, _, source = await resolve_stt_credential(
+                None, settings, authorization=None, user_id=None
+            )
+        self.assertEqual(provider, "custom")
+        self.assertIn("custom", source)
+
+    async def test_a_custom_endpoint_needs_a_base_url_to_be_selectable(self):
+        from sentient.adapters.stt.client import resolve_stt_credential
+
+        settings = SimpleNamespace(sentient_secret_key=None, stt_provider="custom")
+        with patch.dict("os.environ", {}, clear=True):
+            provider, _, _ = await resolve_stt_credential(
+                None, settings, authorization=None, user_id=None
+            )
+        self.assertIsNone(provider)
+
+    def test_a_custom_endpoint_passes_the_requested_model_through(self):
+        """No remapping: a self-hosted server names its models whatever it likes."""
+        from sentient.adapters.stt.client import upstream_model
+
+        self.assertEqual(upstream_model("custom", "ggml-large-v3"), "ggml-large-v3")
+
+
+class ConsoleIdentityTests(unittest.IsolatedAsyncioTestCase):
+    """The console authenticates with a JWT; Mantella sends a provider key.
+
+    Both arrive in `Authorization: Bearer` on this one route, so the header means
+    two different things depending on who is calling. `resolve_identity` has to
+    pick identity out of it WITHOUT ever treating a Whisper credential as a login
+    attempt -- a JWKS verify on Mantella's key would be a wasted round trip on the
+    critical path of every spoken line, and a confusing 401 when it failed.
+    """
+
+    async def test_a_bearer_jwt_resolves_sentient_identity(self):
+        from sentient.services import transcription as service
+
+        resolved = {}
+
+        async def fake_resolve_user(state, settings, *, jwt_token=None, api_key=None, cache=None):
+            resolved["jwt"] = jwt_token
+            resolved["api_key"] = api_key
+            return ("user-123", "key-123")
+
+        with patch("sentient.adapters.auth.resolve_user", fake_resolve_user):
+            user_id = await service.resolve_identity(
+                None, SimpleNamespace(), None, None, authorization=f"Bearer {FAKE_JWT}"
+            )
+
+        self.assertEqual(user_id, "user-123")
+        self.assertEqual(resolved["jwt"], FAKE_JWT)
+        self.assertIsNone(resolved["api_key"])
+
+    async def test_a_forwarded_provider_key_is_never_treated_as_a_login(self):
+        from sentient.services import transcription as service
+
+        called = False
+
+        async def fake_resolve_user(*args, **kwargs):
+            nonlocal called
+            called = True
+            return ("user-123", "key-123")
+
+        with patch("sentient.adapters.auth.resolve_user", fake_resolve_user):
+            user_id = await service.resolve_identity(
+                None, SimpleNamespace(), None, None, authorization="Bearer gsk_mantella"
+            )
+
+        self.assertIsNone(user_id)
+        self.assertFalse(called, "a Whisper key must not cost a JWKS round trip")
+
+    async def test_an_api_key_still_resolves_identity(self):
+        """Mantella's own Sentient product key path, unchanged."""
+        from sentient.services import transcription as service
+
+        resolved = {}
+
+        async def fake_resolve_user(state, settings, *, jwt_token=None, api_key=None, cache=None):
+            resolved["api_key"] = api_key
+            return ("user-123", "key-123")
+
+        with patch("sentient.adapters.auth.resolve_user", fake_resolve_user):
+            user_id = await service.resolve_identity(
+                None, SimpleNamespace(), None, "sk-sent-abc", authorization=None
+            )
+
+        self.assertEqual(user_id, "user-123")
+        self.assertEqual(resolved["api_key"], "sk-sent-abc")
+
+    async def test_anonymous_stays_anonymous(self):
+        """The single-user local mode: no credential at all is not an error."""
+        from sentient.services import transcription as service
+
+        user_id = await service.resolve_identity(
+            None, SimpleNamespace(), None, None, authorization=None
+        )
+        self.assertIsNone(user_id)
+
+
+class MantellaIdentityTests(unittest.IsolatedAsyncioTestCase):
+    """Mantella can only send ONE credential to the Whisper URL.
+
+    Its config has a single secret field for that endpoint (`GPT_SECRET_KEY.txt`),
+    forwarded as `Authorization: Bearer`, and no header for `X-API-Key` at all. A
+    Sentient product key put there was already refused as a provider secret --
+    correctly -- but nothing then read it as identity either, so every in-game
+    utterance arrived anonymous: the server's env key instead of the player's
+    vault key, and diagnostics dropped into the shared "default" bucket where the
+    console (reading its own) could never see them.
+    """
+
+    async def test_a_sentient_key_in_the_bearer_header_resolves_identity(self):
+        from sentient.services import transcription as service
+
+        seen = {}
+
+        async def fake_resolve_user(state, settings, *, jwt_token=None, api_key=None, cache=None):
+            seen["jwt"] = jwt_token
+            seen["api_key"] = api_key
+            return ("user-123", "key-123")
+
+        with patch("sentient.adapters.auth.resolve_user", fake_resolve_user):
+            user_id = await service.resolve_identity(
+                None, SimpleNamespace(), None, None, authorization="Bearer sk-sent-abcdef"
+            )
+
+        self.assertEqual(user_id, "user-123")
+        self.assertEqual(seen["api_key"], "sk-sent-abcdef")
+        self.assertIsNone(seen["jwt"], "a product key is not a JWT and must not be verified as one")
+
+    async def test_an_explicit_api_key_header_still_wins(self):
+        """X-API-Key is the unambiguous identity header; Bearer is the overloaded one."""
+        from sentient.services import transcription as service
+
+        seen = {}
+
+        async def fake_resolve_user(state, settings, *, jwt_token=None, api_key=None, cache=None):
+            seen["api_key"] = api_key
+            return ("user-123", "key-123")
+
+        with patch("sentient.adapters.auth.resolve_user", fake_resolve_user):
+            await service.resolve_identity(
+                None,
+                SimpleNamespace(),
+                None,
+                "sk-sent-from-header",
+                authorization="Bearer sk-sent-from-bearer",
+            )
+
+        self.assertEqual(seen["api_key"], "sk-sent-from-header")
+
+    async def test_a_whisper_key_is_still_not_identity(self):
+        from sentient.services import transcription as service
+
+        called = False
+
+        async def fake_resolve_user(*args, **kwargs):
+            nonlocal called
+            called = True
+            return ("user-123", "key-123")
+
+        with patch("sentient.adapters.auth.resolve_user", fake_resolve_user):
+            user_id = await service.resolve_identity(
+                None, SimpleNamespace(), None, None, authorization="Bearer gsk_mantella"
+            )
+
+        self.assertIsNone(user_id)
+        self.assertFalse(called)
+
+    async def test_a_sentient_key_is_still_never_sent_to_a_provider(self):
+        """Reading it as identity must not also make it a candidate credential."""
+        from sentient.adapters.stt.client import resolve_stt_credential
+
+        settings = SimpleNamespace(sentient_secret_key=None)
+        with patch.dict("os.environ", {}, clear=True):
+            provider, key, _ = await resolve_stt_credential(
+                None, settings, authorization="Bearer sk-sent-abcdef", user_id="user-123"
+            )
+        self.assertIsNone(provider)
+        self.assertIsNone(key)

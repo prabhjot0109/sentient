@@ -94,11 +94,50 @@ SQLite at `data/state.db`, and auth disabled.
 | `SENTIENT_SECRET_KEY` | none | Fernet key enabling the per-user credential vault. Unset ⇒ every `/v1/credentials` route answers 503, which the console renders as a state |
 | `LOG_LEVEL` / `LOG_FORMAT` | `INFO` / `text` | `LOG_FORMAT=json` emits one JSON object per line for a log shipper |
 | `UPLOAD_MAX_BYTES` / `UPLOAD_USER_QUOTA_BYTES` | 25 MiB / 500 MiB | Per-file cap and per-user storage total |
+| `STT_PROVIDER` | none | `groq`, `openai` or `custom`. Unset infers the provider from whichever credential resolves first |
+| `STT_BASE_URL` / `STT_API_KEY` | none | Any OpenAI-compatible transcription server. The key is optional; see below |
 
 Any `http://localhost:<port>` or `http://127.0.0.1:<port>` origin is allowed by regex, so a Vite
 dev server needs no CORS configuration at all. Deployed origins go in `CORS_ALLOW_ORIGINS` **and**
 in Neon Auth's trusted-domain list; both are required, and the second is easy to miss because it
 fails as `invalid domain` from Neon rather than as a CORS error.
+
+### Speech to text
+
+One endpoint serves both surfaces: Mantella's microphone (point its **Whisper URL** at
+`http://127.0.0.1:8000/v1/audio/transcriptions` with *External Whisper Service* enabled) and the
+console's push-to-talk button. Every utterance is measured — duration, RMS, peak, clipping — and
+text the model invented from silence is discarded before it can reach an NPC. Whisper reliably
+hallucinates stock phrases when handed a dead capture, and an NPC answering a line the player never
+spoke is worse than an NPC staying quiet.
+
+Three backends, selected by name rather than inferred from a key prefix:
+
+```bash
+STT_PROVIDER=groq        # whisper-large-v3-turbo. Fastest and cheapest for Whisper.
+STT_PROVIDER=openai      # whisper-1
+STT_PROVIDER=custom      # any OpenAI-compatible server, via STT_BASE_URL
+```
+
+`STT_PROVIDER` is **authoritative**: if the named provider has no usable credential the request is
+refused rather than quietly billed to a different account. Leaving it unset keeps the historical
+behaviour of walking Groq then OpenAI, taking your vault key before the server's env key for *each*
+provider — so a stored OpenAI key does not beat the server's Groq key.
+
+`custom` is the lowest-latency option and needs no API key, because whisper.cpp in server mode
+authenticates nothing. A transcription server on the same machine removes the provider network hop
+from the critical path of every spoken line:
+
+```bash
+STT_BASE_URL=http://127.0.0.1:8080/v1
+```
+
+Adding another backend is a registry entry in `adapters/stt/client.py` plus a base URL — every
+service worth adding serves OpenAI-shaped `/v1/audio/transcriptions`, so no new SDK is involved.
+
+Mantella keeps doing its own **text to speech** (Piper, XTTS or xVASynth) and should: it has real
+per-character Skyrim voice models and generates LipGen facial animation from the audio locally.
+Sentient serves no TTS, and `tts_service` offers no OpenAI-compatible option to point at one.
 
 Full reference, including retrieval tuning, Qdrant setup, the credential vault, auth, and
 performance measurements: **[CONFIGURATION.md](CONFIGURATION.md)**.
@@ -144,13 +183,22 @@ accumulating real data, because the cost only grows.
 | `/v1/upload`, `/v1/sources`, `DELETE /v1/sources/{f}` | yes | yes | — | 401 when auth is on |
 | `/v1/chat`, `/v1/retrieve` | yes | yes | — | 401 when auth is on |
 | `/v1/{api_key}/{project_id}/chat/completions` | — | — | yes | 401 when auth is on |
-| `POST /v1/audio/transcriptions` | **provider** key, not a JWT | yes | — | see below |
+| `POST /v1/audio/transcriptions` | JWT **or** a provider key | yes | — | see below |
 | `GET /v1/audio/transcriptions/recent` | yes | yes | — | 401 when auth is on |
 
-`POST /v1/audio/transcriptions` is the one route where `Authorization: Bearer` carries a
+`POST /v1/audio/transcriptions` is the one route where `Authorization: Bearer` can carry a
 *provider* credential rather than a Neon Auth JWT. Mantella has a single field for its Whisper key
-and forwards it there, so Sentient identity on that route comes from `X-API-Key` only. The
-console's voice input cannot reuse that convention.
+and forwards it there; the console has no provider key and sends its ordinary bearer token.
+
+Both are accepted, told apart by **shape** — a token with JWT shape (two dots, `eyJ` prefix) is
+identity, anything else is a Whisper credential to forward upstream. Deciding by shape rather than
+by attempting a verification keeps a JWKS round trip off the critical path of every spoken line,
+and stops a valid Mantella request being answered with a confusing 401.
+
+Sending no credential at all is valid here and resolves the provider key from the env floor. That
+is the single-user local mode, which is why identity is *resolved* on this route rather than
+required. Signing in still matters on a shared deployment: it is what selects your vault key over
+the server's, and what keeps your transcripts out of the shared anonymous history bucket.
 
 "Auth is on" means `NEON_AUTH_JWKS_URL` is set. With it unset, every route falls back to the
 shared `default` user, which is the single-user local-development mode.
