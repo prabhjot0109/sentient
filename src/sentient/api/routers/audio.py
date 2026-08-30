@@ -35,11 +35,18 @@ async def audio_transcriptions(
 ):
     """OpenAI-compatible speech-to-text that doubles as a microphone diagnostic.
 
-    NOTE: this is the ONE route where `Authorization: Bearer` is a *provider* key
-    rather than a Neon Auth JWT — Mantella's UI has a single field for its Whisper
-    credential and forwards it here. It therefore does not use `Depends(deps.current_user)`;
-    Sentient identity comes from `X-API-Key` only. Do not "fix" this to match the
-    other routes without changing what Mantella sends.
+    NOTE: this is the ONE route where `Authorization: Bearer` can be a *provider*
+    key rather than a Neon Auth JWT — Mantella's UI has a single field for its
+    Whisper credential and forwards it here. It therefore does not use
+    `Depends(deps.current_user)`, which would reject that outright. Do not "fix"
+    this to match the other routes without changing what Mantella sends.
+
+    Both meanings are now accepted, told apart by shape rather than by trying a
+    verification: a Bearer token with JWT shape is the console's identity, and
+    anything else is a Whisper credential to forward upstream. `X-API-Key` still
+    carries identity for Mantella. Sending no credential at all remains valid and
+    resolves the provider key from the env floor — that is the single-user local
+    mode, and it is why identity is resolved rather than required.
 
     Point Mantella's Speech-to-Text -> Whisper URL at this endpoint and every
     utterance is measured (duration, RMS, peak, clipping) and printed alongside the
@@ -52,7 +59,11 @@ async def audio_transcriptions(
 
     try:
         user_id = await service.resolve_identity(
-            deps.state_store, deps._settings, deps.identity_cache, x_api_key
+            deps.state_store,
+            deps._settings,
+            deps.identity_cache,
+            x_api_key,
+            authorization=authorization,
         )
     except Unauthenticated as e:
         raise HTTPException(status_code=401, detail=str(e)) from e

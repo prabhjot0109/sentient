@@ -515,3 +515,78 @@ class CustomEndpointTests(unittest.IsolatedAsyncioTestCase):
         from sentient.adapters.stt.client import upstream_model
 
         self.assertEqual(upstream_model("custom", "ggml-large-v3"), "ggml-large-v3")
+
+
+class ConsoleIdentityTests(unittest.IsolatedAsyncioTestCase):
+    """The console authenticates with a JWT; Mantella sends a provider key.
+
+    Both arrive in `Authorization: Bearer` on this one route, so the header means
+    two different things depending on who is calling. `resolve_identity` has to
+    pick identity out of it WITHOUT ever treating a Whisper credential as a login
+    attempt -- a JWKS verify on Mantella's key would be a wasted round trip on the
+    critical path of every spoken line, and a confusing 401 when it failed.
+    """
+
+    async def test_a_bearer_jwt_resolves_sentient_identity(self):
+        from sentient.services import transcription as service
+
+        resolved = {}
+
+        async def fake_resolve_user(state, settings, *, jwt_token=None, api_key=None, cache=None):
+            resolved["jwt"] = jwt_token
+            resolved["api_key"] = api_key
+            return ("user-123", "key-123")
+
+        with patch("sentient.adapters.auth.resolve_user", fake_resolve_user):
+            user_id = await service.resolve_identity(
+                None, SimpleNamespace(), None, None, authorization=f"Bearer {FAKE_JWT}"
+            )
+
+        self.assertEqual(user_id, "user-123")
+        self.assertEqual(resolved["jwt"], FAKE_JWT)
+        self.assertIsNone(resolved["api_key"])
+
+    async def test_a_forwarded_provider_key_is_never_treated_as_a_login(self):
+        from sentient.services import transcription as service
+
+        called = False
+
+        async def fake_resolve_user(*args, **kwargs):
+            nonlocal called
+            called = True
+            return ("user-123", "key-123")
+
+        with patch("sentient.adapters.auth.resolve_user", fake_resolve_user):
+            user_id = await service.resolve_identity(
+                None, SimpleNamespace(), None, None, authorization="Bearer gsk_mantella"
+            )
+
+        self.assertIsNone(user_id)
+        self.assertFalse(called, "a Whisper key must not cost a JWKS round trip")
+
+    async def test_an_api_key_still_resolves_identity(self):
+        """Mantella's own Sentient product key path, unchanged."""
+        from sentient.services import transcription as service
+
+        resolved = {}
+
+        async def fake_resolve_user(state, settings, *, jwt_token=None, api_key=None, cache=None):
+            resolved["api_key"] = api_key
+            return ("user-123", "key-123")
+
+        with patch("sentient.adapters.auth.resolve_user", fake_resolve_user):
+            user_id = await service.resolve_identity(
+                None, SimpleNamespace(), None, "sk-sent-abc", authorization=None
+            )
+
+        self.assertEqual(user_id, "user-123")
+        self.assertEqual(resolved["api_key"], "sk-sent-abc")
+
+    async def test_anonymous_stays_anonymous(self):
+        """The single-user local mode: no credential at all is not an error."""
+        from sentient.services import transcription as service
+
+        user_id = await service.resolve_identity(
+            None, SimpleNamespace(), None, None, authorization=None
+        )
+        self.assertIsNone(user_id)
