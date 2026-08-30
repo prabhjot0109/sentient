@@ -87,10 +87,23 @@ async def resolve_identity(state_store, settings, identity_cache, x_api_key, *, 
     Returning None is a normal outcome, not a failure: the anonymous path is the
     single-user local mode, and it resolves credentials from the env floor.
     """
-    jwt_token = stt.bearer_token(authorization)
-    if jwt_token and not stt.looks_like_jwt(jwt_token):
-        jwt_token = None
-    if not x_api_key and not jwt_token:
+    bearer = stt.bearer_token(authorization)
+    jwt_token = bearer if bearer and stt.looks_like_jwt(bearer) else None
+
+    # Mantella has ONE secret field for its Whisper URL and no `X-API-Key` header
+    # at all, so a Sentient product key can only reach us in the credential slot.
+    # It was already refused as a provider secret; read as identity here too, it
+    # stops every in-game utterance arriving anonymous -- using the server's env
+    # key instead of the player's vault key, and filling the shared "default"
+    # diagnostics bucket that the console, reading its own, can never see.
+    #
+    # `X-API-Key` still wins. It is the unambiguous header; Bearer is the
+    # overloaded one, so the explicit statement of identity beats the inferred one.
+    api_key = x_api_key
+    if not api_key and bearer and bearer.startswith(stt.SENTIENT_KEY_PREFIX):
+        api_key = bearer
+
+    if not api_key and not jwt_token:
         return None
     try:
         from sentient.adapters.auth import resolve_user
@@ -99,7 +112,7 @@ async def resolve_identity(state_store, settings, identity_cache, x_api_key, *, 
             state_store,
             settings,
             jwt_token=jwt_token,
-            api_key=x_api_key,
+            api_key=api_key,
             cache=identity_cache,
         )
     except AuthError as e:

@@ -590,3 +590,86 @@ class ConsoleIdentityTests(unittest.IsolatedAsyncioTestCase):
             None, SimpleNamespace(), None, None, authorization=None
         )
         self.assertIsNone(user_id)
+
+
+class MantellaIdentityTests(unittest.IsolatedAsyncioTestCase):
+    """Mantella can only send ONE credential to the Whisper URL.
+
+    Its config has a single secret field for that endpoint (`GPT_SECRET_KEY.txt`),
+    forwarded as `Authorization: Bearer`, and no header for `X-API-Key` at all. A
+    Sentient product key put there was already refused as a provider secret --
+    correctly -- but nothing then read it as identity either, so every in-game
+    utterance arrived anonymous: the server's env key instead of the player's
+    vault key, and diagnostics dropped into the shared "default" bucket where the
+    console (reading its own) could never see them.
+    """
+
+    async def test_a_sentient_key_in_the_bearer_header_resolves_identity(self):
+        from sentient.services import transcription as service
+
+        seen = {}
+
+        async def fake_resolve_user(state, settings, *, jwt_token=None, api_key=None, cache=None):
+            seen["jwt"] = jwt_token
+            seen["api_key"] = api_key
+            return ("user-123", "key-123")
+
+        with patch("sentient.adapters.auth.resolve_user", fake_resolve_user):
+            user_id = await service.resolve_identity(
+                None, SimpleNamespace(), None, None, authorization="Bearer sk-sent-abcdef"
+            )
+
+        self.assertEqual(user_id, "user-123")
+        self.assertEqual(seen["api_key"], "sk-sent-abcdef")
+        self.assertIsNone(seen["jwt"], "a product key is not a JWT and must not be verified as one")
+
+    async def test_an_explicit_api_key_header_still_wins(self):
+        """X-API-Key is the unambiguous identity header; Bearer is the overloaded one."""
+        from sentient.services import transcription as service
+
+        seen = {}
+
+        async def fake_resolve_user(state, settings, *, jwt_token=None, api_key=None, cache=None):
+            seen["api_key"] = api_key
+            return ("user-123", "key-123")
+
+        with patch("sentient.adapters.auth.resolve_user", fake_resolve_user):
+            await service.resolve_identity(
+                None,
+                SimpleNamespace(),
+                None,
+                "sk-sent-from-header",
+                authorization="Bearer sk-sent-from-bearer",
+            )
+
+        self.assertEqual(seen["api_key"], "sk-sent-from-header")
+
+    async def test_a_whisper_key_is_still_not_identity(self):
+        from sentient.services import transcription as service
+
+        called = False
+
+        async def fake_resolve_user(*args, **kwargs):
+            nonlocal called
+            called = True
+            return ("user-123", "key-123")
+
+        with patch("sentient.adapters.auth.resolve_user", fake_resolve_user):
+            user_id = await service.resolve_identity(
+                None, SimpleNamespace(), None, None, authorization="Bearer gsk_mantella"
+            )
+
+        self.assertIsNone(user_id)
+        self.assertFalse(called)
+
+    async def test_a_sentient_key_is_still_never_sent_to_a_provider(self):
+        """Reading it as identity must not also make it a candidate credential."""
+        from sentient.adapters.stt.client import resolve_stt_credential
+
+        settings = SimpleNamespace(sentient_secret_key=None)
+        with patch.dict("os.environ", {}, clear=True):
+            provider, key, _ = await resolve_stt_credential(
+                None, settings, authorization="Bearer sk-sent-abcdef", user_id="user-123"
+            )
+        self.assertIsNone(provider)
+        self.assertIsNone(key)
