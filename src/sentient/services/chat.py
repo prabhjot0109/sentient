@@ -484,7 +484,19 @@ async def record_game_turn(
     - `npc_name` is only available when the client sends it, so threads are
       otherwise titled from the first player line.
     """
-    if not ctx.project_id or not reply.strip():
+    if not ctx.project_id:
+        # Loud, because this is the whole of "why are my in-game conversations
+        # not in the console?". Mantella's `llm_api` defaults to the bare `/v1`
+        # form, which resolves no project, so every turn is dropped here and the
+        # player sees a working game with an empty console and no error anywhere.
+        # Name the fix in the message: a reader who has to open this file to find
+        # out what to change has already been failed by the log line.
+        log.warning(
+            "in-game turn not persisted: the request resolved no project. Point "
+            "Mantella's llm_api at /v1/<api_key>/<project_id> rather than /v1.",
+        )
+        return
+    if not reply.strip():
         return
 
     user_text = last_user_text(messages)

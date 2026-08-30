@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 import tempfile
 import unittest
@@ -313,3 +314,55 @@ class GameTurnRouteTests(unittest.IsolatedAsyncioTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class DroppedTurnIsAudibleTests(unittest.IsolatedAsyncioTestCase):
+    """A turn that cannot be persisted must say so.
+
+    `record_game_turn` returns early when the request carried no project, which
+    is correct -- there is nowhere to write it. It was also SILENT, and that is
+    the whole of the "why are my in-game conversations not in the console?"
+    question: Mantella's `llm_api` was left on the bare `/v1` form, every turn was
+    dropped, and nothing anywhere said so. The answer belongs in the log, next to
+    the request that caused it.
+    """
+
+    async def test_a_turn_with_no_project_explains_itself(self):
+        ctx = SimpleNamespace(project_id=None, session_id=None, npc_name=None)
+
+        with self.assertLogs("sentient.services.chat", level="WARNING") as captured:
+            await record_game_turn(
+                ctx,
+                _msgs(("user", "Who are you?")),
+                "A humble Nord.",
+                TokenUsage(0, 0, 0),
+                state_store=None,
+                session_locks=SessionLocks(),
+            )
+
+        message = "\n".join(captured.output)
+        # Name the fix, not just the symptom. A log line that says "dropped" and
+        # stops sends the reader into the source to find out what to change.
+        self.assertIn("project", message)
+        self.assertIn("/v1/<api_key>/<project_id>", message)
+
+    async def test_a_normal_turn_logs_no_warning(self):
+        """The warning must not fire on the path everyone is actually using."""
+        ctx = SimpleNamespace(project_id="p1", session_id=None, npc_name=None)
+        store = SimpleNamespace(
+            get_thread_by_prefix=AsyncMock(return_value=None),
+            upsert_thread=AsyncMock(return_value={"id": "t1"}),
+            set_thread_prefix=AsyncMock(),
+            add_message=AsyncMock(),
+        )
+
+        with patch.object(logging.getLogger("sentient.services.chat"), "warning") as warn:
+            await record_game_turn(
+                ctx,
+                _msgs(("user", "Who are you?")),
+                "A humble Nord.",
+                TokenUsage(0, 0, 0),
+                state_store=store,
+                session_locks=SessionLocks(),
+            )
+        warn.assert_not_called()
