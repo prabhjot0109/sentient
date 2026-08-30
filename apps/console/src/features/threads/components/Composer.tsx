@@ -1,6 +1,8 @@
 import { ArrowUp } from "lucide-react";
 import { useLayoutEffect, useRef, useState } from "react";
 
+import { MicButton } from "@/features/voice";
+
 /** Roughly ten lines. Past this the composer scrolls instead of eating the transcript. */
 const MAX_HEIGHT = 220;
 
@@ -28,8 +30,20 @@ export function Composer({
   placeholder?: string;
 }) {
   const [text, setText] = useState("");
+  const [notice, setNotice] = useState<string | null>(null);
   const box = useRef<HTMLTextAreaElement>(null);
   const ready = text.trim().length > 0 && !disabled;
+
+  /**
+   * A transcript is APPENDED, not assigned. Someone who typed half a sentence
+   * and then spoke the rest means both halves, and overwriting is the one
+   * outcome they cannot undo without retyping.
+   */
+  const appendTranscript = (transcript: string) => {
+    setNotice(null);
+    setText((current) => (current.trim() ? `${current.trimEnd()} ${transcript}` : transcript));
+    box.current?.focus();
+  };
 
   // Layout effect, not effect: this runs before paint, so growing by a line
   // never shows the user a frame at the old height.
@@ -68,18 +82,33 @@ export function Composer({
         className="block max-h-[220px] w-full resize-none bg-transparent px-4 pt-3.5 text-[15px] leading-relaxed placeholder:text-muted-foreground focus:outline-none"
       />
       <div className="flex items-center justify-between gap-3 px-3 pb-3">
-        <p className="text-xs text-muted-foreground">
-          {disabled ? "Answering…" : "Enter to send · Shift+Enter for a new line"}
+        {/*
+          One slot, three messages. A voice notice REPLACES the keyboard hint
+          rather than appearing beside it: the hint is ambient and the notice is
+          the answer to something the reader just did, so showing both makes the
+          one that matters compete with the one that does not.
+
+          aria-live so a screen reader hears "nothing was heard" without having
+          to go looking for it -- the whole interaction happens with the button
+          held, and focus never moves.
+        */}
+        <p className="text-xs text-muted-foreground" aria-live="polite">
+          {notice ?? (disabled ? "Answering…" : "Hold the mic to speak · Enter to send")}
         </p>
-        <button
-          type="button"
-          onClick={submit}
-          disabled={!ready}
-          aria-label="Send message"
-          className="inline-flex size-8 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground transition-opacity hover:opacity-90 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none disabled:opacity-30"
-        >
-          <ArrowUp className="size-4" />
-        </button>
+        {/* Grouped, so `justify-between` splits hint-from-controls rather than
+            spreading three items evenly and stranding the mic mid-row. */}
+        <div className="flex shrink-0 items-center gap-2">
+          <MicButton onTranscript={appendTranscript} onNotice={setNotice} disabled={disabled} />
+          <button
+            type="button"
+            onClick={submit}
+            disabled={!ready}
+            aria-label="Send message"
+            className="inline-flex size-8 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground transition-opacity hover:opacity-90 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none disabled:opacity-30"
+          >
+            <ArrowUp className="size-4" />
+          </button>
+        </div>
       </div>
     </div>
   );
