@@ -159,7 +159,7 @@ async def transcribe(
     try:
         # The SDK call is blocking; running it inline would stall the event loop for
         # the whole upload + transcription, starving every other tenant's turn.
-        client = stt.stt_client(provider, api_key)
+        client = stt.stt_client(provider, api_key, stt.configured_base_url(settings))
         response = await asyncio.to_thread(client.audio.transcriptions.create, **options)
     except Exception as e:
         block.append(f"   [ERROR] {provider} transcription failed: {e}")

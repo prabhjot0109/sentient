@@ -180,7 +180,8 @@ class TranscriptionEndpointTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["text"], "hello there")
-        build.assert_called_once_with("groq", "gsk_forwarded")
+        # The third argument is the self-hosted base URL, None for a real provider.
+        build.assert_called_once_with("groq", "gsk_forwarded", None)
 
     async def test_text_invented_from_silence_is_discarded(self):
         import sentient.adapters.stt.client as stt
@@ -426,3 +427,91 @@ class JwtIsNeverAProviderKeyTests(unittest.IsolatedAsyncioTestCase):
             )
         self.assertEqual((provider, key), ("groq", "some-unknown-shape"))
         self.assertIn("unrecognised", source)
+
+
+class ProviderSelectionTests(unittest.IsolatedAsyncioTestCase):
+    """Selection, not inference. The gap H9 names.
+
+    `provider_of_key` infers the provider from whichever key happened to be
+    pasted. That makes the choice an accident of credential shape, so an explicit
+    `STT_PROVIDER` is authoritative here: it is tried alone rather than moved to
+    the front of the list. Silent provider substitution is the exact failure V1
+    recorded when a harness quietly resolved a different embedding provider than
+    the server, and a wrong-but-working answer is the expensive kind.
+    """
+
+    async def test_an_explicit_provider_is_used_even_when_another_is_available(self):
+        from sentient.adapters.stt.client import resolve_stt_credential
+
+        settings = SimpleNamespace(sentient_secret_key=None, stt_provider="openai")
+        env = {"GROQ_API_KEY": "gsk_from_env", "OPENAI_API_KEY": "sk-from-env"}
+        with patch.dict("os.environ", env, clear=True):
+            provider, key, _ = await resolve_stt_credential(
+                None, settings, authorization=None, user_id=None
+            )
+        self.assertEqual((provider, key), ("openai", "sk-from-env"))
+
+    async def test_an_explicit_provider_does_not_silently_fall_back(self):
+        from sentient.adapters.stt.client import resolve_stt_credential
+
+        settings = SimpleNamespace(sentient_secret_key=None, stt_provider="openai")
+        with patch.dict("os.environ", {"GROQ_API_KEY": "gsk_from_env"}, clear=True):
+            provider, key, source = await resolve_stt_credential(
+                None, settings, authorization=None, user_id=None
+            )
+        self.assertIsNone(provider)
+        self.assertEqual(source, "none")
+
+    async def test_no_explicit_provider_keeps_the_groq_then_openai_order(self):
+        from sentient.adapters.stt.client import resolve_stt_credential
+
+        settings = SimpleNamespace(sentient_secret_key=None)
+        env = {"GROQ_API_KEY": "gsk_from_env", "OPENAI_API_KEY": "sk-from-env"}
+        with patch.dict("os.environ", env, clear=True):
+            provider, key, _ = await resolve_stt_credential(
+                None, settings, authorization=None, user_id=None
+            )
+        self.assertEqual((provider, key), ("groq", "gsk_from_env"))
+
+
+class CustomEndpointTests(unittest.IsolatedAsyncioTestCase):
+    """Any OpenAI-compatible transcription server, including a local one.
+
+    This is the multi-provider extension point AND the lowest-latency option:
+    whisper.cpp, faster-whisper-server and LocalAI all serve OpenAI-shaped
+    `/v1/audio/transcriptions`, so pointing STT_BASE_URL at one on the same
+    machine removes the provider network hop entirely. It costs no new
+    dependency -- the `openai` SDK is already here and takes a base_url.
+    """
+
+    async def test_a_custom_endpoint_resolves_without_any_api_key(self):
+        """whisper.cpp in server mode requires no secret, so a key must be optional."""
+        from sentient.adapters.stt.client import resolve_stt_credential
+
+        settings = SimpleNamespace(
+            sentient_secret_key=None,
+            stt_provider="custom",
+            stt_base_url="http://127.0.0.1:8080/v1",
+        )
+        with patch.dict("os.environ", {}, clear=True):
+            provider, _, source = await resolve_stt_credential(
+                None, settings, authorization=None, user_id=None
+            )
+        self.assertEqual(provider, "custom")
+        self.assertIn("custom", source)
+
+    async def test_a_custom_endpoint_needs_a_base_url_to_be_selectable(self):
+        from sentient.adapters.stt.client import resolve_stt_credential
+
+        settings = SimpleNamespace(sentient_secret_key=None, stt_provider="custom")
+        with patch.dict("os.environ", {}, clear=True):
+            provider, _, _ = await resolve_stt_credential(
+                None, settings, authorization=None, user_id=None
+            )
+        self.assertIsNone(provider)
+
+    def test_a_custom_endpoint_passes_the_requested_model_through(self):
+        """No remapping: a self-hosted server names its models whatever it likes."""
+        from sentient.adapters.stt.client import upstream_model
+
+        self.assertEqual(upstream_model("custom", "ggml-large-v3"), "ggml-large-v3")

@@ -285,6 +285,14 @@ class RAGSettings:
     rate_limit_default_per_minute: int
     token_quota_per_month: int
     max_api_keys_per_user: int
+    # Speech-to-text. `stt_provider` is a NAME from adapters.stt.client.PROVIDERS,
+    # not a key prefix: leaving it unset keeps the historical behaviour of
+    # inferring the provider from whichever credential resolves first.
+    # `stt_base_url` points at any OpenAI-compatible transcription server --
+    # whisper.cpp, faster-whisper-server, LocalAI -- and is what makes the
+    # `custom` provider selectable at all.
+    stt_provider: str | None
+    stt_base_url: str | None
 
 
 def load_rag_settings(api_key: str | None = None) -> RAGSettings:
@@ -429,4 +437,6 @@ def load_rag_settings(api_key: str | None = None) -> RAGSettings:
         # hash -- so capping keys is also what caps buckets. 25 is far above any
         # real use (one per machine running Mantella) and far below abuse.
         max_api_keys_per_user=_env_int("MAX_API_KEYS_PER_USER", 25, minimum=0),
+        stt_provider=os.getenv("STT_PROVIDER") or None,
+        stt_base_url=os.getenv("STT_BASE_URL") or None,
     )
