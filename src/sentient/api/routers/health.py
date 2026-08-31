@@ -42,6 +42,35 @@ router = APIRouter()
 _PROBE_USER_ID = "00000000-0000-0000-0000-000000000000"
 
 
+@router.api_route("/", methods=["GET", "HEAD"])
+def service_root():
+    """What the base URL says. Also what makes the service routable.
+
+    HEAD is registered explicitly. FastAPI does NOT derive it from GET -- measured,
+    a `@router.get("/")` answers `HEAD /` with **405**, not 200 -- and HEAD is the
+    only method the scanner uses, so a GET-only route would have shipped looking
+    correct and left the service exactly as unreachable as no route at all.
+
+    Render's port scanner probes `HEAD /` and reads a 404 as "nothing serving on
+    this port". Measured 2026-08-31: the container was up, uvicorn had logged
+    `Uvicorn running on http://0.0.0.0:8000`, /health/ready was answering 200 every
+    five seconds and the deploy was marked live -- and every public request came
+    back 404 with `x-render-routing: no-server`, because liveness and the routing
+    table are decided separately and only the latter depends on this probe.
+
+    Deliberately static. The scanner arrives before anything is warm and again on
+    every restart, so a root route that touched the database would let a database
+    blip keep the service out of the routing table entirely. It also stays free of
+    configuration: it is unauthenticated and public, and /health already reports
+    more than enough for that audience.
+    """
+    return {
+        "service": "sentient",
+        "docs": "/docs",
+        "health": "/health/ready",
+    }
+
+
 @router.get("/health")
 def health_check():
     archives = deps.get_default_archives()
