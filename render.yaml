@@ -1,0 +1,130 @@
+# Render Blueprint for the Sentient API.
+#
+# The frontends are NOT here. apps/console and apps/landing are static Vite builds
+# deployed to Vercel, each with its own vercel.json, because they share nothing with
+# this service at runtime beyond an origin and a CORS entry.
+#
+# Region: singapore, and it is immutable once the service exists. Neon lives in
+# ap-southeast-1 and so does the operator, so a request pays ~2 ms to the database
+# instead of ~160 ms. The Qdrant cluster is in Frankfurt and pays that hop on the
+# retrieval leg, which is the one deliberate cost here: vectors are derived data with
+# a rebuild path, so moving them later is a reindex, while moving Postgres would be a
+# migration of the only authoritative store.
+#
+# Every secret is `sync: false`. Render will not read a value from this file for
+# those, so nothing sensitive enters git, and the list still documents exactly what
+# a redeploy from scratch needs.
+
+services:
+  - type: web
+    name: sentient-api
+    runtime: docker
+    region: singapore
+    plan: free
+    dockerfilePath: ./deploy/Dockerfile
+    dockerContext: .
+
+    # /health/ready runs a real query against the state store. /health answers 200
+    # with the database unreachable, so pointing a load balancer at it keeps a dead
+    # instance in rotation.
+    healthCheckPath: /health/ready
+
+    envVars:
+      # --- identity and state -------------------------------------------------
+      # Neon Postgres. Absent, the app silently falls back to SQLite in data/, which
+      # on a free instance has no disk behind it and disappears on every restart.
+      - key: DATABASE_URL
+        sync: false
+
+      # Neon Auth, and it is BRANCH-SCOPED: every branch has its own auth
+      # environment with its own JWKS host and its own users. These three and the
+      # console's VITE_NEON_AUTH_URL must all name the same branch, or sign-in
+      # produces a valid-looking JWT that fails signature verification here.
+      - key: NEON_AUTH_JWKS_URL
+        sync: false
+      - key: NEON_AUTH_ISSUER
+        sync: false
+      - key: NEON_AUTH_ALGORITHMS
+        sync: false
+
+      # Fernet key for the credential vault. Losing it makes every stored provider
+      # key undecryptable; rotating it without SENTIENT_SECRET_KEY_OLD silently
+      # sends every user to the env key instead of erroring.
+      - key: SENTIENT_SECRET_KEY
+        sync: false
+
+      # --- the deployed origins ----------------------------------------------
+      # api/app.py already allows any http://localhost:<port> and
+      # http://127.0.0.1:<port> by regex, which covers development and NOTHING
+      # deployed. The console's Vercel origin goes here, comma-separated, with the
+      # scheme and no trailing slash.
+      - key: CORS_ALLOW_ORIGINS
+        sync: false
+
+      # --- retrieval ----------------------------------------------------------
+      # qdrant, not faiss: a free instance has no persistent disk, so a FAISS index
+      # written under data/ would not survive a restart. Vectors in Qdrant and rows
+      # in Neon both do.
+      - key: VECTOR_BACKEND
+        value: qdrant
+      - key: QDRANT_URL
+        sync: false
+      - key: QDRANT_API_KEY
+        sync: false
+      - key: QDRANT_COLLECTION
+        sync: false
+
+      # --- providers ----------------------------------------------------------
+      # A hosted embedding provider is required, not merely preferred. The image is
+      # built with `uv sync --no-default-groups`, which omits sentence-transformers
+      # and therefore torch, so EMBEDDING_PROVIDER=huggingface has no local model to
+      # run and raises an error naming the group. Leaving it unset resolves to
+      # huggingface, so it must be set explicitly.
+      #
+      # The model variables are MODEL_NAME and EMBEDDING_MODEL_NAME, not LLM_MODEL
+      # and EMBEDDING_MODEL. Verified against core/config.py, which is the only
+      # place in this codebase that reads an environment variable; a wrong name
+      # here does not error, it silently leaves the provider default in place.
+      - key: LLM_PROVIDER
+        sync: false
+      - key: MODEL_NAME
+        sync: false
+      - key: EMBEDDING_PROVIDER
+        sync: false
+      - key: EMBEDDING_MODEL_NAME
+        sync: false
+      - key: GROQ_API_KEY
+        sync: false
+      - key: GOOGLE_API_KEY
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+
+      # --- abuse limits, ON here and off by default ---------------------------
+      # Both ship off so a fresh clone behaves like main. A public origin with an
+      # open POST /v1/keys and a credential vault is an open proxy on someone
+      # else's provider bill, so both are on for anything reachable from the
+      # internet. They are not substitutes: the limiter bounds request frequency,
+      # the quota bounds spend.
+      - key: RATE_LIMIT_ENABLED
+        value: "true"
+      - key: TOKEN_QUOTA_PER_MONTH
+        sync: false
+
+      # --- runtime ------------------------------------------------------------
+      # Render routes public traffic only to the port named by PORT. The Dockerfile
+      # CMD reads it with a default of 8000 so the same image runs locally.
+      - key: PORT
+        value: "8000"
+
+      # Inside the container, with no disk behind it on the free plan. Uploaded
+      # source files live here and a reindex re-reads them, so after a restart a
+      # rebuild is refused rather than silently producing an empty index. Taking a
+      # paid instance with a disk mounted at /app/data removes that limitation.
+      - key: DATA_DIR
+        value: /app/data
+
+      - key: LOG_FORMAT
+        value: json
+      - key: LOG_LEVEL
+        value: INFO

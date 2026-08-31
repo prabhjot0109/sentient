@@ -140,3 +140,20 @@ class UpstreamFailure(SentientError):
     """
 
     code = "upstream_failure"
+
+
+class SourceFilesMissing(SentientError):
+    """A rebuild cannot run because the uploaded files it reads are gone.
+
+    Deliberately has NO status code, unlike everything above it. It is raised
+    inside a background queue worker, long after the response that queued the job
+    was sent, so there is no request left to answer and inventing a status would
+    imply a caller who could see it. The user learns about it from the document
+    rows the job marks `failed`.
+
+    Reachable whenever `data/` is not durable: the `documents` rows and the vectors
+    both survive a restart while the uploaded files do not, and `run_reindex_job`
+    re-reads those files to rebuild.
+    """
+
+    code = "source_files_missing"

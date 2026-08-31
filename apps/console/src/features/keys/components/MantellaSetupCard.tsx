@@ -6,6 +6,16 @@ import type { CreatedApiKey } from "@/types/keys";
 
 const API_ORIGIN = import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:8000";
 
+/**
+ * Whether the base URL points back at the operator's own machine.
+ *
+ * The `127.0.0.1`-not-`localhost` advice below is specific to that case: it is a
+ * Windows loopback resolution cost, not a general rule about URLs. Printing it
+ * beside a deployed `https://` origin tells a hosted user to edit a hostname that
+ * is not in their URL, so the note is hidden unless it applies.
+ */
+const API_IS_LOOPBACK = /^https?:\/\/(127\.0\.0\.1|localhost|\[::1\])(:|\/|$)/.test(API_ORIGIN);
+
 const PLACEHOLDER = "<your-api-key>";
 
 /** Enough of the key to recognise, not enough to use. */
@@ -107,14 +117,16 @@ export function MantellaSetupCard({ created }: { created: CreatedApiKey | null }
             </li>
           ))}
         </ol>
-        <p className="rounded-lg bg-muted p-3 text-muted-foreground">
-          <strong className="text-foreground">
-            Use <code>127.0.0.1</code>, not <code>localhost</code>.
-          </strong>{" "}
-          Uvicorn binds IPv4 only, and Windows resolves <code>localhost</code> to <code>::1</code>{" "}
-          first — a measured 208 ms of wasted connect time on every single request, which does not
-          show up in the server&rsquo;s own logs.
-        </p>
+        {API_IS_LOOPBACK && (
+          <p className="rounded-lg bg-muted p-3 text-muted-foreground">
+            <strong className="text-foreground">
+              Use <code>127.0.0.1</code>, not <code>localhost</code>.
+            </strong>{" "}
+            Uvicorn binds IPv4 only, and Windows resolves <code>localhost</code> to <code>::1</code>{" "}
+            first — a measured 208 ms of wasted connect time on every single request, which does not
+            show up in the server&rsquo;s own logs.
+          </p>
+        )}
       </div>
     </section>
   );

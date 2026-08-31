@@ -31,6 +31,17 @@ uv run uvicorn sentient.api.app:app --reload
 
 Interactive API docs are then at `http://127.0.0.1:8000/docs`.
 
+`uv sync` installs the `local-embeddings` group, which carries `sentence-transformers` for
+`EMBEDDING_PROVIDER=huggingface` — the local-model provider an unset `EMBEDDING_PROVIDER` falls
+back to. It is the only thing here that needs torch, and torch costs 158 MB of resident memory and
+7 seconds of startup, so a deployment that uses a hosted embedding provider omits it:
+
+```bash
+uv sync --no-default-groups     # what deploy/Dockerfile does
+```
+
+Selecting `huggingface` embeddings without the group raises an error naming both ways out.
+
 Use `127.0.0.1`, never `localhost`. On Windows that one choice costs 208 ms per request; see
 [performance notes](CONFIGURATION.md#performance-notes).
 

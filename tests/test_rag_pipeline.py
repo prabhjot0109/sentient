@@ -70,12 +70,19 @@ class BuildChatModelProviderTests(unittest.TestCase):
         models_module.build_chat_model.cache_clear()
 
     def test_huggingface_provider_allows_no_api_key(self):
+        import langchain_huggingface
+
         import sentient.adapters.llm.models as models_module
 
         models_module.build_chat_model.cache_clear()
+        # Patched on langchain_huggingface, not on models_module: the import moved
+        # inside the huggingface branch so that torch never loads for the other
+        # providers, so there is no module-level name here to patch any more. The
+        # branch resolves these off the source module at call time, which is what
+        # makes patching there work at all.
         with (
-            patch.object(models_module, "ChatHuggingFace") as mock_chat_cls,
-            patch.object(models_module, "HuggingFaceEndpoint") as mock_endpoint_cls,
+            patch.object(langchain_huggingface, "ChatHuggingFace") as mock_chat_cls,
+            patch.object(langchain_huggingface, "HuggingFaceEndpoint") as mock_endpoint_cls,
         ):
             mock_endpoint_cls.return_value = "endpoint-instance"
             mock_chat_cls.return_value = "hf-chat-instance"

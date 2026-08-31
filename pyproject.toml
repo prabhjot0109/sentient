@@ -29,7 +29,6 @@ dependencies = [
     "pytesseract",
     "python-dotenv",
     "python-multipart>=0.0.21",
-    "sentence-transformers>=5.2.0",
     "uvicorn>=0.40.0",
 ]
 
@@ -43,6 +42,27 @@ dev = [
     "pytest>=9.1.1",
     "ruff>=0.16.3",
 ]
+
+# `sentence-transformers` is the ONLY package in this tree that requires torch,
+# and it is needed by exactly one code path: EMBEDDING_PROVIDER=huggingface, which
+# runs a local model instead of calling an API. Everything else -- including the
+# huggingface *chat* provider, which is an HTTP endpoint -- works without it.
+#
+# It is a group rather than a plain dependency because torch is not free. Measured
+# 2026-08-31 on a cold interpreter: `import sentient.api.app` is 305 MB of RSS and
+# 20 s with torch present, and 147 MB and 3.3 s without it. That gap decides whether
+# the service fits a 512 MB host with room left for ingestion.
+#
+# It stays in `default-groups` so a fresh clone still behaves like main: `uv sync`
+# installs it, and the huggingface embedding fallback (core/config.py's default when
+# no EMBEDDING_PROVIDER is set) keeps working with no extra step. The deployed image
+# opts out with `uv sync --no-default-groups`.
+local-embeddings = [
+    "sentence-transformers>=5.2.0",
+]
+
+[tool.uv]
+default-groups = ["dev", "local-embeddings"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/sentient"]

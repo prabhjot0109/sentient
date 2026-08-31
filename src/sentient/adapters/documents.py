@@ -10,7 +10,6 @@ from langchain_community.document_loaders import PyPDFLoader, TextLoader
 from langchain_core.documents import Document
 from langchain_core.embeddings import Embeddings
 from langchain_google_genai import GoogleGenerativeAIEmbeddings
-from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_openai import OpenAIEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
@@ -53,11 +52,33 @@ def build_embeddings(
     api_key: str | None,
 ) -> Embeddings:
     if provider == "huggingface":
-        return HuggingFaceEmbeddings(
-            model_name=model_name,
-            model_kwargs={"device": "cpu"},
-            encode_kwargs={"normalize_embeddings": True},
-        )
+        # Imported here, not at module scope, and caught rather than allowed to
+        # propagate. This is the one embedding provider that runs a model locally,
+        # so it is the one that needs `sentence-transformers` and therefore torch --
+        # 158 MB of RSS and 7 s of cold start that every other provider would
+        # otherwise pay for on every boot. `local-embeddings` in pyproject.toml
+        # carries it; the deployed image omits the group.
+        #
+        # langchain_huggingface itself stays a plain dependency: it imports without
+        # torch, and the huggingface *chat* provider is an HTTP endpoint that needs
+        # nothing local. Only this constructor reaches for sentence_transformers.
+        from langchain_huggingface import HuggingFaceEmbeddings
+
+        try:
+            return HuggingFaceEmbeddings(
+                model_name=model_name,
+                model_kwargs={"device": "cpu"},
+                encode_kwargs={"normalize_embeddings": True},
+            )
+        except ImportError as exc:
+            raise InvalidRequest(
+                "Local HuggingFace embeddings need the optional `local-embeddings` "
+                "dependency group, which is not installed. Either install it with "
+                "`uv sync --group local-embeddings`, or set EMBEDDING_PROVIDER to a "
+                "hosted provider such as `google` or `openai` and supply its API key. "
+                "Note that `huggingface` is also what EMBEDDING_PROVIDER falls back to "
+                "when it is unset or set to an LLM-only provider."
+            ) from exc
 
     if not api_key:
         raise ValueError(

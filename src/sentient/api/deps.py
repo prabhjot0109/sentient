@@ -28,6 +28,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import os
+import shutil
 from dataclasses import replace
 from functools import lru_cache
 from pathlib import Path
@@ -111,6 +112,21 @@ async def get_llm(ctx: RuntimeContext):
     return await object_registry.get(ctx.config_signature, lambda: build_llm(ctx))
 
 
+def partition_name(user_key: str, project_id: str | None) -> str:
+    """Return the opaque FAISS partition name for one tenant's project.
+
+    Takes the two identity values rather than a RuntimeContext, because
+    reclamation runs *after* the project row is deleted and there is no longer a
+    context to resolve. Everything else calls it through `_archive_scope`.
+    """
+    if user_key == "default" and project_id is None:
+        return "default"
+
+    user = hashlib.sha256(user_key.encode("utf-8")).hexdigest()[:24]
+    project = hashlib.sha256((project_id or "legacy").encode("utf-8")).hexdigest()[:24]
+    return f"{user}-{project}"
+
+
 def _archive_scope(ctx: RuntimeContext) -> str:
     """Return an opaque FAISS partition name for this runtime context.
 
@@ -119,12 +135,7 @@ def _archive_scope(ctx: RuntimeContext) -> str:
     user/project (while preserving the legacy env-default index for default
     requests).
     """
-    if ctx.user_key == "default" and ctx.project_id is None:
-        return "default"
-
-    user = hashlib.sha256(ctx.user_key.encode("utf-8")).hexdigest()[:24]
-    project = hashlib.sha256((ctx.project_id or "legacy").encode("utf-8")).hexdigest()[:24]
-    return f"{user}-{project}"
+    return partition_name(ctx.user_key, ctx.project_id)
 
 
 def _archive_settings(ctx: RuntimeContext):
@@ -326,6 +337,38 @@ reindex_queue = IngestQueue(_reindex_handler)
 async def enqueue_reindex(job: ReindexJob) -> None:
     """Stable enqueue seam for project reindex jobs."""
     await reindex_queue.enqueue(job)
+
+
+async def reclaim_project_storage(user_key: str, project_id: str) -> None:
+    """Release the storage a deleted project leaves behind. Two backends, two ways.
+
+    Called AFTER the row is gone, which rules out `resolve_runtime_context`: there
+    is no project left to resolve. Both mechanisms need only the two identity
+    values, which is why `partition_name` takes them directly.
+
+    FAISS keeps a physically separate index per tenant, so the orphan is the
+    partition DIRECTORY and `shutil.rmtree` is the reclamation.
+    `FaissBackend.clear_project` is a documented no-op and calling it would look
+    correct while reclaiming nothing.
+
+    Qdrant keeps every tenant in one shared collection and isolates by payload
+    filter, so `clear_project` deletes by that filter and there is no directory.
+    The shared collection is also why the process-default archives client can do
+    this at all: the filter carries the tenant, so the client does not have to be
+    the deleted project's own.
+
+    The Qdrant orphan is the one that actually hurts. A deleted project's points
+    stay inside the same collection every live project shares, and nothing will
+    ever reindex them away, because reindexing is a per-project operation and the
+    project is gone.
+    """
+    if _settings.vector_backend == "faiss":
+        partition = Path(_settings.data_dir) / "projects" / partition_name(user_key, project_id)
+        await asyncio.to_thread(shutil.rmtree, partition, ignore_errors=True)
+        return
+
+    archives = get_default_archives()
+    await asyncio.to_thread(archives.clear_project, user_key, project_id)
 
 
 # Request-scoped tenant resolution for the key-in-path (Mantella) and

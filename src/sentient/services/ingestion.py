@@ -20,8 +20,11 @@ import tempfile
 from pathlib import Path, PurePosixPath, PureWindowsPath
 
 from sentient.core.concurrency import IngestJob, ReindexJob
-from sentient.core.errors import InvalidRequest, NotFound, QueueFull
+from sentient.core.errors import InvalidRequest, NotFound, QueueFull, SourceFilesMissing
+from sentient.core.logging import get_logger
 from sentient.services.runtime import embedding_signature
+
+log = get_logger(__name__)
 
 _ALLOWED_SUFFIXES = (".pdf", ".txt")
 _PDF_MAGIC = b"%PDF-"
@@ -130,8 +133,19 @@ async def run_reindex_job(job: ReindexJob, *, state_store, archives) -> None:
     On any failure the project is put back into `reindexing_required` so the
     guard keeps returning 409 rather than serving results from a half-rebuilt
     index.
+
+    The rebuild re-reads every uploaded file from `archives.data_dir`, which makes
+    `data/` an *input* to this job rather than a cache of its output. When that
+    directory is not durable -- a host with no persistent disk -- the rows in the
+    database and the vectors in the backend both survive a restart while the files
+    do not, and this job is asked to re-read files that are gone. So it checks
+    first, because the alternative was destroying a working index and only then
+    discovering it could not rebuild one.
     """
     documents = await state_store.list_documents(job.project_id)
+    await _refuse_when_sources_are_missing(
+        job, documents, state_store=state_store, archives=archives
+    )
     try:
         await asyncio.to_thread(archives.clear_project, job.user_key, job.project_id)
         if archives.settings.vector_backend == "faiss":
@@ -158,6 +172,58 @@ async def run_reindex_job(job: ReindexJob, *, state_store, archives) -> None:
     except Exception:
         await state_store.set_project_status(job.project_id, "reindexing_required")
         raise
+
+
+async def _refuse_when_sources_are_missing(
+    job: ReindexJob,
+    documents: list[dict],
+    *,
+    state_store,
+    archives,
+) -> None:
+    """Fail the job before anything destructive runs, or return and let it proceed.
+
+    Ordering is the entire contract. `clear_project` and `reset_index` are the two
+    irreversible steps, so this runs ahead of both: a project whose files are gone
+    keeps the vectors it already has instead of being emptied on the way to a
+    rebuild that was never going to finish.
+
+    The rows go to `failed` rather than being left at `reindexing`. Startup
+    reconciliation only fails orphaned `processing` rows, so a `reindexing` row is
+    a status nothing ever clears -- a spinner in the document manager with no end.
+    `failed` is a state the console already draws and the user can act on by
+    re-uploading.
+    """
+    if not documents:
+        return
+
+    data_dir = Path(archives.data_dir)
+    filenames = [document["filename"] for document in documents]
+    missing = await asyncio.to_thread(
+        lambda: [name for name in filenames if not (data_dir / name).exists()]
+    )
+    if not missing:
+        return
+
+    for filename in missing:
+        await state_store.set_document_status(job.project_id, filename, "failed")
+    # The config change that queued this rebuild has already landed, so the vectors
+    # that survived carry the previous embedding signature and retrieval against
+    # them would be wrong. `reindexing_required` keeps the 409 up until the user
+    # re-uploads and reindexes, and re-enqueueing converges because `index()`
+    # clears the scope before writing.
+    await state_store.set_project_status(job.project_id, "reindexing_required")
+
+    log.error(
+        "reindex refused: uploaded source files are missing",
+        extra={"project_id": job.project_id, "missing": missing},
+    )
+    raise SourceFilesMissing(
+        f"Cannot rebuild this project's index: {len(missing)} uploaded "
+        f"file(s) are no longer on disk ({', '.join(sorted(missing))}). "
+        "Re-upload them and reindex. This happens when the service restarts "
+        "without a persistent volume for its data directory."
+    )
 
 
 async def stage_and_enqueue(

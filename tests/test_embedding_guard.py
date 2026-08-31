@@ -153,6 +153,12 @@ class ReindexGuardTests(unittest.IsolatedAsyncioTestCase):
         await self.deps.state_store.register_document(
             project["id"], "lore.txt", 3, "old-signature", status="ready"
         )
+        # The file has to be on disk, not just registered. A reindex re-reads every
+        # uploaded source to rebuild it, so a row with no file behind it is now
+        # refused before anything is purged -- see
+        # tests/test_reindex_missing_sources.py. Registering without writing was
+        # always an unreachable state; it just used to go unnoticed here.
+        (Path(self.tmp.name) / "lore.txt").write_text("lore", encoding="utf-8")
         await self.deps.state_store.set_project_status(project["id"], "reindexing_required")
         archives = SimpleNamespace(
             data_dir=Path(self.tmp.name),
