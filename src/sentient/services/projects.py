@@ -19,8 +19,11 @@ from typing import Any
 from sentient.adapters.state.schema import _CONFIG_COLUMNS
 from sentient.core.concurrency import ReindexJob
 from sentient.core.errors import NotFound
+from sentient.core.logging import get_logger
 from sentient.core.presets import get_preset
 from sentient.services.runtime import embedding_signature, resolve_runtime_context
+
+log = get_logger(__name__)
 
 
 async def create_project(
@@ -93,18 +96,47 @@ async def rename_project(state_store, *, user_id: str, project_id: str, name: st
     return project
 
 
-async def delete_project(state_store, runtime_cache, *, user_id: str, project_id: str) -> bool:
-    """Delete a project and everything under it (config, threads, messages, documents).
+async def delete_project(
+    state_store,
+    runtime_cache,
+    reclaim_storage,
+    *,
+    user_id: str,
+    user_key: str,
+    project_id: str,
+) -> bool:
+    """Delete a project and everything under it: config, threads, messages, documents,
+    and the vectors.
 
-    Vectors are NOT removed here — orphaned partitions are unreachable because every
-    query filters on user_key+project_id, so this is disk cost, not a leak. Reclaiming
-    it is tracked in the post-R8 TODO under "Storage reclamation".
+    The row goes first and the storage second, in that order deliberately. The
+    delete returning false is what proves ownership, so reclaiming before it would
+    let one user erase another user's vectors by guessing a project id. It also
+    means reclamation cannot resolve a runtime context, because by then there is no
+    project to resolve -- hence `reclaim_storage` takes the two identity values.
+
+    A reclamation failure is logged, not raised. The row is already gone and the
+    caller is about to be told the delete succeeded, which it did; raising here
+    would report failure for a completed operation and send the user to retry into
+    a 404. Leaked storage is the lesser harm and it is recorded.
+
+    `reclaim_storage` arrives as a parameter rather than an import for the layer
+    rule: it needs the data directory and the vector backend, both of which live in
+    the composition root, and `services/` may not import `api/deps`. Same shape as
+    `enqueue_reindex` on `update_config`.
     """
     if not await state_store.delete_project(user_id, project_id):
         raise NotFound("project not found")
     # Without this, cached contexts keep serving turns for a deleted project until
     # the RuntimeCache TTL expires.
     runtime_cache.invalidate(project_id)
+
+    try:
+        await reclaim_storage(user_key, project_id)
+    except Exception:
+        log.exception(
+            "project deleted but its storage was not reclaimed",
+            extra={"project_id": project_id},
+        )
     return True
 
 

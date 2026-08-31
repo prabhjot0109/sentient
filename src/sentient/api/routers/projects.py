@@ -83,10 +83,17 @@ async def delete_project_endpoint(
     project_id: str,
     user: tuple[str, str] = Depends(deps.current_user),
 ):
-    user_id, _ = user
+    user_id, user_key = user
     try:
         await service.delete_project(
-            deps.state_store, deps.runtime_cache, user_id=user_id, project_id=project_id
+            deps.state_store,
+            deps.runtime_cache,
+            # Resolved off the module at call time, not imported by name, so a test
+            # patching deps.reclaim_project_storage is actually seen (spec 7.1).
+            deps.reclaim_project_storage,
+            user_id=user_id,
+            user_key=user_key,
+            project_id=project_id,
         )
     except NotFound as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
