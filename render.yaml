@@ -42,6 +42,22 @@ services:
       # produces a valid-looking JWT that fails signature verification here.
       - key: NEON_AUTH_JWKS_URL
         sync: false
+      #
+      # NEON_AUTH_BASE_URL is REQUIRED even though nothing reads it directly. The
+      # `iss` claim is compared against `_resolve_neon_auth_issuer()`, which falls
+      # back to this URL's origin when NEON_AUTH_ISSUER is unset -- and returns None
+      # when BOTH are unset. PyJWT's issuer check returns early on None, so the
+      # result is issuer verification silently switched off while authentication
+      # stays on: no error, no log line, and a token from any other Neon branch
+      # would verify. That is the defect H2 fixed, and leaving this variable out of
+      # the blueprint would reintroduce it on the deployed service only.
+      - key: NEON_AUTH_BASE_URL
+        sync: false
+      # Optional override. The derived value is the base URL's ORIGIN, with no
+      # /neondb/auth path, which was measured against a real token rather than taken
+      # from Better Auth's documentation -- the docs say the issuer is the full base
+      # URL, and `jwt.decode(issuer=...)` is an exact string compare, so following
+      # them would reject every valid token. Leave this blank unless Neon changes.
       - key: NEON_AUTH_ISSUER
         sync: false
       - key: NEON_AUTH_ALGORITHMS
