@@ -23,11 +23,23 @@ from sentient.core.config import load_rag_settings
 
 router = APIRouter()
 
-# A user id no `ensure_user` call can mint: real ones are Neon Auth subs or UUIDs.
-# `list_projects` against it runs a real query over a real connection and comes
-# back empty, which is the cheapest way to ask the database whether it is there
-# without writing anything or depending on a row existing.
-_PROBE_USER_ID = "__readiness_probe__"
+# The nil UUID. `list_projects` against it runs a real query over a real connection
+# and comes back empty, which is the cheapest way to ask the database whether it is
+# there without writing anything or depending on a row existing. `gen_random_uuid()`
+# never produces it and Neon Auth never issues it as a sub, so it cannot collide.
+#
+# It has to be a WELL-FORMED uuid, and that is not cosmetic. `projects.user_id` is a
+# `uuid` column on Postgres, and asyncpg refuses to *bind* a non-uuid string to one:
+# it raises DataError before the query is ever sent. A readable sentinel like
+# "__readiness_probe__" therefore passes every test against SQLite -- which is what
+# the suite runs -- and answers 503 against Neon on a database that is perfectly
+# healthy. Measured 2026-09-01 from inside the deployment image.
+#
+# The fix is here and NOT an `_is_uuid` guard on `list_projects`, which would return
+# an empty list without opening a connection. Readiness would then report ok while
+# the database was unreachable, which is the precise defect this route exists to
+# remove.
+_PROBE_USER_ID = "00000000-0000-0000-0000-000000000000"
 
 
 @router.get("/health")

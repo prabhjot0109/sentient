@@ -127,6 +127,22 @@ class ReadinessTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(payload["checks"]["ingest_queue_depth"], 0)
         self.assertEqual(payload["checks"]["reindex_queue_depth"], 0)
 
+    async def test_the_probe_id_is_a_well_formed_uuid(self):
+        """The one thing this suite cannot catch by running.
+
+        These tests drive SQLite, which stores `user_id` as text and accepts any
+        string. Postgres declares `projects.user_id` as `uuid`, and asyncpg refuses
+        to BIND a non-uuid string to one -- DataError, raised before the query is
+        sent. So a readable sentinel passes every assertion here and answers 503
+        against a perfectly healthy Neon. Measured 2026-09-01 from inside the
+        deployment image, which is the only place the two stores differ visibly.
+        """
+        from uuid import UUID
+
+        from sentient.api.routers.health import _PROBE_USER_ID
+
+        UUID(_PROBE_USER_ID)
+
     async def test_a_deep_queue_is_still_ready(self):
         """Reported, not asserted on.
 
