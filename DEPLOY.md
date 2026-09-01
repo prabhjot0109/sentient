@@ -10,13 +10,24 @@ other people.
 
 ## What runs where
 
-| Piece | Host | Why there |
+| Piece | Host | Live at |
 | --- | --- | --- |
-| `sentient-api` | Render, region `singapore`, Docker from `deploy/Dockerfile` | Stateful single-process container. Render builds it, restarts it, and gives it TLS. |
-| `sentient-console` | Vercel, root directory `apps/console` | Static Vite build. Nothing to run. |
-| `sentient-landing` | Vercel, root directory `apps/landing` | Same. |
-| Postgres + Auth | Neon, `ap-southeast-1` | Authoritative store. Users, keys, projects, documents, threads, every message. |
-| Vectors | Qdrant Cloud, `eu-central-1` | Derived data with a rebuild path. See the region note below. |
+| `sentient-api` | Render, region `singapore`, Docker from `deploy/Dockerfile` | `sentient-api-54r2.onrender.com` |
+| `sentient-console` | Vercel, root directory `apps/console` | `sentient-console.vercel.app` |
+| `sentient` (landing) | Vercel, root directory `apps/landing` | `sentient-npc.vercel.app` |
+| Postgres + Auth | Neon, `ap-southeast-1`, branch `production` | endpoint `ep-muddy-rice` |
+| Vectors | Qdrant Cloud, `eu-central-1` | collection `sentient_lore_prod` |
+
+The API is a stateful single-process container; the two frontends are static Vite builds with
+nothing to run. Neon is the authoritative store — users, keys, projects, documents, threads, every
+message. Qdrant holds derived data with a rebuild path, which is why it is the one allowed to sit
+in another region.
+
+**The console origin appears in three separate places and they must agree**: Render's
+`CORS_ALLOW_ORIGINS`, Neon Auth's trusted-domain list, and landing's `VITE_CONSOLE_URL`. Renaming a
+Vercel project or adding a custom domain means updating all three, and each failure looks
+different. Both of the console's Vercel domains are currently trusted, so an alias change does not
+break sign-in on its own.
 
 `render.yaml` and the two `vercel.json` files are the committed form of all of this. A redeploy
 from nothing is those three files plus the secrets.
