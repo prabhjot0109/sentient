@@ -1,4 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { Analytics } from "@vercel/analytics/react";
 import {
   Outlet,
   Link,
@@ -123,6 +124,15 @@ function RootShell({ children }: { children: ReactNode }) {
       </head>
       <body>
         {children}
+        {/* Vercel Analytics. In the shell rather than in RootComponent so it sits
+            outside the router: it counts page views, and mounting it inside a
+            route would remount it on every navigation.
+
+            It is a no-op anywhere but a Vercel deployment -- the script it injects
+            is served by Vercel's own edge, so local development and the CI build
+            neither report nor fail. Nothing to configure and no key: the project
+            is identified by the deployment serving the page. */}
+        <Analytics />
         <Scripts />
       </body>
     </html>
