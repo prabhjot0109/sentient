@@ -25,4 +25,18 @@ export const GITHUB_REPO_URL = "https://github.com/prabhjot0109/sentient";
  * http://127.0.0.1:<port> as an untrusted origin, so a console served from the IP
  * literal fails every sign-up. See apps/console/AGENTS.md.
  */
+/**
+ * The fallback is a DEVELOPMENT address, and a deployed build that uses it has a
+ * Get Started button that goes nowhere.
+ *
+ * That shipped on 2026-09-01: VITE_CONSOLE_URL was set on the console's Vercel
+ * project and not the landing one, so the live marketing site sent every visitor
+ * to a port on their own machine. The build succeeded and the page rendered; the
+ * only symptom was the click.
+ *
+ * `scripts/check-env.mjs` runs before `vite build` and refuses a Vercel build
+ * without the variable, because Vite inlines it at BUILD time -- once the bundle
+ * exists the wrong string is already in it, and nothing at runtime can tell that
+ * localhost was a fallback rather than a choice.
+ */
 export const CONSOLE_URL = import.meta.env.VITE_CONSOLE_URL ?? "http://localhost:5175/auth/sign-up";
