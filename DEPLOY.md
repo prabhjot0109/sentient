@@ -74,7 +74,7 @@ Two ways to remove the limitation entirely, in increasing order of effort:
 
 | | Consequence |
 | --- | --- |
-| Spins down after ~15 minutes idle | The next request pays a cold start: container boot plus a ~3.3 s import, slower on a shared vCPU. **Mantella will time out on the first turn after an idle period.** Treat this as a demo deployment, not a playable one. |
+| Spins down after ~15 minutes idle | The next request pays a cold start. **Measured 2026-09-01 against the live service after an overnight idle: 6 seconds** to a 200 from `/health/ready`. That is a pause before the first NPC line, not a timeout, and it is a direct result of dropping torch — the same boot cost 20 s of import alone beforehand. |
 | No persistent disk | See above. |
 | 512 MB RAM | The app imports at ~147 MB after `40c1106` made torch optional; it was 305 MB before, which did not leave room for ingestion. Do not put `sentence-transformers` back into the default dependencies. |
 | No custom domains | You are on `*.onrender.com`, and that hostname is what goes in `CORS_ALLOW_ORIGINS` and Neon Auth's trusted-domain list. Both change when you move to a domain. |
@@ -192,6 +192,20 @@ Landing build variable:
 
 - `VITE_CONSOLE_URL` — the console's Vercel origin plus `/auth/sign-up`.
 
+**These are Vite variables, so they are baked into the bundle at build time, not read at
+runtime.** Nothing re-reads them when the page loads. Setting one after a deploy changes nothing
+until the project is redeployed, and a build that ran before the variable existed produces a
+console that quietly points at `http://127.0.0.1:8000` — the fallback in `lib/api/client.ts` — and
+fails every request from a hosted origin with no message naming the cause.
+
+So set both variables **before** the first deploy, and redeploy after changing either. They carry
+no secrets: a public SPA cannot hold one, which is also why Google sign-in has no variable here at
+all and is configured per branch on Neon's side.
+
+The projects are `sentient-console` (root `apps/console`) and `sentient` (root `apps/landing`).
+The landing project is deliberately the bare name, because it owns the apex domain a visitor
+types; the console is a subdomain of the same idea and says so in its name.
+
 ### 4. Make the three origin lists agree
 
 This is where deployments fail, and it fails in three different places with three different
@@ -237,6 +251,49 @@ hold a conversation over `/v1/<key>/<project_id>/chat/completions`. Anything tha
 between two deployed hosts.
 
 ---
+
+## Two things the first real deploy taught, both worth keeping
+
+**A healthy service can be completely unreachable, and the dashboard will say it is live.**
+Measured 2026-08-31. The container started, uvicorn logged `Uvicorn running on
+http://0.0.0.0:8000`, `/health/ready` answered 200 to Render's checker every five seconds, the
+deploy was marked live — and every public request returned 404 with the header
+`x-render-routing: no-server`.
+
+The cause is three lines apart in the build log:
+
+```
+INFO:  127.0.0.1:55954 - "HEAD / HTTP/1.1" 404 Not Found
+==>   No open ports detected, continuing to scan...
+==>   Your service is live 🎉
+```
+
+Render's port scanner probes `HEAD /` and reads a 404 as "nothing serving on this port", so the
+port never enters the routing table. **Liveness and routing are decided separately**, which is why
+the health check passing tells you nothing about whether traffic arrives. Fixed by the `/` route in
+`routers/health.py`, registered for GET **and** HEAD — FastAPI does not derive HEAD from GET, and a
+`@router.get("/")` answers `HEAD /` with 405, which the scanner treats no better than the 404.
+
+If a Render service ever looks healthy and serves nothing, check that header first. `no-server`
+means the routing table, not the app.
+
+**Check which Neon branch the service actually reached, by looking at the schema.**
+`PostgresStateStore._ensure_schema` applies every file in `migrations/` on its first successful
+pool creation, with no error handling. So the tables are a fingerprint: if a branch is missing
+`chat_messages`, `provider_credentials`, `chat_threads.prefix_hash` or `documents.size_bytes`, then
+nothing that runs this code has ever connected to it — whatever `DATABASE_URL` you believe is set.
+
+That is how a branch mismatch was caught here: the service was healthy and answering, `production`
+had six tables and no `chat_messages`, and therefore the running service was on `dev-console`.
+Pasting the DSN out of `.env` is the easy way to do this, because `.env` holds the development
+branch.
+
+```sql
+select table_name from information_schema.tables where table_schema='public' order by table_name;
+```
+
+Eight tables means every migration ran. Six means the branch is stale and something else is
+serving your traffic.
 
 ## Health checks: two routes, two questions
 
