@@ -18,6 +18,7 @@ import codecs
 import os
 import tempfile
 from pathlib import Path, PurePosixPath, PureWindowsPath
+from time import perf_counter
 
 from sentient.core.concurrency import IngestJob, ReindexJob
 from sentient.core.errors import InvalidRequest, NotFound, QueueFull, SourceFilesMissing
@@ -99,6 +100,13 @@ async def run_ingest_job(job: IngestJob, *, state_store, archives) -> None:
     """
     staged_path = Path(job.file_path)
     final_path = archives.data_dir / job.filename
+    started = perf_counter()
+    # The upload route answers 202 and returns; from that moment the only trace of
+    # this work was the `documents` row, which does not change again until the job
+    # is over. Measured 2026-09-01 on a 0.15-CPU instance: a scanned 6-page PDF took
+    # 15m51s, and for all fifteen of those minutes the log said nothing at all --
+    # indistinguishable from a hang, and the reason a healthy pipeline looked broken.
+    log.info("ingest started", extra={"project_id": job.project_id, "file": job.filename})
     try:
         if staged_path != final_path:
             await asyncio.to_thread(final_path.parent.mkdir, parents=True, exist_ok=True)
@@ -110,17 +118,37 @@ async def run_ingest_job(job: IngestJob, *, state_store, archives) -> None:
             project_id=job.project_id,
             embedding_signature=job.embedding_signature,
         )
+        chunks = (metadata or {}).get("added_chunk_count", 0)
         if job.project_id is not None:
             await state_store.register_document(
                 job.project_id,
                 job.filename,
-                (metadata or {}).get("added_chunk_count", 0),
+                chunks,
                 job.embedding_signature,
                 status="ready",
             )
+        log.info(
+            "ingest complete",
+            extra={
+                "project_id": job.project_id,
+                "file": job.filename,
+                "chunks": chunks,
+                "seconds": round(perf_counter() - started, 1),
+            },
+        )
     except Exception:
         if job.project_id is not None:
             await state_store.set_document_status(job.project_id, job.filename, "failed")
+        # Logged here as well as in IngestQueue's handler, because this is where the
+        # filename and the elapsed time are still in scope.
+        log.exception(
+            "ingest failed",
+            extra={
+                "project_id": job.project_id,
+                "file": job.filename,
+                "seconds": round(perf_counter() - started, 1),
+            },
+        )
         raise
     finally:
         if staged_path != final_path and staged_path.exists():
