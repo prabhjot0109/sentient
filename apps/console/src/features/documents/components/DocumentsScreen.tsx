@@ -7,6 +7,7 @@ import { useProject } from "@/features/projects";
 import type { SourceDocument } from "@/types/documents";
 import { REINDEXING } from "@/types/projects";
 
+import { describeBatch } from "../batch";
 import { useDeleteDocument, useDocuments, useUploadDocument } from "../hooks";
 import { hasReindexingDocument } from "../polling";
 import { DeleteDocumentDialog } from "./DeleteDocumentDialog";
@@ -65,16 +66,20 @@ export function DocumentsScreen({ projectId }: { projectId: string }) {
       {(project?.status === REINDEXING || hasReindexingDocument(documents)) && <ReindexBanner />}
 
       <UploadDropzone
-        onUpload={(file) =>
-          upload.mutate(file, {
+        onUpload={(files) =>
+          upload.mutate(files, {
             // The 202 returns no document id and the row appears only on the next
             // poll, so without this the drop is followed by a visible pause in
             // which nothing at all has happened.
-            onSuccess: () =>
+            //
+            // The tone is read off the result, not assumed: a batch where some
+            // files were rejected succeeded partially, and saying "Uploading 3
+            // files" over two silent rejections is the kind of lie a user only
+            // discovers later, when the lore they expected is not there.
+            onSuccess: (result) =>
               toast({
-                tone: "success",
-                title: `Uploading ${file.name}`,
-                body: "It appears below and turns Ready once indexing finishes.",
+                tone: result.failed.length > 0 ? "failure" : "success",
+                ...describeBatch(result),
               }),
           })
         }
