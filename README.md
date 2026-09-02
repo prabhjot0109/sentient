@@ -17,6 +17,8 @@ that lore instead of in whatever the base model happens to know.
 [Site](https://sentient-npc.vercel.app) ·
 [API docs](https://sentient-api-54r2.onrender.com/docs) ·
 [Configuration](CONFIGURATION.md) ·
+[Mantella setup](MANTELLA.md) ·
+[Self-hosting](SELFHOST.md) ·
 [Deployment](DEPLOY.md) ·
 [Security](SECURITY.md)
 
@@ -137,6 +139,10 @@ Sentient serves no TTS.
 
 `config/config.ini` in this repository is **Mantella's** config, checked in as reference wiring
 only. Sentient never reads it; Mantella reads `Documents/My Games/Mantella/config.ini`.
+
+**[MANTELLA.md](MANTELLA.md) is the full walkthrough**, written for people who install mods rather
+than for backend engineers: the exact fields, the microphone, and troubleshooting organised by
+symptom with the measurement behind each cause.
 
 ## The console
 
@@ -513,8 +519,11 @@ under exactly the load the limiter exists to survive.
 
 ## Deployment
 
-**[`DEPLOY.md`](DEPLOY.md) is the runbook** — hosts, environment, the three origin lists that must
-agree, backups, and what to check first when chat stops working.
+Two documents, for two different jobs. **[`DEPLOY.md`](DEPLOY.md) is the runbook for *this*
+deployment** — hosts, environment, the three origin lists that must agree, backups, and what to
+check first when chat stops working. **[`SELFHOST.md`](SELFHOST.md) is the guide for *yours*** —
+which of the five choices to make, what running it actually costs, and the paragraph about `data/`
+that decides whether your install can ever be reconfigured.
 
 | Piece | Where |
 | --- | --- |
