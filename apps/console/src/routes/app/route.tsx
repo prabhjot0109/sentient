@@ -16,6 +16,7 @@ import { ProjectList } from "@/features/projects";
 import { OfflineBanner } from "@/features/system";
 import { useHotkey } from "@/lib/hotkeys";
 import { usePersistedBoolean } from "@/lib/persisted";
+import { ISSUES_URL, PRIVACY_URL, TERMS_URL } from "@/lib/site";
 
 function AppShell() {
   const [menuOpen, setMenuOpen] = useState(false);
@@ -98,7 +99,12 @@ function AppShell() {
                 </nav>
               </>
             }
-            footer={<UserRow />}
+            footer={
+              <>
+                <FooterLinks />
+                <UserRow />
+              </>
+            }
           >
             <ProjectList activeProjectId={pid} activeThreadId={tid} />
           </Sidebar>
@@ -169,6 +175,39 @@ function AppShell() {
  * button one tab stop from the theme toggle, sized like a caption -- an
  * irreversible action given the least weight of any control in the rail.
  */
+/**
+ * Where a user goes when something is wrong, and where the legal documents are.
+ *
+ * "My NPC won't talk" previously had nowhere to go from inside the product,
+ * which meant the report never arrived and the answer never got written down.
+ * The issue link is the template chooser, not a blank issue, because the
+ * template asks for the five things that would otherwise cost a second round
+ * trip.
+ */
+function FooterLinks() {
+  const links = [
+    { label: "Support", href: ISSUES_URL },
+    { label: "Privacy", href: PRIVACY_URL },
+    { label: "Terms", href: TERMS_URL },
+  ];
+
+  return (
+    <nav className="flex flex-wrap items-center gap-x-3 gap-y-1 px-1 pb-2 text-[11px]">
+      {links.map((link) => (
+        <a
+          key={link.label}
+          href={link.href}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-muted-foreground transition-colors hover:text-sidebar-foreground"
+        >
+          {link.label}
+        </a>
+      ))}
+    </nav>
+  );
+}
+
 function UserRow() {
   const signOut = useSignOut();
   const { data } = useSession();

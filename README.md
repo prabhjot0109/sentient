@@ -595,5 +595,22 @@ Nothing that blocks use is outstanding. What remains is operability and launch:
 
 ## License
 
-**Not yet chosen.** Until a `LICENSE` file lands in this repository, default copyright applies and
-no usage rights are granted. Do not deploy this for anyone but yourself until that changes.
+**MIT.** See [LICENSE](LICENSE). Use it, fork it, host it, sell something built on it.
+
+The dependency tree is checked against that intent rather than assumed to match it: the S4 audit
+found `pymupdf` was AGPL-3.0 and a *direct* dependency, which would have imposed a source-offer
+obligation on anyone hosting a modified copy. It was replaced with `pypdfium2` (BSD/Apache) on
+2026-08-27, and `uv run --with pip-licenses pip-licenses` now reports no AGPL anywhere. Both models
+in the default path clear commercial use too, verified against their cards:
+`BAAI/bge-base-en-v1.5` is MIT and `Qdrant/bm25` is Apache-2.0.
+
+## Using the hosted deployment
+
+The instance at `sentient-console.vercel.app` is free, best-effort and run by one person.
+[TERMS.md](TERMS.md) says what that does and does not promise; [PRIVACY.md](PRIVACY.md) says what
+is stored, and the two things worth knowing before you sign up are that **it keeps your full
+conversation transcripts** — including ones held in-game, where no console is open — and that your
+provider API keys are stored encrypted under a server-side key.
+
+Report anything at <https://github.com/prabhjot0109/sentient/issues>. For a security
+vulnerability, open a private advisory instead — [SECURITY.md](SECURITY.md).

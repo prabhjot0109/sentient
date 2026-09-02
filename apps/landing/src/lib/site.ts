@@ -40,3 +40,16 @@ export const GITHUB_REPO_URL = "https://github.com/prabhjot0109/sentient";
  * localhost was a fallback rather than a choice.
  */
 export const CONSOLE_URL = import.meta.env.VITE_CONSOLE_URL ?? "http://localhost:5175/auth/sign-up";
+
+/**
+ * The repository files, not a docs site. They are where these documents
+ * actually live, and a link to a page nobody has built is worse than no link --
+ * which is what the footer's "Discord", "Blog" and "Changelog" entries were
+ * until 2026-09-02: four of them pointed at `#` or at a bare domain.
+ */
+export const ISSUES_URL = `${GITHUB_REPO_URL}/issues/new/choose`;
+export const PRIVACY_URL = `${GITHUB_REPO_URL}/blob/main/PRIVACY.md`;
+export const TERMS_URL = `${GITHUB_REPO_URL}/blob/main/TERMS.md`;
+export const LICENSE_URL = `${GITHUB_REPO_URL}/blob/main/LICENSE`;
+export const MANTELLA_GUIDE_URL = `${GITHUB_REPO_URL}/blob/main/MANTELLA.md`;
+export const SELFHOST_GUIDE_URL = `${GITHUB_REPO_URL}/blob/main/SELFHOST.md`;

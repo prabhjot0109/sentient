@@ -1,5 +1,13 @@
 import { Logo } from "./Logo";
-import { GITHUB_REPO_URL } from "@/lib/site";
+import {
+  GITHUB_REPO_URL,
+  ISSUES_URL,
+  LICENSE_URL,
+  MANTELLA_GUIDE_URL,
+  PRIVACY_URL,
+  SELFHOST_GUIDE_URL,
+  TERMS_URL,
+} from "@/lib/site";
 
 const cols = [
   {
@@ -15,18 +23,24 @@ const cols = [
     title: "Developers",
     links: [
       { label: "Documentation", href: "#docs" },
-      { label: "API Reference", href: "#docs" },
       { label: "GitHub", href: GITHUB_REPO_URL },
-      { label: "Changelog", href: "#" },
+      { label: "Mantella setup", href: MANTELLA_GUIDE_URL },
+      { label: "Self-hosting", href: SELFHOST_GUIDE_URL },
     ],
   },
+  /*
+   * Every entry here points at something that exists. The previous version of
+   * this column linked "Discord" at discord.gg, "X" at x.com, and "Blog" and
+   * "License" at `#` -- four links that looked like a community and led
+   * nowhere, on the page whose whole job is to be believed.
+   */
   {
-    title: "Community",
+    title: "Project",
     links: [
-      { label: "Discord", href: "https://discord.gg" },
-      { label: "X / Twitter", href: "https://x.com" },
-      { label: "Blog", href: "#" },
-      { label: "License", href: "#" },
+      { label: "Support", href: ISSUES_URL },
+      { label: "Privacy", href: PRIVACY_URL },
+      { label: "Terms", href: TERMS_URL },
+      { label: "License (MIT)", href: LICENSE_URL },
     ],
   },
 ];
