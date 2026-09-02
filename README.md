@@ -64,7 +64,8 @@ behind every latency number quoted below.
   new base URL and nothing else.
 - **Multi-project by design.** One deployment, many users, many game worlds. Each project owns its
   config, its single editable persona, its documents and its chat threads, and the vector store is
-  partitioned so nothing crosses between them.
+  partitioned so nothing crosses between them. Five persona presets ship — `skyrim`, `fallout4`,
+  `fantasy`, `scifi`, `cyberpunk` — and each is a starting point you edit, not a constraint.
 - **Six providers, resolved per request.** Google, OpenAI, HuggingFace, Groq, Cerebras, OpenRouter.
 - **Two retrieval backends behind one seam.** FAISS on local disk by default; Qdrant for hybrid
   dense-plus-sparse retrieval with server-side tenant filters.
