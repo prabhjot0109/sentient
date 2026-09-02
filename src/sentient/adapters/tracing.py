@@ -21,7 +21,7 @@ every NPC line.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 
 from langchain_core.callbacks.base import BaseCallbackHandler
 
@@ -67,7 +67,9 @@ def _construct_handler(settings: RAGSettings) -> BaseCallbackHandler:
         host=settings.langfuse_host,
         tracing_enabled=True,
     )
-    return CallbackHandler(public_key=settings.langfuse_public_key)
+    # Langfuse does not ship a usable type stub for its callback handler, so
+    # mypy sees this runtime-verified BaseCallbackHandler subclass as Any.
+    return cast(BaseCallbackHandler, CallbackHandler(public_key=settings.langfuse_public_key))
 
 
 def get_trace_handler(settings: RAGSettings | None = None) -> BaseCallbackHandler | None:
