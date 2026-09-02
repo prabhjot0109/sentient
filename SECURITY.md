@@ -70,8 +70,8 @@ NPC needs this section rewritten first, and probably needs lore moved out of the
 
 ## S5 — The API key in the URL path
 
-The game route is `/v1/<api_key>/<project_id>/chat/completions`. Mantella cannot send headers, so
-the key is in the path — where it lands in proxy logs, access logs, and browser history.
+The game route is `/v1/<api_key>/<project_id>/chat/completions`, so the key lands in proxy logs,
+access logs, and browser history.
 
 The architecture overview documents this as acceptable **for self-hosted**, where the only proxy is
 the user's own machine. **That assumption does not survive a hosted deployment.**
@@ -95,14 +95,42 @@ the user's own machine. **That assumption does not survive a hosted deployment.*
 - **No last-used timestamp**, so a leaked key cannot be identified as the one being abused.
 - **No cap on how many a user may hold** — see S6.
 
-### The recommendation for hosted mode
+### Resolved for hosted mode, 2026-09-02: the posture stands, and here is why
 
-Accept the same key in an `X-API-Key` header as an *alternative* to the path, so a hosted operator
-can require the header form and refuse the path form entirely.
+The open question was whether Mantella has a header field that could carry the key instead. It was
+raised twice and deferred twice; this is the answer, checked against Mantella's own config surface
+rather than assumed.
 
-**Do not build that here.** Mantella's config supplies a base URL and nothing else, so a header
-variant needs a Mantella-side story before it is usable by the client that actually needs it. That
-is P3's territory, not this phase's.
+**Mantella does send a header, and it is still not enough.** It drives the LLM endpoint through the
+OpenAI SDK, so whatever secret it holds (`GPT_SECRET_KEY.txt`, later `secret_keys.json`) goes out as
+`Authorization: Bearer …`. The STT path already exploits this: `/v1/audio/transcriptions` reads that
+slot **by shape**, treating an `sk-sent-` value as identity and anything else as a Whisper
+credential to forward. The same trick would work on `/v1/chat/completions`, which today reads
+`X-API-Key` and ignores `Authorization` entirely.
+
+**What no header can carry is the project id**, and that is the whole difficulty. Mantella supplies
+one base URL and one model name; there is no second free-text field. The project id is what selects
+the persona, the lore partition and the transcript destination — `record_game_turn` returns
+immediately without one — so a header-only form would authenticate the user and then serve them the
+env defaults with no lore, which is not the product.
+
+Closing it properly means binding a *default project* to a key so identity alone resolves a tenant
+**and** a world. That is a product change with its own migration, not a security patch, and it is
+worth doing on its own terms rather than smuggling it in here.
+
+So the posture stands, with three things that make it survivable and one that is new:
+
+- Keys are **disposable by design** — 25 live per user, revocation is immediate, and
+  [MANTELLA.md](MANTELLA.md) tells users to mint one per machine.
+- A leaked product key is **not a provider credential** and cannot be replayed against Groq or
+  Google.
+- The path form is **opt-in per user**: `/v1/chat/completions` with an `X-API-Key` header exists and
+  carries no key in the URL, for any client that can send one.
+- **New, and it was the one real regression risk:** turning on error tracking would have copied
+  every one of these keys into a third-party SaaS, because a tracker collects the full request URL
+  by default. `core/scrubbing.py` replaces that path segment in `before_send` before any event
+  leaves the process. "Accepted in logs the operator controls" was doing more work than it looked
+  like; that boundary is now enforced rather than assumed.
 
 ---
 
