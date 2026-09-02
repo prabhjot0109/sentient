@@ -42,7 +42,7 @@ router = APIRouter()
 _PROBE_USER_ID = "00000000-0000-0000-0000-000000000000"
 
 
-@router.api_route("/", methods=["GET", "HEAD"])
+@router.api_route("/", methods=["GET", "HEAD"], include_in_schema=False)
 def service_root():
     """What the base URL says. Also what makes the service routable.
 
@@ -50,6 +50,13 @@ def service_root():
     a `@router.get("/")` answers `HEAD /` with **405**, not 200 -- and HEAD is the
     only method the scanner uses, so a GET-only route would have shipped looking
     correct and left the service exactly as unreachable as no route at all.
+
+    `include_in_schema=False` because two methods on one handler generate two
+    OpenAPI operations with the SAME operation id, which FastAPI warns about and
+    which gives anyone generating a client from the spec a duplicate symbol. There
+    is nothing to document here anyway: this is infrastructure for a port scanner
+    and a courtesy for a human who pasted the base URL, not part of the API
+    contract.
 
     Render's port scanner probes `HEAD /` and reads a 404 as "nothing serving on
     this port". Measured 2026-08-31: the container was up, uvicorn had logged

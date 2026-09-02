@@ -11,16 +11,18 @@ export function UploadDropzone({
   isUploading,
   error,
 }: {
-  onUpload: (file: File) => void;
+  onUpload: (files: File[]) => void;
   isUploading: boolean;
   error: unknown;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [isOver, setIsOver] = useState(false);
 
+  // Every file, not just the first. A FileList is not an array and has no
+  // .filter, so it is converted before anything else touches it.
   const take = (files: FileList | null) => {
-    const file = files?.[0];
-    if (file) onUpload(file);
+    const picked = Array.from(files ?? []);
+    if (picked.length > 0) onUpload(picked);
   };
 
   return (
@@ -41,14 +43,14 @@ export function UploadDropzone({
         }`}
       >
         <p className="text-muted-foreground">
-          Drop a PDF or TXT here, or{" "}
+          Drop PDFs or TXT files here, or{" "}
           <button
             type="button"
             onClick={() => inputRef.current?.click()}
             disabled={isUploading}
             className="text-foreground underline underline-offset-2 disabled:opacity-50"
           >
-            choose a file
+            choose files
           </button>
           .
         </p>
@@ -63,6 +65,7 @@ export function UploadDropzone({
         <input
           ref={inputRef}
           type="file"
+          multiple
           accept=".pdf,.txt"
           className="hidden"
           onChange={(e) => {

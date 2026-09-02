@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import * as api from "@/lib/api/documents";
 
+import { uploadAll } from "./batch";
 import { pollIntervalMs, shouldPoll } from "./polling";
 
 /**
@@ -35,11 +36,17 @@ export const useDocumentsQuery = (projectId: string) =>
 export const useUploadDocumentMutation = (projectId: string) => {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (file: File) => api.uploadDocument(projectId, file),
+    // Takes a list, because a person with five lore files should not have to open
+    // the picker five times. `uploadAll` sends them one request at a time -- see
+    // batch.ts for why that is the right shape and not a compromise.
+    mutationFn: (files: File[]) => uploadAll(files, (file) => api.uploadDocument(projectId, file)),
     // Refetch rather than write an optimistic row: the 202 carries the SANITISED
     // filename and nothing else, so a hand-built row would have to invent
     // `id`, `size_bytes` and both timestamps. One extra round trip beats four
     // guesses, three of which the list renders.
+    //
+    // Fires on a partial success too, which is correct: the files that did upload
+    // have rows, and they should appear.
     onSuccess: () => queryClient.invalidateQueries({ queryKey: documentKeys.all(projectId) }),
   });
 };
