@@ -351,6 +351,35 @@ was unreachable, which is the exact defect the route exists to remove.
 
 ---
 
+## Error tracking
+
+Set `SENTRY_DSN` on the service. Blank is off, and off means no client is constructed at all.
+Without it the first news of a production exception is a user saying so: the free plan's log stream
+is not searchable, not alerting and not retained.
+
+`sentry-sdk` is in the optional `observability` dependency group, which is **not** in
+`default-groups` — a group that installs itself has not made an integration optional, only quiet.
+`deploy/Dockerfile` therefore asks for it by name (`--no-default-groups --group observability`), and
+`tests/test_deploy_blueprint.py` fails if the blueprint declares `SENTRY_DSN` while the image does
+not install the group. That combination is the silent failure: the service boots, serves, logs one
+warning nobody reads, and reports nothing while the operator believes tracking is on.
+
+**Verify the captured URL with your own eyes before trusting this.** The game route carries the API
+key in the path, so an event collected with default settings would put someone's credential in a
+third-party SaaS. `core/scrubbing.py` replaces that one segment in `before_send`:
+
+```
+/v1/sk-sent-abc123/8d2f…/chat/completions  ->  /v1/[redacted]/8d2f…/chat/completions
+```
+
+Trigger a 500 through the **game route specifically**, with a real key in the path, and read the URL
+on the event. The failure mode here is silent and its blast radius is someone else's provider bill.
+
+Costs 4.1 MB of RSS (measured 2026-09-02, torch-free image shape: 148.4 MB without, 152.5 MB with),
+against a 512 MB host that idles at 199.
+
+---
+
 ## Rolling back
 
 Render keeps previous deploys and can roll back to one from the dashboard. **Do this once

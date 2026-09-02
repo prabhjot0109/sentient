@@ -304,6 +304,33 @@ The server contains no `print()` calls, and `tests/test_logging.py` fails the su
 reappears. `cli.py` is the deliberate exception: a console script's stdout is its user interface,
 not a log.
 
+## Error tracking
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `SENTRY_DSN` | *(empty)* | Empty means off, and off means no client is constructed at all |
+| `SENTRY_ENVIRONMENT` | `development` | The name an on-call reader sees on the event |
+| `SENTRY_TRACES_SAMPLE_RATE` | `0.0` | Performance tracing. Langfuse already carries the spans |
+
+Off by default: a fresh clone reports to nobody. `sentry-sdk` is in the optional `observability`
+dependency group, so `uv sync` does not install it — a group that installs itself has not made an
+integration optional, only quiet. Turn it on locally with `uv sync --group observability`; the
+deployed image asks for it explicitly (`deploy/Dockerfile`). With the DSN set and the package
+absent the app logs one warning at startup and runs untracked, because an observability tool must
+never be a startup dependency of the thing it observes.
+
+**The game route carries the API key in the URL path**, so an error tracker with default settings
+would copy other people's credentials into a third-party SaaS. `core/scrubbing.py` is a `before_send`
+hook that replaces exactly that one path segment and keeps the rest, so an event is still findable:
+
+```
+/v1/sk-sent-abc123/8d2f…/chat/completions  ->  /v1/[redacted]/8d2f…/chat/completions
+```
+
+`X-API-Key`, `Authorization` and `Cookie` are redacted the same way, and `send_default_pii` is off
+explicitly rather than by relying on the SDK default. `SECURITY.md` accepts the key-in-path for logs
+the operator controls; this is the boundary where that stops being true.
+
 ## Performance notes
 
 Measured against a live Skyrim session, in descending order of impact. The first item outweighs

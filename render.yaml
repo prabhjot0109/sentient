@@ -127,6 +127,29 @@ services:
       - key: TOKEN_QUOTA_PER_MONTH
         sync: false
 
+      # --- observability, both OFF by default ---------------------------------
+      # Without an error sink the first news of a production exception is a user
+      # saying so: Render's free-plan log stream is not searchable, not alerting
+      # and not retained. Blank turns Sentry off entirely -- `core/scrubbing.py`
+      # returns no init options at all rather than a client with an empty DSN.
+      #
+      # The image must be built with `--group observability` for this to do
+      # anything; without it the app logs one warning at startup and runs
+      # untracked. That is deliberate: the observability tool is never allowed to
+      # be a startup dependency of what it observes.
+      #
+      # The game route puts the API key in the URL PATH, so every event would
+      # otherwise carry someone's credential into a third-party SaaS.
+      # `before_send` replaces that one segment and keeps the rest of the path.
+      - key: SENTRY_DSN
+        sync: false
+      - key: SENTRY_ENVIRONMENT
+        value: production
+      # 0.0 on purpose. Langfuse already carries the spans, with token counts and
+      # cost attached; paying a second vendor for the same traces is waste.
+      - key: SENTRY_TRACES_SAMPLE_RATE
+        value: "0.0"
+
       # --- runtime ------------------------------------------------------------
       # Render routes public traffic only to the port named by PORT. The Dockerfile
       # CMD reads it with a default of 8000 so the same image runs locally.

@@ -177,6 +177,7 @@ preserves the single-user local behaviour.
 | `RATE_LIMIT_ENABLED` | `false` | Per-key request limits. **Turn on for any public origin** |
 | `TOKEN_QUOTA_PER_MONTH` | `0` | `0` is unlimited. Bounds spend, where the rate limit bounds frequency |
 | `STT_PROVIDER` | none | `groq`, `openai` or `custom`. Unset infers from whichever credential resolves first |
+| `SENTRY_DSN` | none | Error tracking. Empty means no client is constructed at all |
 
 **Full reference — retrieval tuning, Qdrant setup, the credential vault, authentication, CORS and
 performance measurements: [CONFIGURATION.md](CONFIGURATION.md).**
@@ -459,7 +460,10 @@ scenario with the control and the gap for each:
   privilege boundary, and the threat model is tolerable only because documents are uploaded by the
   project's own owner.
 - **The API key in the game route's URL path**, which lands in proxy and access logs. Documented as
-  accepted for self-hosted use; re-examined for hosted.
+  accepted for self-hosted use; re-examined for hosted. It is also the reason `SENTRY_DSN` cannot be
+  switched on without a scrubber: an error tracker collects the full request URL by default, and a
+  SaaS is not a log the operator controls. `core/scrubbing.py` replaces that one path segment,
+  keeps the rest so the event stays findable, and redacts `X-API-Key`, `Authorization` and `Cookie`.
 - **Abuse**, and which of the two knobs below bounds which half of it.
 
 Multi-tenant isolation was audited live from two identities and is frozen as 20 cases in

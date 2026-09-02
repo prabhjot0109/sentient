@@ -84,6 +84,22 @@ class BlueprintTests(unittest.TestCase):
         dockerfile = _BLUEPRINT.parent / self.service["dockerfilePath"].lstrip("./")
         self.assertTrue(dockerfile.is_file(), f"{dockerfile} is not in the repository")
 
+    def test_the_image_installs_the_group_the_declared_dsn_needs(self):
+        """A second silent failure of the same family as the variable names above.
+
+        `SENTRY_DSN` in the dashboard and no `sentry-sdk` in the image produces a
+        service that boots, serves, logs one warning nobody reads, and reports
+        nothing -- with the operator believing error tracking is on. The group is
+        deliberately absent from `default-groups`, so the Dockerfile has to ask
+        for it by name and this is the only thing checking that it does.
+        """
+        if "SENTRY_DSN" not in self.declared:
+            self.skipTest("no error tracking declared")
+        dockerfile = (_BLUEPRINT.parent / self.service["dockerfilePath"].lstrip("./")).read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("--group observability", dockerfile)
+
     def test_the_vector_backend_is_one_the_factory_knows(self):
         """A free instance has no disk, so a FAISS index written under data/ would
         not survive a restart. The value still has to be one the factory selects on."""

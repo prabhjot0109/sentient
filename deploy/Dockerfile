@@ -29,7 +29,14 @@ COPY src/ src/
 #
 # A `uv run` in the CMD below would re-sync WITH the default groups and reinstall
 # torch at boot, so the entrypoint calls the venv's uvicorn directly.
-RUN uv sync --frozen --no-default-groups
+#
+# --group observability is added back on top, because that group is deliberately
+# NOT in `default-groups`: a fresh clone must not install an integration that
+# ships off. It costs 4.1 MB of RSS for sentry-sdk and 4.1 MB for langfuse
+# (measured 2026-09-02 on this image's shape), against a 512 MB host that idles
+# at 199. Without it, a deployment with SENTRY_DSN set logs one warning and runs
+# untracked -- which is the right failure, and still not the one you want.
+RUN uv sync --frozen --no-default-groups --group observability
 
 # migrations/ is required at runtime: PostgresStateStore applies every .sql file
 # in it the first time it opens a pool, so a container without this directory

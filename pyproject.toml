@@ -61,6 +61,20 @@ local-embeddings = [
     "sentence-transformers>=5.2.0",
 ]
 
+# Error tracking and tracing. Deliberately NOT in `default-groups`, unlike
+# `local-embeddings`: both integrations ship OFF, and a fresh clone that installs
+# them anyway has not made them optional, it has only made them quiet. The
+# deployed image opts in with `--group observability` on top of
+# `--no-default-groups`.
+#
+# Both are guarded by a lazy import at the point of use, so a machine with the
+# group missing and the DSN or key set logs one warning and carries on. An
+# observability tool must never be a startup dependency of the thing it observes.
+observability = [
+    "sentry-sdk[fastapi]>=2.44.0",
+    "langfuse>=3.11.0",
+]
+
 [tool.uv]
 default-groups = ["dev", "local-embeddings"]
 

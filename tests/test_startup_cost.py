@@ -43,11 +43,32 @@ class _Blocker:
 sys.meta_path.insert(0, _Blocker())
 """
 
+# The `observability` group is not in `default-groups`, so a fresh clone has
+# neither package. A developer machine that ran `uv sync --group observability`
+# does, which is exactly why this is blocked in a subprocess rather than asserted
+# on `sys.modules`: the question is about the fresh clone, not this session.
+_BLOCK_OBSERVABILITY = """
+import sys
+
+
+class _ObservabilityBlocker:
+    def find_spec(self, name, path=None, target=None):
+        if name.split(".")[0] in ("sentry_sdk", "langfuse"):
+            raise ImportError(f"{name} is in the optional observability group")
+        return None
+
+
+sys.meta_path.insert(0, _ObservabilityBlocker())
+"""
+
 _PYPROJECT = Path(__file__).resolve().parents[1] / "pyproject.toml"
 
 
-def _run(statement: str, *, block_torch: bool) -> subprocess.CompletedProcess[str]:
-    source = (_BLOCK_TORCH if block_torch else "") + statement
+def _run(
+    statement: str, *, block_torch: bool, block_observability: bool = False
+) -> subprocess.CompletedProcess[str]:
+    source = _BLOCK_TORCH if block_torch else ""
+    source += (_BLOCK_OBSERVABILITY if block_observability else "") + statement
     return subprocess.run(
         [sys.executable, "-c", source],
         capture_output=True,
@@ -144,6 +165,56 @@ class DependencyDeclarationTests(unittest.TestCase):
             "local-embeddings",
             self.pyproject["tool"]["uv"]["default-groups"],
         )
+
+
+class ObservabilityIsOptionalTests(unittest.TestCase):
+    """Sentry and Langfuse must be absent from a fresh clone, and harmless when
+    absent from a configured one. An observability tool that can stop the service
+    booting is a new way for the product to fail, which is worse than not having
+    it. Measured 2026-09-02 on the deployed image shape (torch blocked): importing
+    the app costs 148.4 MB, and the two packages add 4.1 MB each on top -- 8.2 MB
+    against a 512 MB budget the container currently uses 199 MB of.
+    """
+
+    def setUp(self):
+        with _PYPROJECT.open("rb") as handle:
+            self.pyproject = tomllib.load(handle)
+
+    def test_the_observability_group_exists_and_holds_both(self):
+        group = self.pyproject["dependency-groups"]["observability"]
+        joined = " ".join(group)
+        self.assertIn("sentry-sdk", joined)
+        self.assertIn("langfuse", joined)
+
+    def test_it_is_not_installed_by_a_fresh_clone(self):
+        """Unlike `local-embeddings`, which is in `default-groups` so `uv sync`
+        keeps behaving like main. Both integrations ship OFF, and installing them
+        anyway would not make them optional -- only quiet."""
+        self.assertNotIn(
+            "observability",
+            self.pyproject["tool"]["uv"]["default-groups"],
+            "both integrations ship off; a fresh clone must not install them",
+        )
+
+    def test_the_app_imports_with_neither_package_installed(self):
+        result = _run("import sentient.api.app", block_torch=True, block_observability=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_a_configured_dsn_with_no_sdk_warns_instead_of_raising(self):
+        """The worst case for the operator: the DSN is set on a deployment whose
+        image forgot `--group observability`. It must log and carry on, not die
+        during the lifespan."""
+        result = _run(
+            "import os\n"
+            "os.environ['SENTRY_DSN'] = 'https://k@example.test/1'\n"
+            "from sentient.api.app import configure_error_tracking\n"
+            "from sentient.core.config import load_rag_settings\n"
+            "print(configure_error_tracking(load_rag_settings()))\n",
+            block_torch=True,
+            block_observability=True,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip().splitlines()[-1], "False")
 
 
 class ModuleScopeImportTests(unittest.TestCase):

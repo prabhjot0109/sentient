@@ -29,8 +29,36 @@ from sentient.api.routers import (
     threads,
 )
 from sentient.core.logging import configure_logging, get_logger
+from sentient.core.scrubbing import sentry_init_options
 
 log = get_logger(__name__)
+
+
+def configure_error_tracking(settings) -> bool:
+    """Start Sentry when a DSN is configured. Returns whether it did.
+
+    Imported lazily because `sentry-sdk` lives in the optional `observability`
+    dependency group: a fresh clone does not have it, and an unguarded top-level
+    import would make the whole app unimportable rather than merely untracked.
+    The observability tool must never be a startup dependency of the thing it
+    observes.
+
+    Every option, including the path scrubber that keeps the game route's API key
+    out of a third-party SaaS, comes from `core.scrubbing.sentry_init_options`.
+    """
+    options = sentry_init_options(settings)
+    if options is None:
+        return False
+
+    try:
+        import sentry_sdk
+    except ImportError:
+        log.warning("SENTRY_DSN is set but sentry-sdk is not installed; error tracking is off")
+        return False
+
+    sentry_sdk.init(**options)
+    log.info("error tracking enabled", extra={"environment": settings.sentry_environment})
+    return True
 
 
 async def _warm_grounding_path() -> None:
@@ -59,6 +87,11 @@ async def lifespan(app: FastAPI):
     # First statement: everything below is entitled to log, and until this runs
     # the "sentient" logger has no handler and its records vanish.
     configure_logging(deps._settings)
+    # Second, so a failure in anything below reaches somewhere searchable. On the
+    # free plan Render's log stream is the only other sink and it is neither
+    # alerting nor retained -- without this the first news of a production
+    # exception is a user saying so.
+    configure_error_tracking(deps._settings)
     await deps.ingest_queue.start()
     await deps.reindex_queue.start()
     try:

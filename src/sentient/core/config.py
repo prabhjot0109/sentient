@@ -293,6 +293,13 @@ class RAGSettings:
     # `custom` provider selectable at all.
     stt_provider: str | None
     stt_base_url: str | None
+    # Error tracking. Empty DSN means off, which is the default -- a fresh clone
+    # reports to nobody. `sentry_traces_sample_rate` exists so performance
+    # tracing can be turned on independently; it is 0.0 because Langfuse already
+    # carries the spans, with token counts and cost attached.
+    sentry_dsn: str | None
+    sentry_environment: str
+    sentry_traces_sample_rate: float
 
 
 def load_rag_settings(api_key: str | None = None) -> RAGSettings:
@@ -439,4 +446,9 @@ def load_rag_settings(api_key: str | None = None) -> RAGSettings:
         max_api_keys_per_user=_env_int("MAX_API_KEYS_PER_USER", 25, minimum=0),
         stt_provider=os.getenv("STT_PROVIDER") or None,
         stt_base_url=os.getenv("STT_BASE_URL") or None,
+        sentry_dsn=os.getenv("SENTRY_DSN") or None,
+        # Named after the deployment, not the git branch: what an on-call reader
+        # needs from an event is which origin produced it.
+        sentry_environment=os.getenv("SENTRY_ENVIRONMENT") or "development",
+        sentry_traces_sample_rate=_env_float("SENTRY_TRACES_SAMPLE_RATE", 0.0),
     )
