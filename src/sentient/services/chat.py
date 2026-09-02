@@ -35,6 +35,7 @@ from sentient.adapters.llm.openai_wire import (
     to_history,
     to_langchain,
 )
+from sentient.adapters.tracing import trace_config
 from sentient.core.errors import ReindexInProgress
 from sentient.core.logging import get_logger
 from sentient.services.condense import condense_query
@@ -247,7 +248,7 @@ async def run_project_turn(
         get_llm=get_llm,
         stored_signature=stored_signature,
     )
-    result = await llm.ainvoke(messages)
+    result = await llm.ainvoke(messages, config=trace_config())
     return {
         "answer": str(result.content),
         "grounding": grounding,

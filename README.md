@@ -178,6 +178,7 @@ preserves the single-user local behaviour.
 | `TOKEN_QUOTA_PER_MONTH` | `0` | `0` is unlimited. Bounds spend, where the rate limit bounds frequency |
 | `STT_PROVIDER` | none | `groq`, `openai` or `custom`. Unset infers from whichever credential resolves first |
 | `SENTRY_DSN` | none | Error tracking. Empty means no client is constructed at all |
+| `LANGFUSE_ENABLED` | `false` | Tracing: retrieval, provider latency, token counts and cost per turn |
 
 **Full reference — retrieval tuning, Qdrant setup, the credential vault, authentication, CORS and
 performance measurements: [CONFIGURATION.md](CONFIGURATION.md).**

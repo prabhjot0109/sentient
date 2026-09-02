@@ -52,7 +52,7 @@ class RuntimeCompletionsTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_env_default_route_uses_runtime_llm_builder(self) -> None:
         class _FakeLLM:
-            async def ainvoke(self, messages):
+            async def ainvoke(self, messages, config=None):
                 class _Response:
                     content = "Greetings, traveler."
 
@@ -107,7 +107,7 @@ class RuntimeCompletionsTests(unittest.IsolatedAsyncioTestCase):
         captured: dict[str, object] = {}
 
         class _FakeLLM:
-            async def ainvoke(self, messages):
+            async def ainvoke(self, messages, config=None):
                 captured["system"] = messages[0].content
 
                 class _Response:
@@ -169,7 +169,7 @@ class RuntimeCompletionsTests(unittest.IsolatedAsyncioTestCase):
         captured: dict[str, object] = {}
 
         class _FakeLLM:
-            async def ainvoke(self, messages):
+            async def ainvoke(self, messages, config=None):
                 class _Response:
                     content = "Ready."
 
@@ -207,7 +207,7 @@ class RuntimeCompletionsTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_streaming_route_keeps_openai_sse_contract(self) -> None:
         class _FakeLLM:
-            async def astream(self, messages):
+            async def astream(self, messages, config=None):
                 class _Chunk:
                     content = "Greetings."
 
@@ -254,7 +254,7 @@ class RuntimeCompletionsTests(unittest.IsolatedAsyncioTestCase):
         retrieval_started = asyncio.Event()
 
         class _FakeLLM:
-            async def ainvoke(self, messages):
+            async def ainvoke(self, messages, config=None):
                 class _Response:
                     content = "Ready."
 
@@ -358,7 +358,7 @@ class RuntimeCompletionsTests(unittest.IsolatedAsyncioTestCase):
         captured: dict[str, object] = {}
 
         class _FakeLLM:
-            async def ainvoke(self, messages):
+            async def ainvoke(self, messages, config=None):
                 class _Response:
                     content = "Nords are hardy."
 

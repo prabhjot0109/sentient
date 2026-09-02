@@ -331,6 +331,42 @@ hook that replaces exactly that one path segment and keeps the rest, so an event
 explicitly rather than by relying on the SDK default. `SECURITY.md` accepts the key-in-path for logs
 the operator controls; this is the boundary where that stops being true.
 
+## Tracing
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `LANGFUSE_ENABLED` | `false` | The switch. Both keys are also required — half-configured is off |
+| `LANGFUSE_PUBLIC_KEY` | *(empty)* | |
+| `LANGFUSE_SECRET_KEY` | *(empty)* | |
+| `LANGFUSE_HOST` | `https://cloud.langfuse.com` | Set for a self-hosted instance |
+
+Langfuse rather than raw OpenTelemetry: OTel needs every span defined by hand for the same result,
+while one LangChain callback gives traces, token usage and cost — H4 having already landed usage on
+the message, which is what makes a trace show money rather than only latency. It speaks OTel
+underneath, so it is not a dead end.
+
+**Two rules govern the whole module** (`adapters/tracing.py`), because it sits on the request path:
+it must be non-blocking, and it must degrade to a no-op when anything is wrong. Every failure — the
+package absent, a bad key, an unreachable host, an exception a future SDK release invents —
+resolves to `None` **exactly once** and is never retried. Retrying a slow failure would add its
+timeout to every NPC line, which is how an observability outage becomes a latency regression.
+
+With tracing off, `trace_config()` returns `None`, which is LangChain's own default for that
+argument, so a fresh clone makes the identical call it made before H8.
+
+Three call sites are instrumented, and between them they cover every turn the product serves:
+
+| Site | Covers |
+| --- | --- |
+| `adapters/llm/openai_wire.astream_completion` | Both streaming surfaces — the Mantella game route and the console's project chat |
+| `services/chat.run_project_turn` | The non-streamed project turn |
+| `services/rag.NPCBrain.ask_with_context` | The projectless `/v1/chat` path and the CLI |
+
+The keys are read by `core/config.py` and passed to `Langfuse(...)` explicitly, rather than left to
+the SDK's own `LANGFUSE_*` environment lookup. Otherwise there would be a second, invisible
+configuration source beside this one — where `LANGFUSE_ENABLED=false` plus a stray secret key still
+traces.
+
 ## Performance notes
 
 Measured against a live Skyrim session, in descending order of impact. The first item outweighs

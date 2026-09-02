@@ -50,7 +50,7 @@ class LoadConcurrencyTests(unittest.IsolatedAsyncioTestCase):
         peak_inflight = 0
 
         class _SlowLLM:
-            async def ainvoke(self, messages):
+            async def ainvoke(self, messages, config=None):
                 nonlocal inflight, peak_inflight
                 inflight += 1
                 peak_inflight = max(peak_inflight, inflight)

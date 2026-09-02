@@ -10,6 +10,7 @@ from langchain_core.prompts import ChatPromptTemplate, HumanMessagePromptTemplat
 from sentient.adapters.documents import ArchivesIngestion
 from sentient.adapters.llm.models import build_chat_model
 from sentient.adapters.llm.persona import build_system_prompt
+from sentient.adapters.tracing import trace_config
 from sentient.core.config import RAGSettings, load_rag_settings
 
 load_dotenv()
@@ -104,13 +105,20 @@ class NPCBrain:
         matches = await self.ingestion.retrieve(question, k=top_k)
         documents = [document for document, _ in matches]
 
+        # None whenever tracing is off, which is LangChain's own default for this
+        # argument -- so a fresh clone runs the identical call it ran before H8.
+        config = trace_config(self.settings)
+
         document_chain = self._build_document_chain()
         if document_chain is not None and documents:
-            answer = await document_chain.ainvoke({"input": question, "context": documents})
+            answer = await document_chain.ainvoke(
+                {"input": question, "context": documents}, config=config
+            )
         else:
             # No Archives yet, or nothing relevant retrieved: still answer in-persona.
             result = await self.llm.ainvoke(
-                self.prompt.format_prompt(input=question, context="").to_messages()
+                self.prompt.format_prompt(input=question, context="").to_messages(),
+                config=config,
             )
             answer = str(result.content)
 

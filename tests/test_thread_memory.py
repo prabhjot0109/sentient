@@ -236,11 +236,11 @@ class ThreadMemoryEndpointTests(unittest.IsolatedAsyncioTestCase):
         captured = self.captured
 
         class FakeLLM:
-            async def ainvoke(self, messages):
+            async def ainvoke(self, messages, config=None):
                 captured.append([str(message.content) for message in messages])
                 return SimpleNamespace(content="reply")
 
-            async def astream(self, messages):
+            async def astream(self, messages, config=None):
                 captured.append([str(message.content) for message in messages])
                 yield SimpleNamespace(content="reply")
 

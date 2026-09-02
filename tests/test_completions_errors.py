@@ -46,7 +46,7 @@ class ErrorBodyTests(unittest.TestCase):
 class _DeadProvider:
     """An LLM whose ainvoke fails the way a 402 from Cerebras fails."""
 
-    async def ainvoke(self, messages):
+    async def ainvoke(self, messages, config=None):
         raise RuntimeError("Error code: 402 - payment_required: Visit your billing tab.")
 
 

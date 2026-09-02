@@ -85,7 +85,7 @@ class _ScriptedStreamLLM:
     def __init__(self, *chunks: _UsageChunk):
         self._chunks = chunks
 
-    async def astream(self, messages):
+    async def astream(self, messages, config=None):
         for chunk in self._chunks:
             yield chunk
 
@@ -179,7 +179,7 @@ class UsagePersistedByTheGameRouteTests(unittest.IsolatedAsyncioTestCase):
 
     async def _post(self, *, stream: bool):
         class _FakeLLM:
-            async def ainvoke(self, messages):
+            async def ainvoke(self, messages, config=None):
                 return SimpleNamespace(
                     content="Greetings, thane.",
                     usage_metadata={
@@ -190,7 +190,7 @@ class UsagePersistedByTheGameRouteTests(unittest.IsolatedAsyncioTestCase):
                     response_metadata={},
                 )
 
-            async def astream(self, messages):
+            async def astream(self, messages, config=None):
                 yield _UsageChunk("Greetings, ")
                 yield _UsageChunk(
                     "thane.",

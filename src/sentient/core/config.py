@@ -300,6 +300,14 @@ class RAGSettings:
     sentry_dsn: str | None
     sentry_environment: str
     sentry_traces_sample_rate: float
+    # Tracing (H8). `langfuse_enabled` is the switch and both keys are required
+    # for it to mean anything -- half-configured is off, not half-on. Read here
+    # rather than left to the SDK's own LANGFUSE_* lookup, so this file stays the
+    # only place configuration comes from.
+    langfuse_enabled: bool
+    langfuse_public_key: str | None
+    langfuse_secret_key: str | None
+    langfuse_host: str
 
 
 def load_rag_settings(api_key: str | None = None) -> RAGSettings:
@@ -451,4 +459,8 @@ def load_rag_settings(api_key: str | None = None) -> RAGSettings:
         # needs from an event is which origin produced it.
         sentry_environment=os.getenv("SENTRY_ENVIRONMENT") or "development",
         sentry_traces_sample_rate=_env_float("SENTRY_TRACES_SAMPLE_RATE", 0.0),
+        langfuse_enabled=_env_bool("LANGFUSE_ENABLED", False),
+        langfuse_public_key=os.getenv("LANGFUSE_PUBLIC_KEY") or None,
+        langfuse_secret_key=os.getenv("LANGFUSE_SECRET_KEY") or None,
+        langfuse_host=os.getenv("LANGFUSE_HOST") or "https://cloud.langfuse.com",
     )

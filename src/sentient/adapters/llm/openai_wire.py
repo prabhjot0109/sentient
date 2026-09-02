@@ -22,6 +22,7 @@ from typing import Any
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
 from pydantic import BaseModel
 
+from sentient.adapters.tracing import trace_config
 from sentient.core.logging import get_logger
 
 log = get_logger(__name__)
@@ -220,7 +221,11 @@ async def astream_completion(
     usage_chunk: Any = None
     failure: Exception | None = None
     try:
-        async for piece in llm.astream(messages):
+        # `config` is None whenever tracing is off, which is LangChain's own
+        # default -- so a fresh clone makes the identical call it made before
+        # H8. This is the site that covers BOTH streaming surfaces: the Mantella
+        # game route and the console's project chat both arrive here.
+        async for piece in llm.astream(messages, config=trace_config()):
             last_chunk = piece
             # Not simply the last chunk: several providers report usage mid-stream and
             # then send a final empty chunk carrying only the finish reason, which

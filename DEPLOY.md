@@ -380,6 +380,24 @@ against a 512 MB host that idles at 199.
 
 ---
 
+## Tracing
+
+`LANGFUSE_ENABLED=true` plus both keys. It is the only thing that can answer **where did that
+turn's nine seconds go** — retrieval, the provider, or the deferred write — and on 0.15 CPU that
+question has an answer that changes what you buy.
+
+Half-configured is off, not half-on: the switch and both keys are all required. Every failure — the
+package absent, a bad key, an unreachable host — resolves to "no handler" **once** and is never
+retried, so a Langfuse outage costs no latency at all. Verify that claim the way it matters: make
+the host unreachable mid-conversation and confirm chat keeps working. Without that check, rule two
+is a comment rather than a behaviour.
+
+Three call sites carry it, and between them they cover every turn the product serves: the streaming
+adapter (`astream_completion`, which both the game route and the console's chat arrive at), the
+non-streamed project turn, and `NPCBrain.ask_with_context`. Another 4.1 MB of RSS.
+
+---
+
 ## Rolling back
 
 Render keeps previous deploys and can roll back to one from the dashboard. **Do this once

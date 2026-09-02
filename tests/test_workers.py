@@ -185,7 +185,7 @@ class DeferredTurnTests(unittest.IsolatedAsyncioTestCase):
     async def test_stream_schedules_session_work_after_completion(self):
 
         class _LLM:
-            async def astream(self, messages):
+            async def astream(self, messages, config=None):
                 yield SimpleNamespace(
                     content="Done.",
                     usage_metadata={"input_tokens": 9, "output_tokens": 2, "total_tokens": 11},

@@ -35,13 +35,13 @@ class _FakeLLM:
     def __init__(self, reply: str):
         self._reply = reply
 
-    async def ainvoke(self, messages):
+    async def ainvoke(self, messages, config=None):
         class _Response:
             content = self._reply
 
         return _Response()
 
-    async def astream(self, messages):
+    async def astream(self, messages, config=None):
         for piece in self._reply.split(" "):
 
             class _Chunk:
@@ -276,7 +276,7 @@ class WebChatStreamingTests(unittest.IsolatedAsyncioTestCase):
         both surfaces."""
 
         class _DyingLLM(_FakeLLM):
-            async def astream(self, messages):
+            async def astream(self, messages, config=None):
                 class _Chunk:
                     content = "Greet"
 

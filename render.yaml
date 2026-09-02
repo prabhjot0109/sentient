@@ -150,6 +150,21 @@ services:
       - key: SENTRY_TRACES_SAMPLE_RATE
         value: "0.0"
 
+      # Langfuse tracing (H8). `LANGFUSE_ENABLED` is the switch and BOTH keys are
+      # required for it to mean anything -- half-configured is off, not half-on.
+      # Any failure at all (package missing, bad key, unreachable host) resolves to
+      # None once and is never retried, so a Langfuse outage costs no latency and
+      # chat is unaffected. This is what answers "where did that turn's nine
+      # seconds go", which three Phase X items are explicitly gated on.
+      - key: LANGFUSE_ENABLED
+        sync: false
+      - key: LANGFUSE_PUBLIC_KEY
+        sync: false
+      - key: LANGFUSE_SECRET_KEY
+        sync: false
+      - key: LANGFUSE_HOST
+        sync: false
+
       # --- runtime ------------------------------------------------------------
       # Render routes public traffic only to the port named by PORT. The Dockerfile
       # CMD reads it with a default of 8000 so the same image runs locally.

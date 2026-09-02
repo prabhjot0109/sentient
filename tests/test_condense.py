@@ -37,7 +37,7 @@ class _FakeLLM:
         self._reply = reply
         self.calls = 0
 
-    async def ainvoke(self, messages):
+    async def ainvoke(self, messages, config=None):
         self.calls += 1
 
         class _R:
@@ -71,7 +71,7 @@ class CondenseQueryTests(unittest.IsolatedAsyncioTestCase):
         from sentient.services.condense import condense_query
 
         class _Boom:
-            async def ainvoke(self, m):
+            async def ainvoke(self, m, config=None):
                 raise RuntimeError("boom")
 
         out = await condense_query(_Boom(), [HumanMessage(content="x")], "where is it?")

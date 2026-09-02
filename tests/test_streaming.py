@@ -5,7 +5,7 @@ import unittest
 
 
 class _FakeStreamLLM:
-    async def astream(self, messages):
+    async def astream(self, messages, config=None):
         for piece in ["Hello", ", ", "traveler."]:
 
             class _Response:
@@ -37,7 +37,7 @@ class _ScriptedStreamLLM:
     def __init__(self, *pieces: str):
         self._pieces = pieces
 
-    async def astream(self, messages):
+    async def astream(self, messages, config=None):
         for piece in self._pieces:
 
             class _Response:
@@ -57,7 +57,7 @@ class _FailingStreamLLM:
         self._pieces = pieces
         self._error = error or RuntimeError("Error code: 402 - payment_required")
 
-    async def astream(self, messages):
+    async def astream(self, messages, config=None):
         for piece in self._pieces:
 
             class _Response:

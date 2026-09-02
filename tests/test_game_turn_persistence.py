@@ -259,7 +259,7 @@ class GameTurnRouteTests(unittest.IsolatedAsyncioTestCase):
         replies = iter(["Greetings, thane.", "Whiterun."])
 
         class _FakeLLM:
-            async def ainvoke(self, messages):
+            async def ainvoke(self, messages, config=None):
                 return SimpleNamespace(content=next(replies))
 
         class _StubArchives:
