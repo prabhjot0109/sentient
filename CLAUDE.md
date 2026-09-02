@@ -156,8 +156,8 @@ through `MultiFernet`; **without it, changing `SENTIENT_SECRET_KEY` does not err
 sends every user to the env key**, because `services/runtime.py:_stored_key` swallows the decrypt
 failure by design and that fallback is correct for a single corrupt row.
 
-**Plan documents have drifted from the code.** Several quote 125, 200, 209 or 345 tests; the
-suite collects **434** as of 2026-08-27
+**Plan documents have drifted from the code.** Several quote 125, 200, 209, 345 or 434 tests; the
+suite collects **518** as of 2026-09-02
 (`uv run python -m pytest tests/ --collect-only -q | tail -1`).
 Each plan file also carries 🔶 DELTA banners that override its body text, newest delta wins.
 Never copy a test count, file list, or "state at time of writing" line out of a plan —
@@ -182,6 +182,74 @@ that already carried its own ellipsis, and one export that already existed. Ten 
 throwaway probe identity with no browser. `documents` and `chat_messages` were checked this
 way on 2026-08-23 and **agree** on both stores — record the negatives too, or the next reader
 re-measures them.
+
+## It is deployed
+
+Sentient runs in production as of 2026-09-01. `DEPLOY.md` at the repo root is the runbook; read it
+before changing anything that touches configuration, and treat these as facts about the running
+system rather than aspirations.
+
+| Piece | Where |
+| --- | --- |
+| API | `sentient-api-54r2.onrender.com` — Render, region `singapore`, free plan, Docker |
+| Console | `sentient-console.vercel.app` — Vercel, root `apps/console` |
+| Landing | `sentient-npc.vercel.app` — Vercel, root `apps/landing` |
+| Postgres + Auth | Neon `production` branch, endpoint `ep-muddy-rice`, `ap-southeast-1` |
+| Vectors | Qdrant Cloud, collection `sentient_lore_prod`, `eu-central-1` |
+
+**`/health` is liveness and `/health/ready` is readiness, and conflating them has already cost a
+deployment.** `/health` reads the archive and the settings and never touches the store, so it
+answers 200 while the database is unreachable; a platform health check wired to it keeps a broken
+instance in rotation. `/health/ready` runs a real query and reports queue depths alongside. Its
+probe id is the **nil UUID** and must stay a well-formed one: `projects.user_id` is a `uuid` column
+and asyncpg refuses to *bind* a non-uuid string, so a readable sentinel passes the whole suite
+against SQLite and answers 503 against a healthy Neon.
+
+**`GET /` exists because Render's port scanner probes `HEAD /`.** It read a 404 as "nothing serving
+on this port" and never added the port to the routing table, so the service was healthy, logged
+`Uvicorn running`, passed its health check every five seconds, and returned 404 with
+`x-render-routing: no-server` to the entire internet. Liveness and routing are decided separately.
+**FastAPI does not derive HEAD from GET** — a `@router.get("/")` answers `HEAD /` with 405 — so the
+route registers both methods explicitly, and `include_in_schema=False` because two methods on one
+handler emit duplicate OpenAPI operation ids.
+
+**torch is not installed on the deployed image and must not become so.**
+`sentence-transformers` is the only package that requires it, and only
+`EMBEDDING_PROVIDER=huggingface` requires that. It lives in the `local-embeddings` dependency
+group, which stays in `[tool.uv] default-groups` so `uv sync` still behaves like `main`, while
+`deploy/Dockerfile` opts out with `--no-default-groups`. Measured 2026-08-31: importing the app
+costs 305 MB and 20.0 s with torch present, **147 MB and 3.3 s without**, against a 512 MB budget.
+Deferring the `langchain_huggingface` imports halves the time and does nothing for memory on its
+own, because `langchain_groq` imports `transformers` for token counting and transformers imports
+torch whenever torch is merely *installed*. `tests/test_startup_cost.py` pins both halves by
+blocking torch in a subprocess.
+
+**`data/` is an INPUT to a reindex, not a cache of one.** `run_reindex_job` re-reads every uploaded
+file from `DATA_DIR` to rebuild, and the free plan has no disk, so after a restart the rows and the
+vectors survive while the files do not. The job refuses before purging anything (`903e8a9`);
+before that fix it destroyed a working index and wedged the project at `reindexing_required` with
+rows frozen at `reindexing`, a status nothing reconciles.
+
+**Ingestion is slow on 0.15 CPU and says so.** A scanned 6-page PDF measured 15m51s in production
+— Tesseract at 200 DPI costs ~8 s per page on a developer machine and ~60 s there — and for all of
+it the log was silent, which made correct work indistinguishable from a hang. Ingestion and OCR now
+log start, per-page progress, completion with duration, and failure with the filename. A scanned
+PDF and a corrupt one are identical at upload time (both extract to zero characters); the OCR line
+is what separates them.
+
+**`render.yaml` is gated by `tests/test_deploy_blueprint.py`**, because its failure mode is
+silence: `core/config.py` reads env vars with defaults, so a wrong name does not fail a build or
+raise at boot, it leaves the default in place. The real names are `MODEL_NAME` and
+`EMBEDDING_MODEL_NAME`; `LLM_MODEL` and `EMBEDDING_MODEL` do not exist. `NEON_AUTH_BASE_URL` is
+required even though nothing reads it directly — the issuer is derived from it, and with neither it
+nor `NEON_AUTH_ISSUER` set, PyJWT's issuer check returns early on `None` and verification is
+silently off while authentication stays on.
+
+**The console origin appears in three lists that must agree**: Render's `CORS_ALLOW_ORIGINS`, Neon
+Auth's trusted-domain list, and landing's `VITE_CONSOLE_URL`. Each fails differently — a blocked
+preflight with no status, `invalid domain` in a body, and a CTA that silently goes nowhere. The
+`VITE_*` variables are inlined at **build** time, so `apps/landing/scripts/check-env.mjs` fails a
+Vercel build rather than shipping a console that points at `127.0.0.1`.
 
 ## Commands
 

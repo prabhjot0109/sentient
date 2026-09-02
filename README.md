@@ -465,13 +465,26 @@ npx prettier --check .
 
 ## Deployment
 
+**[`DEPLOY.md`](DEPLOY.md) is the runbook** — hosts, environment, the origin lists, backups, and
+what to check first when chat stops working. Sentient has been running in production since
+2026-09-01 on Render (Singapore) with Neon Postgres and Qdrant Cloud.
+
 ```bash
 docker build -f deploy/Dockerfile -t sentient .
-docker run -p 8000:8000 --env-file .env -v sentient-data:/app/data sentient
+docker run -p 8000:8000 --env-file /tmp/env.unquoted -v sentient-data:/app/data sentient
 ```
 
-`data/` must be a mounted volume. It holds uploads, FAISS partitions, and the SQLite fallback, none
-of which survive a redeploy if written inside the container.
+Two things that bite here and nowhere else. **`docker --env-file` does not strip quotes** while
+`python-dotenv` does, so a `.env` line written `DATABASE_URL="postgresql://…"` reaches the
+container with a literal `"` and asyncpg rejects the DSN; strip them first with
+`sed -E 's/^([A-Za-z_][A-Za-z0-9_]*)="(.*)"$/\1=\2/' .env > /tmp/env.unquoted`. And the image is
+built with `uv sync --no-default-groups`, so it has **no torch** — set `EMBEDDING_PROVIDER` to a
+hosted provider, since the local HuggingFace one has no model to run.
+
+`data/` should be a mounted volume. It holds uploads, FAISS partitions, and the SQLite fallback,
+none of which survive a redeploy if written inside the container — and uploads are an *input* to a
+reindex, not a cache of one, so without a volume a rebuild after a restart is refused rather than
+silently producing an empty index.
 
 <!-- ## License
 
