@@ -411,19 +411,26 @@ A rollback path you have not executed is a belief, not a plan.
 
 ---
 
-## What happens if the service restarts mid-ingest
+## What happens if the service restarts mid-ingest, or mid-reindex
 
-`IngestQueue` and `defer` are in-process and not crash-durable, so a restart during an ingest
-loses the job. Startup reconciliation fails orphaned `processing` rows, so the document lands as
-`failed` rather than spinning forever, and the user's recovery is to upload it again.
+`IngestQueue` and `defer` are in-process and not crash-durable, so a restart during either loses
+the job. Startup reconciliation (`services/ingestion.py::reconcile_interrupted_work`) handles both,
+and they get **opposite** answers:
 
-That is a deliberate stopping point rather than an oversight. Durable background work means a
-shared broker, which is the same prerequisite as running more than one instance, and the exposure
-window here is a single ingest measured in seconds to minutes. What matters is that the failure
-is **visible and recoverable by the user**, and it is.
+| Left at | Becomes | Why |
+| --- | --- | --- |
+| `processing` | `failed` | An upload that never completed. The archive may hold nothing for it, so re-uploading is the fix, and `failed` is what the console draws to say so. |
+| `reindexing` | `ready`, and its **project** goes to `reindexing_required` | A document that was already `ready` when a rebuild started. The file is still on disk and only its vectors are stale. Marking it `failed` would tell the user to re-upload a file the system still has. |
 
-Note the gap this does *not* cover: reconciliation fails `processing` rows only. A crash during a
-**reindex** leaves rows at `reindexing`, which nothing clears.
+The project half is the part the row cannot express on its own. `run_reindex_job` purges the
+project's vectors *before* rebuilding, so a crash mid-rebuild leaves even the rows it never reached
+reading `ready` while their vectors are gone. `reindexing_required` is exactly "a rebuild is
+wanted": retrieval answers 409 until it happens, and re-enqueueing converges because `IngestQueue`
+drains FIFO through one worker and `index()` clears the scope before writing.
+
+Durable background work is deliberately **not** built here. It means a shared broker, which is the
+same prerequisite as running more than one instance, and the exposure window is a single job. What
+matters is that the failure is **visible and recoverable by the user**, and now it is for both.
 
 ---
 

@@ -92,6 +92,48 @@ def sniff_content_type(head: bytes, suffix: str) -> str:
     raise InvalidRequest("Only PDF and TXT files are supported")
 
 
+async def reconcile_interrupted_work(state_store) -> dict[str, int]:
+    """Put the rows a dead process left mid-flight into states the user can act on.
+
+    `IngestQueue` and `defer` are in-process and not crash-durable, so anything
+    still moving when the process died is not going to finish. Two statuses
+    survive a crash and they need **opposite** answers:
+
+    - `processing` is an upload that never completed. The archive may hold
+      nothing for it, so `failed` is the truth and re-uploading is the fix.
+    - `reindexing` is a document that was already `ready` when a rebuild started.
+      The file is still on disk; only its vectors are stale. Marking it `failed`
+      would tell the user to re-upload a file the system still has.
+
+    The second half needs the project too, and that is the part `fail_stuck_documents`
+    could never express. `run_reindex_job` purges the project's vectors *before*
+    rebuilding, so a crash mid-rebuild leaves the rows it had not reached yet
+    still reading `ready` while their vectors are gone. Only the project's status
+    can say that, and `reindexing_required` already means exactly "a rebuild is
+    wanted" -- a state the system converges out of, because `IngestQueue` drains
+    FIFO through one worker and `index()` clears the scope before writing.
+
+    Deliberately NOT widened into durable background work. That means a shared
+    broker, which is X5's prerequisite, and the position DEPLOY.md already argues
+    still holds once `reindexing` is covered: the failure is visible and
+    recoverable by the user, and the exposure window is one job.
+    """
+    failed = await state_store.fail_stuck_documents()
+    if failed:
+        log.warning("marked orphaned ingest rows failed", extra={"count": failed})
+
+    project_ids = await state_store.restore_reindexing_documents()
+    for project_id in project_ids:
+        await state_store.set_project_status(project_id, "reindexing_required")
+    if project_ids:
+        log.warning(
+            "restored rows stranded mid-reindex; their projects want a rebuild",
+            extra={"projects": len(project_ids)},
+        )
+
+    return {"failed_ingests": failed, "restored_reindexes": len(project_ids)}
+
+
 async def run_ingest_job(job: IngestJob, *, state_store, archives) -> None:
     """Move a staged upload into the archive and index it.
 
@@ -216,11 +258,11 @@ async def _refuse_when_sources_are_missing(
     keeps the vectors it already has instead of being emptied on the way to a
     rebuild that was never going to finish.
 
-    The rows go to `failed` rather than being left at `reindexing`. Startup
-    reconciliation only fails orphaned `processing` rows, so a `reindexing` row is
-    a status nothing ever clears -- a spinner in the document manager with no end.
-    `failed` is a state the console already draws and the user can act on by
-    re-uploading.
+    The rows go to `failed`, and this is the one place that is the right answer
+    for a document: the uploaded file really is gone, so re-uploading really is
+    the fix. That is what separates it from a crash mid-rebuild, where the file is
+    still on disk and `reconcile_interrupted_work` restores the row to `ready`
+    instead. `failed` is a state the console already draws.
     """
     if not documents:
         return

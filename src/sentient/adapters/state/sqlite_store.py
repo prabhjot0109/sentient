@@ -430,17 +430,46 @@ class SQLiteStateStore:
     def _fail_stuck_documents(self) -> int:
         with closing(self._connect()) as conn, conn:
             cursor = conn.execute(
-                "UPDATE documents SET status='failed', updated_at=? "
-                "WHERE status IN ('processing', 'reindexing')",
+                "UPDATE documents SET status='failed', updated_at=? WHERE status='processing'",
                 (_now(),),
             )
         return cursor.rowcount
 
     async def fail_stuck_documents(self) -> int:
-        """Mark every in-flight ingest row failed. Process-wide and idempotent:
+        """Mark every orphaned *ingest* row failed. Process-wide and idempotent:
         the dead process could have been mid-ingest for any tenant, and a second
-        run finds nothing left to change."""
+        run finds nothing left to change.
+
+        `processing` only. A `reindexing` row is a different situation with the
+        opposite answer -- see `restore_reindexing_documents`.
+        """
         return await asyncio.to_thread(self._fail_stuck_documents)
+
+    def _restore_reindexing_documents(self) -> list[str]:
+        with closing(self._connect()) as conn, conn:
+            rows = conn.execute(
+                "SELECT DISTINCT project_id FROM documents WHERE status='reindexing'"
+            ).fetchall()
+            conn.execute(
+                "UPDATE documents SET status='ready', updated_at=? WHERE status='reindexing'",
+                (_now(),),
+            )
+        return [row["project_id"] for row in rows]
+
+    async def restore_reindexing_documents(self) -> list[str]:
+        """Put rows stranded mid-rebuild back to `ready`, and name their projects.
+
+        `ready`, not `failed`. A row reaches `reindexing` only from
+        `run_reindex_job`, which sets it on a document that was already `ready`:
+        the file is still uploaded and still on disk, and only its vectors are
+        stale. `failed` is the console's "re-upload this", which is the wrong
+        instruction for a file the system still holds.
+
+        The project ids are returned rather than acted on here, because the
+        stores own rows and the reconciliation policy belongs in `services/`.
+        Distinct, so a ten-document project is guarded once.
+        """
+        return await asyncio.to_thread(self._restore_reindexing_documents)
 
     # ---- provider credentials ----
     def _upsert_credential(

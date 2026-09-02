@@ -30,6 +30,7 @@ from sentient.api.routers import (
 )
 from sentient.core.logging import configure_logging, get_logger
 from sentient.core.scrubbing import sentry_init_options
+from sentient.services.ingestion import reconcile_interrupted_work
 
 log = get_logger(__name__)
 
@@ -96,17 +97,16 @@ async def lifespan(app: FastAPI):
     await deps.reindex_queue.start()
     try:
         try:
-            # The ingest queue is in-process and not crash-durable: anything left
-            # in `processing` when the previous process died will never finish,
-            # and F6 would show it as an in-flight ingest forever, indistinguishable
-            # from a slow one. Failing them is the honest state and the user can
-            # retry the upload. Wrapped deliberately -- a reconciliation failure
-            # must not stop the server from starting, exactly as warmup does not.
-            stuck = await deps.state_store.fail_stuck_documents()
-            if stuck:
-                log.warning("marked orphaned ingest rows failed", extra={"count": stuck})
+            # The queues are in-process and not crash-durable: anything still
+            # moving when the previous process died will never finish, and F6
+            # would show it as in-flight forever, indistinguishable from slow.
+            # `processing` and `reindexing` get opposite answers -- see
+            # `reconcile_interrupted_work`. Wrapped deliberately: a reconciliation
+            # failure must not stop the server from starting, exactly as warmup
+            # does not.
+            await reconcile_interrupted_work(deps.state_store)
         except Exception:
-            log.exception("could not reconcile stuck ingest rows")
+            log.exception("could not reconcile interrupted work")
 
         have_provider_key = deps.any_provider_key_present()
         try:

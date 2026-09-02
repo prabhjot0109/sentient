@@ -318,16 +318,40 @@ class PostgresStateStore:
         return int(total or 0)
 
     async def fail_stuck_documents(self) -> int:
-        """Mark every in-flight ingest row failed. Process-wide and idempotent:
+        """Mark every orphaned *ingest* row failed. Process-wide and idempotent:
         the dead process could have been mid-ingest for any tenant, and a second
-        run finds nothing left to change."""
+        run finds nothing left to change.
+
+        `processing` only. A `reindexing` row is a different situation with the
+        opposite answer -- see `restore_reindexing_documents`.
+        """
         pool = await self._pool_()
         async with pool.acquire() as conn:
             rows = await conn.fetch(
                 "UPDATE documents SET status='failed', updated_at=now() "
-                "WHERE status IN ('processing', 'reindexing') RETURNING id"
+                "WHERE status='processing' RETURNING id"
             )
         return len(rows)
+
+    async def restore_reindexing_documents(self) -> list[str]:
+        """Put rows stranded mid-rebuild back to `ready`, and name their projects.
+
+        `ready`, not `failed`. A row reaches `reindexing` only from
+        `run_reindex_job`, which sets it on a document that was already `ready`:
+        the file is still uploaded and still on disk, and only its vectors are
+        stale. `failed` is the console's "re-upload this", which is the wrong
+        instruction for a file the system still holds.
+
+        One statement rather than a SELECT then an UPDATE, so a concurrent
+        reindex cannot slip a row in between the two and be silently reverted.
+        """
+        pool = await self._pool_()
+        async with pool.acquire() as conn:
+            rows = await conn.fetch(
+                "UPDATE documents SET status='ready', updated_at=now() "
+                "WHERE status='reindexing' RETURNING DISTINCT project_id::text"
+            )
+        return [row["project_id"] for row in rows]
 
     async def delete_document(self, project_id: str, filename: str) -> bool:
         pool = await self._pool_()
