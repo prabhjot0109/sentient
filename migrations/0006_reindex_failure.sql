@@ -1,0 +1,16 @@
+-- Split the two meanings `projects.status = 'reindexing_required'` carries.
+--
+-- It is written both by `update_config` ("a rebuild is queued") and by
+-- `run_reindex_job`'s except ("a rebuild failed"), and nothing could tell them
+-- apart. A guard that tried 409'd a failed project for good, which 478e591 fixed
+-- by deleting the guard rather than the ambiguity -- correctly, since IngestQueue
+-- is a single FIFO worker and index() clears the scope before writing, so
+-- re-enqueueing converges. The user-visible half survived: the console showed a
+-- project that was about to be fine, forever.
+--
+-- A REASON, not a second state. `documents` already carries `error` this way, and
+-- a distinct `reindex_failed` status would grow a case in every consumer that
+-- switches on `status` while still needing to accept a retry that put it back to
+-- `reindexing_required` -- two states where one plus a reason does the job. It
+-- also cannot go stale against `status` the way a second status can.
+alter table projects add column if not exists reindex_error text;

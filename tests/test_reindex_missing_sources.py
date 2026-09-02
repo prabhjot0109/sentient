@@ -46,6 +46,7 @@ class FakeStore:
         self.documents = documents
         self.document_status: dict[str, str] = {}
         self.project_status: str | None = None
+        self.reindex_error: str | None = None
 
     async def list_documents(self, project_id: str) -> list[dict[str, Any]]:
         return list(self.documents)
@@ -58,6 +59,9 @@ class FakeStore:
 
     async def set_project_status(self, project_id: str, status: str) -> None:
         self.project_status = status
+
+    async def set_reindex_error(self, project_id: str, error: str | None) -> None:
+        self.reindex_error = error
 
 
 class ReindexWithMissingSourcesTests(unittest.IsolatedAsyncioTestCase):

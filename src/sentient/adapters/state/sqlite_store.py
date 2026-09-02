@@ -52,6 +52,7 @@ class SQLiteStateStore:
                 CREATE TABLE IF NOT EXISTS projects (
                   id TEXT PRIMARY KEY, user_id TEXT NOT NULL, name TEXT NOT NULL,
                   base_preset TEXT NOT NULL DEFAULT 'custom', status TEXT NOT NULL DEFAULT 'active',
+                  reindex_error TEXT,
                   created_at TEXT, FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE);
                 CREATE TABLE IF NOT EXISTS project_configs (
                   project_id TEXT PRIMARY KEY, llm_provider TEXT, embedding_provider TEXT,
@@ -104,6 +105,7 @@ class SQLiteStateStore:
                     if name not in existing:
                         conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {ddl_type}")
 
+            _ensure_columns("projects", {"reindex_error": "TEXT"})
             _ensure_columns("chat_threads", {"prefix_hash": "TEXT"})
             _ensure_columns(
                 "chat_messages",
@@ -205,6 +207,10 @@ class SQLiteStateStore:
             "name": name,
             "base_preset": base_preset,
             "status": "active",
+            # Present and null rather than absent. A key the console must probe
+            # for with `in` instead of reading is the shape divergence between
+            # the two stores that has cost a plan revision six times over.
+            "reindex_error": None,
         }
 
     async def create_project(
@@ -238,6 +244,20 @@ class SQLiteStateStore:
 
     async def set_project_status(self, project_id: str, status: str) -> None:
         await asyncio.to_thread(self._set_project_status, project_id, status)
+
+    def _set_reindex_error(self, project_id: str, error: str | None) -> None:
+        with closing(self._connect()) as conn, conn:
+            conn.execute("UPDATE projects SET reindex_error=? WHERE id=?", (error, project_id))
+
+    async def set_reindex_error(self, project_id: str, error: str | None) -> None:
+        """Why the last rebuild failed, or None to clear it.
+
+        Separate from `set_project_status` on purpose: the status says what the
+        project needs and the reason says why, and a failed rebuild and a queued
+        one are the same need. Collapsing them into one call would invite a caller
+        to write a status without the reason, which is the ambiguity this closes.
+        """
+        await asyncio.to_thread(self._set_reindex_error, project_id, error)
 
     def _delete_project(self, user_id: str, project_id: str) -> bool:
         # user_id is in the WHERE clause, not checked by the caller: a wrong owner

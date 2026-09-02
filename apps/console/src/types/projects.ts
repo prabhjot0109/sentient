@@ -18,6 +18,20 @@ export type Project = {
    * nothing on Neon, so nothing renders it.
    */
   created_at?: string | null;
+  /**
+   * Why the last rebuild failed, or null. Returned by BOTH stores from
+   * `get_project`, `list_projects` and `create_project` -- verified against the
+   * column lists rather than assumed, because `created_at` above is the
+   * cautionary tale of a field only one of them returns.
+   *
+   * It exists because `status` carries two meanings. `reindexing_required` is
+   * written both by `update_config` ("a rebuild is queued") and by
+   * `run_reindex_job`'s except ("a rebuild failed"), so without a reason the
+   * console shows a project that is about to be fine, forever. A reason rather
+   * than a second status: nothing that switches on `status` grows a case, and a
+   * retry is still the ordinary path back.
+   */
+  reindex_error?: string | null;
 };
 
 /**

@@ -141,7 +141,7 @@ class PostgresStateStore:
         async with pool.acquire() as conn, conn.transaction():
             row = await conn.fetchrow(
                 "INSERT INTO projects (user_id, name, base_preset) VALUES ($1,$2,$3) "
-                "RETURNING id::text, name, base_preset, status",
+                "RETURNING id::text, name, base_preset, status, reindex_error",
                 user_id,
                 name,
                 base_preset,
@@ -155,7 +155,7 @@ class PostgresStateStore:
         pool = await self._pool_()
         async with pool.acquire() as conn:
             row = await conn.fetchrow(
-                "SELECT id::text, user_id::text, name, base_preset, status FROM projects "
+                "SELECT id::text, user_id::text, name, base_preset, status, reindex_error FROM projects "
                 "WHERE id=$1 AND user_id=$2",
                 project_id,
                 user_id,
@@ -166,7 +166,7 @@ class PostgresStateStore:
         pool = await self._pool_()
         async with pool.acquire() as conn:
             rows = await conn.fetch(
-                "SELECT id::text, name, base_preset, status FROM projects WHERE user_id=$1 "
+                "SELECT id::text, name, base_preset, status, reindex_error FROM projects WHERE user_id=$1 "
                 "ORDER BY created_at DESC",
                 user_id,
             )
@@ -176,6 +176,22 @@ class PostgresStateStore:
         pool = await self._pool_()
         async with pool.acquire() as conn:
             await conn.execute("UPDATE projects SET status=$1 WHERE id=$2", status, project_id)
+
+    async def set_reindex_error(self, project_id: str, error: str | None) -> None:
+        """Why the last rebuild failed, or None to clear it.
+
+        Separate from `set_project_status` on purpose: the status says what the
+        project needs and the reason says why, and a failed rebuild and a queued
+        one are the same need. Collapsing them into one call would invite a caller
+        to write a status without the reason, which is the ambiguity this closes.
+        """
+        if not _is_uuid(project_id):
+            return
+        pool = await self._pool_()
+        async with pool.acquire() as conn:
+            await conn.execute(
+                "UPDATE projects SET reindex_error=$1 WHERE id=$2", error, project_id
+            )
 
     async def delete_project(self, user_id: str, project_id: str) -> bool:
         if not _is_uuid(project_id):

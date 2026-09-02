@@ -63,7 +63,16 @@ export function DocumentsScreen({ projectId }: { projectId: string }) {
         no documents at all has to fall back on, and what is already true at
         mount.
       */}
-      {(project?.status === REINDEXING || hasReindexingDocument(documents)) && <ReindexBanner />}
+      {/*
+        `reindex_error` is checked FIRST and on its own. A failed rebuild leaves
+        no `reindexing` rows and the project at `reindexing_required`, which is
+        indistinguishable from a queued one by status alone -- the reason is the
+        only thing that separates them, so it also has to be able to raise the
+        banner by itself.
+      */}
+      {(project?.reindex_error ||
+        project?.status === REINDEXING ||
+        hasReindexingDocument(documents)) && <ReindexBanner reason={project?.reindex_error} />}
 
       <UploadDropzone
         onUpload={(files) =>

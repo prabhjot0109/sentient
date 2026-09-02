@@ -12,7 +12,7 @@ import {
   UnauthenticatedError,
   ValidationError,
 } from "./errors";
-import { describe } from "./messages";
+import { describe, describeReindexFailure } from "./messages";
 
 suite("describe", () => {
   it("tells a signed-out user to sign in again rather than showing a 401", () => {
@@ -91,5 +91,35 @@ suite("describe", () => {
   it("handles a non-Error thrown value without throwing itself", () => {
     expect(describe("boom").tone).toBe("failure");
     expect(describe(undefined).title).toBe("Something went wrong");
+  });
+});
+
+suite("describeReindexFailure", () => {
+  it("is null when there is nothing to report, so the queued banner shows instead", () => {
+    expect(describeReindexFailure(null)).toBeNull();
+    expect(describeReindexFailure(undefined)).toBeNull();
+    expect(describeReindexFailure("")).toBeNull();
+  });
+
+  it("passes the backend's own sentence through", () => {
+    // `_refuse_when_sources_are_missing` writes this verbatim. It names the file
+    // and the cause, which is the only actionable part; generic copy over the
+    // top of it is the regression rule 2 exists to prevent.
+    const reason =
+      "Cannot rebuild this project's index: 1 uploaded file(s) are no longer on " +
+      "disk (lore.pdf). Re-upload them and reindex.";
+    expect(describeReindexFailure(reason)).toEqual({
+      title: "The last rebuild of this project failed",
+      body: reason,
+      tone: "failure",
+    });
+  });
+
+  it("never renders a bare status line", () => {
+    // The console's oldest rule: `reindexing_required` is a value, not a
+    // sentence, and a user cannot act on it.
+    const copy = describeReindexFailure("RuntimeError: rate limited: 429");
+    expect(copy?.body).not.toBe("reindexing_required");
+    expect(copy?.body).toContain("rate limited");
   });
 });

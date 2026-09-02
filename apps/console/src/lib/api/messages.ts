@@ -123,3 +123,28 @@ export function describe(error: unknown): ErrorCopy {
     tone: "failure",
   };
 }
+
+/**
+ * The one failure that does not arrive as a thrown error.
+ *
+ * `projects.reindex_error` is a field on a *successful* response, because a
+ * failed rebuild is a state the project is in rather than something that went
+ * wrong with the request that asked about it. It still becomes words here, so
+ * the two rules above hold in one place: nothing renders a raw status line, and
+ * a sentence the backend wrote for a human is passed through rather than
+ * covered.
+ *
+ * Returns null when there is nothing to report, so a caller renders the ordinary
+ * "a rebuild is queued" banner instead. That distinction is the entire point of
+ * the column: `projects.status = 'reindexing_required'` is written both when a
+ * rebuild is enqueued and when one fails, so without a reason the console shows
+ * a project that is about to be fine, forever.
+ */
+export function describeReindexFailure(reason: string | null | undefined): ErrorCopy | null {
+  if (!reason) return null;
+  return {
+    title: "The last rebuild of this project failed",
+    body: reason,
+    tone: "failure",
+  };
+}

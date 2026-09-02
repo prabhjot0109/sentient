@@ -239,9 +239,31 @@ async def run_reindex_job(job: ReindexJob, *, state_store, archives) -> None:
                 status="ready",
             )
         await state_store.set_project_status(job.project_id, "active")
-    except Exception:
+        # Cleared in the SUCCESS path, not only on the next failure. A project
+        # that recovers must not keep displaying an explanation of a problem it
+        # no longer has.
+        await state_store.set_reindex_error(job.project_id, None)
+    except Exception as exc:
         await state_store.set_project_status(job.project_id, "reindexing_required")
+        # The status alone cannot say this: `update_config` writes the same value
+        # to mean "a rebuild is queued". The reason is what tells a user looking
+        # at the console whether their project is about to be fine or is stuck.
+        # The traceback stays in the log; this is the one sentence they can act
+        # on, so it carries the provider's own words where there are any.
+        await state_store.set_reindex_error(job.project_id, _failure_reason(exc))
         raise
+
+
+def _failure_reason(exc: Exception) -> str:
+    """One line a user can act on, from an exception written for a developer.
+
+    The class name is kept because `RuntimeError` on its own is noise while
+    `TimeoutError` is a diagnosis, and an exception with an empty `str()` -- which
+    several provider SDKs raise -- would otherwise record a blank reason that
+    reads exactly like no failure at all.
+    """
+    detail = str(exc).strip()
+    return f"{type(exc).__name__}: {detail}" if detail else type(exc).__name__
 
 
 async def _refuse_when_sources_are_missing(
@@ -288,12 +310,17 @@ async def _refuse_when_sources_are_missing(
         "reindex refused: uploaded source files are missing",
         extra={"project_id": job.project_id, "missing": missing},
     )
-    raise SourceFilesMissing(
+    reason = (
         f"Cannot rebuild this project's index: {len(missing)} uploaded "
         f"file(s) are no longer on disk ({', '.join(sorted(missing))}). "
         "Re-upload them and reindex. This happens when the service restarts "
         "without a persistent volume for its data directory."
     )
+    # Stored verbatim. This sentence was written for a human and names both the
+    # files and the cause; covering it with generic copy in the console would
+    # throw away the only actionable part.
+    await state_store.set_reindex_error(job.project_id, reason)
+    raise SourceFilesMissing(reason)
 
 
 async def stage_and_enqueue(
