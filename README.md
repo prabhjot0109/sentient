@@ -621,5 +621,15 @@ is stored, and the two things worth knowing before you sign up are that **it kee
 conversation transcripts** — including ones held in-game, where no console is open — and that your
 provider API keys are stored encrypted under a server-side key.
 
-Report anything at <https://github.com/prabhjot0109/sentient/issues>. For a security
-vulnerability, open a private advisory instead — [SECURITY.md](SECURITY.md).
+## Support
+
+Report anything at <https://github.com/prabhjot0109/sentient/issues>. There are three templates and
+the first one — *My NPC won't talk* — asks for the five things that would otherwise cost a second
+round trip: the origin, whether you self-host, the provider, whether the project was rebuilding, and
+Mantella's last log lines.
+
+**Check what you paste.** Your `sk-sent-` key is inside the base URL and the base URL is in the
+logs. If one is exposed, revoke it in the console; revocation takes effect immediately.
+
+For a security vulnerability, open a private advisory instead — [SECURITY.md](SECURITY.md). The
+operator's side of a report is the triage table in [DEPLOY.md](DEPLOY.md#triage-someone-has-reported-a-problem).

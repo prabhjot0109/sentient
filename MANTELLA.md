@@ -211,9 +211,15 @@ should only upload documents you trust.
 
 <https://github.com/prabhjot0109/sentient/issues>
 
-The issue template asks for the five things that would otherwise cost a round trip: which origin you
-are on, whether you are self-hosting, which provider, whether the project was rebuilding, and the
-last few lines of Mantella's log. Filling those in usually gets an answer in one reply.
+Pick **My NPC won't talk**. It asks for the five things that would otherwise cost a round trip:
+which origin you are on, whether you are self-hosting, which provider, whether the project was
+rebuilding, and the last few lines of Mantella's log. Filling those in usually gets an answer in one
+reply instead of three.
+
+**Redact your key before you paste a log.** It is inside the base URL, so it is in the log. If you
+have already posted one, revoke that key in the console — it stops working immediately.
+
+For a security problem, open a private advisory rather than an issue.
 
 ---
 

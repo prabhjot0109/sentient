@@ -1,0 +1,39 @@
+name: Bug report (development)
+description: Something in the code is wrong. For "my NPC won't talk", use the other template.
+labels: ["bug"]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What is wrong
+      description: Include the failing assertion or traceback if you have one.
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: Reproduction
+      description: The smallest sequence that shows it. A failing test is ideal.
+    validations:
+      required: true
+
+  - type: input
+    id: commit
+    attributes:
+      label: Commit
+      description: "`git rev-parse --short HEAD`"
+    validations:
+      required: true
+
+  - type: textarea
+    id: config
+    attributes:
+      label: The resolved configuration
+      description: >
+        `VECTOR_BACKEND`, `DB_BACKEND`, the embedding provider and model, and whether auth is on.
+        **Print what resolved rather than what you set** — V1 produced a false positive from a
+        harness that silently resolved a different embedding provider than the server. No secrets.
+      render: text
+    validations:
+      required: true

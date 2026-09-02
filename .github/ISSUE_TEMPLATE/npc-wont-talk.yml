@@ -1,0 +1,83 @@
+name: My NPC won't talk
+description: Something is wrong in-game or in the console.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Every field below is something that would otherwise cost a round trip. Filling them in
+        usually gets an answer in one reply instead of three.
+
+        **[MANTELLA.md's troubleshooting section](https://github.com/prabhjot0109/sentient/blob/main/MANTELLA.md#troubleshooting-by-symptom)
+        is organised by symptom** and covers the four most common causes. Worth two minutes first.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you did, what you expected, what you got instead.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: where
+    attributes:
+      label: Where are you running it?
+      options:
+        - The hosted console (sentient-console.vercel.app)
+        - Self-hosted with Docker
+        - Self-hosted from source (uv run uvicorn)
+    validations:
+      required: true
+
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Which surface?
+      options:
+        - Mantella, in-game
+        - The console's chat
+        - Uploading documents
+        - Something else
+    validations:
+      required: true
+
+  - type: input
+    id: provider
+    attributes:
+      label: Which LLM provider and model?
+      description: From project settings. If you store your own key, say so.
+      placeholder: groq / llama-3.3-70b-versatile, my own key
+    validations:
+      required: true
+
+  - type: dropdown
+    id: reindexing
+    attributes:
+      label: Was the project rebuilding?
+      description: >
+        The Documents screen shows a banner. Amber means a rebuild is in flight and the chat path
+        answers 409 until it finishes; red means the last one failed and the banner says why.
+      options:
+        - "No banner"
+        - "Amber: a rebuild is in flight"
+        - "Red: the last rebuild failed"
+        - "I didn't look"
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: The last few lines of Mantella's log, or the console's error
+      description: >
+        A provider failure reaches Mantella as an OpenAI-shaped `error` frame, so its log usually
+        carries the provider's own sentence. **Redact your API key** — it appears in the base URL.
+      render: text
+
+  - type: markdown
+    attributes:
+      value: |
+        **Before you post:** your `sk-sent-` key appears inside the base URL, and the URL appears in
+        logs. Check what you pasted. If a key has been exposed, revoke it in the console — revocation
+        takes effect immediately.

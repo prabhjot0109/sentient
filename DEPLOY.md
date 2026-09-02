@@ -351,6 +351,29 @@ was unreachable, which is the exact defect the route exists to remove.
 
 ---
 
+## Triage: someone has reported a problem
+
+The report arrives through `.github/ISSUE_TEMPLATE/npc-wont-talk.yml`, which asks for the origin,
+whether they self-host, the provider, whether the project was rebuilding, and Mantella's last log
+lines — the five things that would otherwise cost a second round trip. Work down this list; each
+step uses a tool that already exists.
+
+| Step | Tool | What it rules out |
+| --- | --- | --- |
+| 1 | `GET /health/ready` | The platform and the database. A 503 names the failing subsystem, and it reports queue depths alongside — a growing ingest queue is a slow instance, not a broken one. `/health` cannot answer this: it never touches the store. |
+| 2 | The Sentry issue for that timestamp | Whether an exception was raised at all. The captured URL has the API key stripped from the path, so the event is safe to paste into an issue thread. |
+| 3 | The Langfuse trace for that turn | Where the time went — retrieval, provider TTFT, provider total. This is the only thing that separates "slow" from "hung". |
+| 4 | `GET /v1/projects/{id}` | `status` and `reindex_error`. `reindexing_required` with a reason is a *failed* rebuild and the reason names the cause; without one it is queued and finishes on its own. |
+| 5 | `GET /v1/projects/{id}/documents` | Whether the lore is there. A `ready` document with **0 chunks** is a scanned PDF that ingested with no OCR available — it reports success and contains nothing. |
+| 6 | `GET /v1/audio/transcriptions/recent` | The whole "it didn't hear me" class. It reports the measured duration, RMS, peak and clipping of recent captures, which is what separates a dead microphone from a model that heard nothing. |
+
+Two shortcuts worth knowing. **If it is broken in the browser but fine from `curl`**, it is CORS or
+Neon Auth's trusted domains, not the backend — a blocked preflight reaches the console as a network
+failure with no status at all. **If the first request after a quiet period was slow and the second
+was not**, that is the ~6 s cold start and nothing is wrong.
+
+---
+
 ## Error tracking
 
 Set `SENTRY_DSN` on the service. Blank is off, and off means no client is constructed at all.

@@ -1,0 +1,17 @@
+name: Idea or request
+description: Something Sentient should do and does not.
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What are you trying to do?
+      description: The problem, not the solution. The solution is easier to find once the problem is clear.
+    validations:
+      required: true
+
+  - type: textarea
+    id: today
+    attributes:
+      label: What do you do today instead?
+      description: A workaround, however ugly, says more about the shape of the fix than a spec does.

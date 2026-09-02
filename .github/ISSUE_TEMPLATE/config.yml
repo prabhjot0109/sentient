@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/prabhjot0109/sentient/security/advisories/new
+    about: Report privately, never as a public issue. See SECURITY.md.
+  - name: Mantella setup guide
+    url: https://github.com/prabhjot0109/sentient/blob/main/MANTELLA.md
+    about: Troubleshooting is organised by symptom, and most first reports are already answered there.
+  - name: Self-hosting guide
+    url: https://github.com/prabhjot0109/sentient/blob/main/SELFHOST.md
+    about: Docker, the two traps, and the paragraph about data/ that most self-host problems trace back to.
