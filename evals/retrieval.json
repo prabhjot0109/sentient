@@ -1,0 +1,189 @@
+{
+  "cases": [
+    {
+      "id": "pr-races-affect-greetings",
+      "kind": "prose",
+      "query": "Does the race I pick change how citizens greet me?",
+      "expect_any": [
+        "greetings ond passing comments",
+        "Ro<iol Commentary",
+        "Racial Commentary"
+      ]
+    },
+    {
+      "id": "pr-skill-count",
+      "kind": "prose",
+      "query": "How many skills does the game have and how are they grouped?",
+      "expect_any": [
+        "18 skills",
+        "Combo!, Magic",
+        "divided into three major sets"
+      ]
+    },
+    {
+      "id": "pr-trainer-limit",
+      "kind": "prose",
+      "query": "How many times can I train with a trainer before I have to level up?",
+      "expect_any": [
+        "live Hmes",
+        "five times",
+        "one skill increase eoch time"
+      ]
+    },
+    {
+      "id": "pr-training-cost",
+      "kind": "prose",
+      "query": "What does a journeyman trainer charge?",
+      "expect_any": [
+        "250 gold"
+      ]
+    },
+    {
+      "id": "pr-dark-elf-power",
+      "kind": "prose",
+      "query": "What racial power do Dark Elves get?",
+      "expect_any": [
+        "Ancestor's Wrath",
+        "Flame  Clook",
+        "Flame Cloak"
+      ]
+    },
+    {
+      "id": "pr-fire-resistance",
+      "kind": "prose",
+      "query": "Which race resists fire?",
+      "expect_any": [
+        "50% Fire Resistance"
+      ]
+    },
+    {
+      "id": "pr-poison-resistance",
+      "kind": "prose",
+      "query": "Which race resists poison?",
+      "expect_any": [
+        "50% Poison Resistance"
+      ]
+    },
+    {
+      "id": "pr-stamina-regen",
+      "kind": "prose",
+      "query": "Is there a power that makes stamina come back faster?",
+      "expect_any": [
+        "Adrenaline  Rush",
+        "Adrenaline Rush",
+        "Stamina l Ox foster"
+      ]
+    },
+    {
+      "id": "pr-unarmed-claws",
+      "kind": "prose",
+      "query": "Which race fights well without a weapon?",
+      "expect_any": [
+        "Claws (4x unarmed damage)",
+        "disdain weopor1s in favor of their claws"
+      ]
+    },
+    {
+      "id": "pr-crowd-control",
+      "kind": "prose",
+      "query": "How do I survive being attacked by several enemies at once on the hardest difficulty?",
+      "expect_any": [
+        "Crowd<ontrol obilities",
+        "Fear and Calm",
+        "Animal Allegiance"
+      ]
+    },
+    {
+      "id": "pr-werewolf-howl",
+      "kind": "prose",
+      "query": "Does the werewolf form help against groups?",
+      "expect_any": [
+        "Beast Form",
+        "Fear Howl"
+      ]
+    },
+    {
+      "id": "pr-archetypes",
+      "kind": "prose",
+      "query": "What is a character archetype?",
+      "expect_any": [
+        "Character Archetypes",
+        "tailored too specific role",
+        "tailored to a specific role"
+      ]
+    },
+    {
+      "id": "pr-not-locked-in",
+      "kind": "prose",
+      "query": "Am I stuck with the skills I start levelling?",
+      "expect_any": [
+        "Don't ever feel locked in",
+        "You con develop any skill you wont"
+      ]
+    },
+    {
+      "id": "pr-thalmor-robes",
+      "kind": "prose",
+      "query": "Does my race matter when sneaking into the embassy in disguise?",
+      "expect_any": [
+        "Thalmor Embassy",
+        "robes of that High Elf Faction"
+      ]
+    },
+    {
+      "id": "pn-runil",
+      "kind": "proper_noun",
+      "query": "Runil",
+      "expect_any": [
+        "Runil"
+      ]
+    },
+    {
+      "id": "pn-falkreath",
+      "kind": "proper_noun",
+      "query": "Falkreath",
+      "expect_any": [
+        "Folkreoth",
+        "Falkreath"
+      ]
+    },
+    {
+      "id": "pn-elsweyr",
+      "kind": "proper_noun",
+      "query": "Elsweyr",
+      "expect_any": [
+        "Elsweyr"
+      ]
+    },
+    {
+      "id": "pn-hammerfell",
+      "kind": "proper_noun",
+      "query": "Hammerfell",
+      "expect_any": [
+        "Hammerfell"
+      ]
+    },
+    {
+      "id": "pn-senche-tiger",
+      "kind": "proper_noun",
+      "query": "Senche-Tiger",
+      "expect_any": [
+        "Senche",
+        "Suthoy-roht",
+        "Suthay-raht"
+      ]
+    },
+    {
+      "id": "neg-gibberish",
+      "kind": "nonsense",
+      "query": "zzqqx wubblefarn grimplenock",
+      "expect_any": []
+    },
+    {
+      "id": "neg-off-topic",
+      "kind": "nonsense",
+      "query": "quarterly amortisation schedule for leasehold improvements",
+      "expect_any": []
+    }
+  ]
+}

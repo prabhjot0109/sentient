@@ -559,6 +559,27 @@ deployment. `/health` never touches the database, so it answers 200 while Postgr
 a platform health check wired to it keeps a broken instance in rotation. Point the platform at
 `/health/ready`, which runs a real query and reports queue depths alongside.
 
+### Measuring retrieval quality
+
+```bash
+uv run python scripts/eval_retrieval.py --rebuild
+```
+
+21 question-and-expected-chunk pairs over `data/skyrimskills.pdf`, which is checked in, so the
+harness needs no setup beyond a provider key. It prints the resolved configuration — provider,
+model, backend, threshold — **before** any number, because V1 produced a false positive from a
+harness that silently resolved a different embedding provider than the server. Recall is reported
+per kind and never averaged across backends: `RAG_SCORE_THRESHOLD` is a cosine floor on FAISS and a
+rank-fusion artefact on Qdrant, so one number over both means nothing.
+
+**First run, 2026-09-02, FAISS + Google embeddings, 50 chunks:** recall@4 was 9/14 on prose and 4/5
+on proper nouns, and the separation check **failed**. The real proper noun `Runil` scored **0.3656**
+while the gibberish `zzqqx wubblefarn grimplenock` scored **0.3697**. Retrieval found `Runil`
+correctly — the *score* is what is wrong, and the score is what the threshold filters on, so on this
+corpus no threshold excludes the gibberish without also excluding a correct answer about a named
+character. That reproduces V1's `Thornwald` measurement on a different document and is the argument
+for turning `RAG_HYBRID` on; the Qdrant arm that would prove it is not yet run.
+
 ## Development
 
 ```bash
@@ -600,8 +621,8 @@ Nothing that blocks use is outstanding. What remains is operability and launch:
 - **`PgVectorBackend`.** One store instead of two retires the cross-region hop, the disk question,
   the restore-consistency problem and the memory cost in a single change, and the Protocol seam it
   plugs into already exists.
-- **A retrieval eval set**, because there is currently no way to tell whether a configuration
-  change made grounding better or worse.
+- **Hybrid retrieval on by default**, once the eval set has been run against Qdrant. The FAISS
+  arm already argues for it — see below.
 
 ## License
 
