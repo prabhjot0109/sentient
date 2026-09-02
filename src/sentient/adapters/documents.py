@@ -4,6 +4,7 @@ import asyncio
 import os
 from functools import lru_cache
 from pathlib import Path
+from time import perf_counter
 from typing import Any
 
 from langchain_community.document_loaders import PyPDFLoader, TextLoader
@@ -194,6 +195,25 @@ class ArchivesIngestion:
             )
             return
 
+        # Announced before the work, not after, because this is the slowest thing
+        # ingestion does and until now it did it in complete silence. Rasterising a
+        # page at 200 DPI and running Tesseract over it costs ~8 s per page on a
+        # developer machine and ~60 s on a 0.15-CPU host -- measured 2026-09-01,
+        # where a 6-page scanned PDF held the queue for over fourteen minutes with
+        # nothing in the log to distinguish it from a hang.
+        #
+        # A scanned PDF is also indistinguishable from a broken one at upload time:
+        # both extract to zero characters. Saying which file, how many pages, and
+        # that the cost is expected is what turns "it is stuck" into "it is working".
+        log.info(
+            "OCR starting: this is slow, roughly a minute per page on a small instance",
+            extra={
+                "file": path.name,
+                "pages_needing_ocr": len(pages_needing_ocr),
+                "pages_total": len(documents),
+            },
+        )
+
         tesseract_cmd = os.getenv("TESSERACT_CMD")
         if tesseract_cmd:
             pytesseract.pytesseract.tesseract_cmd = tesseract_cmd
@@ -208,6 +228,8 @@ class ArchivesIngestion:
             )
             return
 
+        started = perf_counter()
+        completed = 0
         try:
             for document in pages_needing_ocr:
                 page_index = document.metadata.get("page")
@@ -228,6 +250,20 @@ class ArchivesIngestion:
                     continue
                 if text.strip():
                     document.page_content = text
+                completed += 1
+                # Per page, so a stalled run is visibly stalled: a log line that
+                # stops advancing localises the problem to one page, where silence
+                # for ten minutes says nothing at all.
+                log.info(
+                    "OCR progress",
+                    extra={
+                        "file": path.name,
+                        "page": page_index + 1,
+                        "done": completed,
+                        "of": len(pages_needing_ocr),
+                        "seconds": round(perf_counter() - started, 1),
+                    },
+                )
         finally:
             pdf.close()
 
