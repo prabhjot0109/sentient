@@ -214,5 +214,41 @@ class QdrantReclamationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.settings.vector_backend, "qdrant")
 
 
+class PgVectorReclamationTests(unittest.IsolatedAsyncioTestCase):
+    """Pgvector shares Qdrant's deletion shape, not FAISS's directory shape.
+
+    The table is in Postgres, so deleting its rows must still happen *after* the
+    project row proves ownership. This reaches the composition-root seam instead
+    of merely exercising PgVectorBackend.clear_project in isolation.
+    """
+
+    async def test_it_uses_the_default_archives_client_to_clear_the_partition(self):
+        from sentient.api import deps
+        from sentient.core.config import load_rag_settings
+
+        with patch.dict(
+            os.environ,
+            {
+                "VECTOR_BACKEND": "pgvector",
+                "DATABASE_URL": "postgresql://example.test/sentient",
+            },
+        ):
+            settings = load_rag_settings()
+
+        cleared: list[tuple[str | None, str]] = []
+
+        class FakeArchives:
+            def clear_project(self, user_key, project_id):
+                cleared.append((user_key, project_id))
+
+        with (
+            patch.object(deps, "_settings", settings),
+            patch.object(deps, "get_default_archives", return_value=FakeArchives()),
+        ):
+            await deps.reclaim_project_storage("user-1", "project-1")
+
+        self.assertEqual(cleared, [("user-1", "project-1")])
+
+
 if __name__ == "__main__":
     unittest.main()

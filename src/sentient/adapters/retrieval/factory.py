@@ -18,4 +18,10 @@ def get_vector_backend(
         from sentient.adapters.retrieval.qdrant_store import QdrantBackend
 
         return QdrantBackend(settings, embeddings)
+    if settings.vector_backend == "pgvector":
+        # Optional like Qdrant: a self-hosted deployment opts in with
+        # `uv sync --group pgvector`; the FAISS default imports neither client.
+        from sentient.adapters.retrieval.pgvector_store import PgVectorBackend
+
+        return PgVectorBackend(settings, embeddings)
     return FaissBackend(settings, Path(index_path), embeddings)

@@ -110,7 +110,7 @@ def _resolve_db_backend() -> str:
 
 def _normalize_vector_backend(value: str | None) -> str:
     normalized = (value or "faiss").strip().lower()
-    return normalized if normalized in {"faiss", "qdrant"} else "faiss"
+    return normalized if normalized in {"faiss", "qdrant", "pgvector"} else "faiss"
 
 
 def _normalize_provider(value: str | None, *, default: str = "auto") -> str:

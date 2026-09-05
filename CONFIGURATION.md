@@ -11,7 +11,7 @@ OPENAI_BASE_URL=
 LLM_PROVIDER=auto
 EMBEDDING_PROVIDER=auto
 MODEL_NAME=gemini-2.5-flash
-EMBEDDING_MODEL_NAME=models/gemini-embedding-2
+EMBEDDING_MODEL_NAME=models/gemini-embedding-001
 OPENAI_TIMEOUT_SECONDS=60
 DATA_DIR=data
 FAISS_INDEX_PATH=data/faiss_index
@@ -33,7 +33,7 @@ NEON_AUTH_ALGORITHMS=EdDSA,RS256
 | `LLM_PROVIDER` / `EMBEDDING_PROVIDER` | When it applies | Chat model | Embedding model |
 | --- | --- | --- | --- |
 | `auto` (default) | Resolved per request. An explicit request key is matched by prefix (`AIza` for Google, `hf_` for HuggingFace, anything else for OpenAI). Otherwise the first of `GOOGLE_API_KEY`, `OPENAI_API_KEY`, `HUGGINGFACEHUB_API_TOKEN` (or `HF_TOKEN`) that is set, in that order. | | |
-| `google` | Set explicitly, or resolved when only `GOOGLE_API_KEY` is present | `gemini-2.5-flash` | `models/gemini-embedding-2` |
+| `google` | Set explicitly, or resolved when only `GOOGLE_API_KEY` is present | `gemini-2.5-flash` | `models/gemini-embedding-001` |
 | `openai` | Set explicitly, or resolved when only `OPENAI_API_KEY` is present | `gpt-4o-mini` | `text-embedding-3-small` |
 | `huggingface` | Set explicitly, or the fallback when no provider key is set at all | `Qwen/Qwen2.5-7B-Instruct` (hosted, keyless and rate-limited without a token) | `BAAI/bge-base-en-v1.5` (local, no key) |
 
@@ -108,14 +108,32 @@ stale vectors.
 ### Scanned PDF OCR
 
 PDFs with no selectable text are read with OCR. Pages that come back empty from normal extraction
-are rendered with PyMuPDF and passed through Tesseract. The `pymupdf`, `pytesseract`, and `pillow`
-packages arrive with `uv sync`, but the Tesseract binary installs separately:
+are rasterised at 200 DPI with **`pypdfium2`** and passed through Tesseract. The `pypdfium2`,
+`pytesseract` and `pillow` packages arrive with `uv sync`, but the Tesseract binary installs
+separately:
 
 - Windows: the [UB-Mannheim build](https://github.com/UB-Mannheim/tesseract/wiki). If it is not on
   your `PATH`, set `TESSERACT_CMD=C:\Program Files\Tesseract-OCR\tesseract.exe`.
 - macOS: `brew install tesseract`. Linux: `apt install tesseract-ocr`.
 
-Without Tesseract, scanned PDFs ingest as empty and log a warning. Text PDFs are unaffected.
+Without Tesseract, scanned PDFs ingest as empty and log a warning. Text PDFs are unaffected. In a
+container the package to install is `tesseract-ocr`, the **binary** — `pytesseract` is a wrapper and
+installing it alone proves nothing.
+
+It replaced `pymupdf` on 2026-08-27. That package was AGPL-3.0 and a direct dependency, which would
+have obliged anyone hosting a modified copy to offer source; `pypdfium2` is BSD/Apache.
+`render(scale=200 / 72)` is the same 200 DPI the old `get_pixmap(dpi=200)` asked for, since scale is
+pixels per canvas unit and one unit is 1/72 in.
+
+**It is the slowest thing ingestion does, by a wide margin.** ~8 s per page on a developer machine
+and ~60 s per page on a 0.15-CPU instance, where a 6-page scan measured 15m51s. Ingestion logs
+start, per-page progress, completion with duration, and failure with the filename, because
+otherwise correct work is indistinguishable from a hang. A scanned PDF and a corrupt one are
+identical at upload time — both extract to zero characters — and the OCR line is what separates
+them.
+
+`EXTRACT_MAX_CHARS` is counted **after** OCR, since OCR is itself an expansion step, and as a sum
+across pages: a bomb is ten thousand ordinary pages, not one enormous one.
 
 ## Vector backend
 
@@ -124,7 +142,7 @@ retrieval chain stays non-blocking. CPU-bound work is offloaded off the event lo
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `VECTOR_BACKEND` | `faiss` | `faiss` for local disk, `qdrant` for server-side hybrid retrieval |
+| `VECTOR_BACKEND` | `faiss` | `faiss` for local disk, `qdrant` for server-side hybrid retrieval, `pgvector` for vectors stored with Postgres |
 | `QDRANT_URL` / `QDRANT_API_KEY` | empty | Qdrant Cloud cluster URL and API key |
 | `QDRANT_PREFER_GRPC` | `false` | gRPC instead of HTTP, recommended for Cloud |
 | `QDRANT_COLLECTION` | `sentient_lore` | Collection name |
@@ -150,6 +168,18 @@ ingestion isolation today.
 `langchain-qdrant`'s store is driven synchronously, but every hot-path call is wrapped in
 `asyncio.to_thread`, matching the FAISS model. For Qdrant Cloud set `QDRANT_URL`, `QDRANT_API_KEY`,
 and `QDRANT_PREFER_GRPC=true`. The collection is created idempotently on first write.
+
+**Pgvector keeps vectors and state in one Postgres database.** Set `VECTOR_BACKEND=pgvector`, point
+`DATABASE_URL` (or `SUPABASE_DB_URL`) at a Postgres server with the `vector` extension available,
+and install the opt-in client with `uv sync --group pgvector`. Migration `0007_pgvector.sql` creates
+the extension and `sentient_vectors` table on the first state-store connection.
+
+Its `embedding` column intentionally has no fixed dimension, so projects can use different models
+or MRL sizes without the shared-collection failure Qdrant has. pgvector indexes variable dimensions
+through expression/partial indexes, which must be selected per model and dimension; this first
+backend therefore ships only the safe scope btree index (`user_key`, `project_id`,
+`embedding_signature`) and ranks its already-scoped rows by cosine similarity. Add a partial HNSW
+index only when production traffic identifies a dominant model/dimension pair.
 
 ## Relational state
 

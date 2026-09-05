@@ -369,7 +369,12 @@ class ArchivesIngestion:
         source_files = await asyncio.to_thread(self._resolve_source_files, source_path)
         documents = await asyncio.to_thread(self._load_documents, source_path)
         if not documents:
-            await asyncio.to_thread(self.backend.reset)
+            if project_id is not None:
+                await asyncio.to_thread(self.backend.clear_project, user_key, project_id)
+                if self.settings.vector_backend == "faiss":
+                    await asyncio.to_thread(self.backend.reset)
+            else:
+                await asyncio.to_thread(self.backend.reset)
             return None
 
         # Split, then infer the persona off the event loop (the LLM call inside

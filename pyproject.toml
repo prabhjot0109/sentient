@@ -76,6 +76,9 @@ observability = [
     "sentry-sdk[fastapi]>=2.44.0",
     "langfuse>=3.11.0",
 ]
+pgvector = [
+    "psycopg[binary]>=3.2.10",
+]
 
 [tool.uv]
 default-groups = ["dev", "local-embeddings"]

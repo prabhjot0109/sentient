@@ -67,8 +67,9 @@ behind every latency number quoted below.
   partitioned so nothing crosses between them. Five persona presets ship — `skyrim`, `fallout4`,
   `fantasy`, `scifi`, `cyberpunk` — and each is a starting point you edit, not a constraint.
 - **Six providers, resolved per request.** Google, OpenAI, HuggingFace, Groq, Cerebras, OpenRouter.
-- **Two retrieval backends behind one seam.** FAISS on local disk by default; Qdrant for hybrid
-  dense-plus-sparse retrieval with server-side tenant filters.
+- **Three retrieval backends behind one seam.** FAISS on local disk by default; Qdrant for hybrid
+  dense-plus-sparse retrieval with server-side tenant filters; Pgvector when vectors should share
+  the Postgres database, its region and its point-in-time recovery.
 - **Bring your own keys.** Per-user provider credentials, encrypted at rest with Fernet, with a
   no-downtime rotation path.
 - **PDF and TXT ingestion, including scanned PDFs** through OCR.
@@ -174,7 +175,7 @@ preserves the single-user local behaviour.
 | --- | --- | --- |
 | `GOOGLE_API_KEY` / `OPENAI_API_KEY` / `HUGGINGFACEHUB_API_TOKEN` | none | At least one is required |
 | `LLM_PROVIDER` / `EMBEDDING_PROVIDER` | `auto` | Pin a provider instead of resolving per request |
-| `VECTOR_BACKEND` | `faiss` | Set to `qdrant` for hybrid retrieval |
+| `VECTOR_BACKEND` | `faiss` | Set to `qdrant` for hybrid retrieval or `pgvector` to store vectors with Postgres (`uv sync --group pgvector`) |
 | `DATABASE_URL` | none | Postgres (Neon or Supabase). Falls back to SQLite when unset |
 | `NEON_AUTH_JWKS_URL` | none | Blank disables auth and serves a single `default` user |
 | `NEON_AUTH_BASE_URL` | none | Written by `neon env pull`; the token `iss` is its origin |
@@ -583,7 +584,7 @@ for turning `RAG_HYBRID` on; the Qdrant arm that would prove it is not yet run.
 ## Development
 
 ```bash
-uv run python -m pytest tests/ -v                     # 518 tests
+uv run python -m pytest tests/ -v                     # 575 tests
 uv run ruff check src tests
 uv run ruff format --check src tests
 uv run mypy src/sentient/core src/sentient/adapters   # strict on the Protocol seams

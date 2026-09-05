@@ -96,13 +96,27 @@ success. If you build your own image, keep that line.
 
 ---
 
-## Postgres and Qdrant
+## Postgres, Qdrant, or Pgvector
 
 Set `DATABASE_URL` and the store switches; `migrations/*.sql` are applied on the first connect, so
 the first request after a deploy is a migration event. Watch for it in the logs.
 
 Set `VECTOR_BACKEND=qdrant` plus `QDRANT_URL` and `QDRANT_API_KEY`, and prefer gRPC
 (`QDRANT_PREFER_GRPC=true`) against Cloud.
+
+### Pgvector: one database, one region, one recovery clock
+
+Set `VECTOR_BACKEND=pgvector` and run `uv sync --group pgvector`. It uses the same
+`DATABASE_URL` (or `SUPABASE_DB_URL`) as `PostgresStateStore`; migration `0007_pgvector.sql`
+creates the `vector` extension and the table on the first connection. That removes the Singapore →
+Frankfurt retrieval hop, the separate Qdrant account, and the Postgres/Qdrant restore inconsistency
+window in one change.
+
+The table uses pgvector's variable-dimension `vector` type, so projects may use different embedding
+models or MRL dimensions. It deliberately starts with a normal SQL scope index and cosine ranking,
+not a guessed HNSW index: pgvector requires an expression/partial HNSW index for each dimension, so
+add one only after real traffic tells you which model/dimension dominates. Tenant, project and
+embedding-signature filters are in every query before ranking.
 
 ### Two Qdrant limits that only appear at scale, and both surprise people
 
