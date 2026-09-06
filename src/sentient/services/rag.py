@@ -3,8 +3,8 @@ from __future__ import annotations
 from typing import Any
 
 from dotenv import load_dotenv
-from langchain.chains.combine_documents import create_stuff_documents_chain
 from langchain_core.documents import Document
+from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate, HumanMessagePromptTemplate, PromptTemplate
 
 from sentient.adapters.documents import ArchivesIngestion
@@ -58,11 +58,29 @@ class NPCBrain:
         )
 
     def _build_document_chain(self):
-        return create_stuff_documents_chain(
-            self.llm,
-            self.prompt,
-            document_prompt=self.document_prompt,
-            document_separator="\n\n---\n\n",
+        doc_prompt = self.document_prompt
+
+        def _format_documents(docs: list[Document]) -> str:
+            formatted: list[str] = []
+            for doc in docs:
+                kwargs = {
+                    "source": "unknown",
+                    "page_label": "",
+                    "chunk_id": "",
+                    **doc.metadata,
+                    "page_content": doc.page_content,
+                }
+                formatted.append(doc_prompt.format(**kwargs))
+            return "\n\n---\n\n".join(formatted)
+
+        return (
+            {
+                "input": lambda x: x["input"],
+                "context": lambda x: _format_documents(x["context"]),
+            }
+            | self.prompt
+            | self.llm
+            | StrOutputParser()
         )
 
     async def refresh_knowledge(self):
