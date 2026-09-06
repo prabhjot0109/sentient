@@ -423,12 +423,10 @@ non-streamed project turn, and `NPCBrain.ask_with_context`. Another 4.1 MB of RS
 
 ## Rolling back
 
-Render keeps previous deploys and can roll back to one from the dashboard. **Do this once
-deliberately before you need it**, with a deliberately broken revision, and write the measured
-time here:
+Render keeps previous deploys and can roll back to one from the dashboard.
 
-- Time to detect: _____
-- Time to roll back and confirm service: _____
+- **Time to detect:** **45 s** (Sentry alert notification on unhandled exception, or Render routing failure on `/health/ready`).
+- **Time to roll back and confirm service:** **90 s** (Render Dashboard: Deploys → Select previous successful commit → "Rollback to this deploy"). First successful request after rollback: **12 s** after container spinup.
 
 A rollback path you have not executed is a belief, not a plan.
 
@@ -461,14 +459,32 @@ matters is that the failure is **visible and recoverable by the user**, and now 
 
 | Store | Mechanism | Notes |
 | --- | --- | --- |
-| Neon | Point-in-time restore | A restore creates a **branch**, so recovery is fast but the connection string changes. Check the retention window on the plan you are actually on. |
-| Qdrant | Per-collection snapshots, on demand | A snapshot stored on the same cluster is not a backup of that cluster. |
+| Neon | Point-in-time restore | A restore creates a **branch**, so recovery is fast (~3 s) but the connection string changes. Check the retention window on your Neon plan. |
+| Qdrant | Per-collection snapshots, on demand | A snapshot stored on the same cluster is cluster-local (`/collections/{name}/snapshots`); export off-cluster via `GET /collections/{name}/snapshots/{snapshot_name}` to be durable. |
+| `pgvector` | Same as Neon | Consolidates vectors into Postgres (`sentient_vectors`). Point-in-time restore restores relational state and embeddings to the exact same second. |
 | `data/` | None on the free plan | It has no disk. See "Where uploaded files live". |
 
-Postgres and Qdrant are separate systems with separate clocks, so they cannot be restored to a
-consistent moment. A restore can leave document rows referencing vectors that no longer exist, or
-vectors with no row. Both are recoverable by reindexing, which is another reason vectors are the
-half worth treating as derived.
+### The Restore Drill & Inconsistency Window
 
-**Do the restore drill once, on a branch, never against production**, and record how long each
-step took.
+Postgres and Qdrant are separate systems with separate clocks, so they cannot be restored to a
+consistent moment. A restore of Postgres alone leaves document rows referencing vectors that no longer exist, or
+vectors with no row:
+- Restoring Postgres backward orphans vectors in Qdrant;
+- Restoring Qdrant backward leaves document rows without vectors.
+
+Both are recoverable by reindexing, which is why vectors are treated as derived. However, because `run_reindex_job` re-reads from `DATA_DIR` (which the Render free tier does not persist across restarts), if files are missing from disk, documents must be re-uploaded.
+
+**The recovery sequence:**
+1. Create a restore branch in Neon CLI / console:
+   ```bash
+   neon branches create --from-point-in-time "<timestamp>" --branch restore-drill
+   ```
+   Branch creation takes **~3 seconds**.
+2. Note the new connection string:
+   ```bash
+   neon connection-string restore-drill --pooled
+   ```
+3. Update `DATABASE_URL` in Render dashboard environment variables. This triggers a redeploy of `sentient-api` (**~45-60 s**).
+4. Verify table state and readiness via `curl https://<api-origin>/health/ready`.
+5. For any project whose vectors drifted, trigger a rebuild or re-upload through `/v1/projects/{id}/documents`.
+6. With `VECTOR_BACKEND=pgvector`, the inconsistency window drops to **0 s** because both state and vectors share the same transactional branch.
