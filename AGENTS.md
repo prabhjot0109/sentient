@@ -14,20 +14,12 @@ next; the architecture lives in
 `docs/superpowers/specs/2026-07-07-sentient-world-runtime-overview.md` and the backlog in
 `docs/superpowers/plans/2026-08-11-post-R8-launch-todo.md`.
 
-Plans 01–03, R1–R7, R8, V1 and **R9 (the modular-monolith refactor) are all done on `dev`**. R9
-replaced the 1,727-line `api.py` with a four-layer package under `src/sentient/`, deleted the
-legacy chat-session system, and added ruff, mypy, import-linter and CI.
+Plans 01–03, R1–R7, R8, V1–V6, Phase F, Phase S, Phase D, Phase P, and post-deploy engineering (PgVector, LangChain 1.x, retrieval evals, presets) are all done on `main`.
+Sentient is deployed and serving in production (Render Singapore, Neon Postgres, Qdrant Cloud, Vercel console & landing).
 
-**DEV-2: R9 ran after V1 only. V2 and V3 are still unrun** — `adapters/state/postgres_store.py`
-and the Qdrant payload filters remain fake-only today, and both gates stay BLOCKER-grade before
-any Phase F task starts. When running a gate, print the config the harness resolved (provider,
-model, threshold, paths) before reporting any number — V1 produced one false positive from a
-harness that silently resolved a different embedding provider than the server.
-
-**Plan documents have drifted from the code.** Several quote 125 or 200 tests; the suite collects
-**209** as of 2026-08-15. Each plan file also carries 🔶 DELTA banners that override its body text,
-newest delta wins. Never copy a test count, file list, or "state at time of writing" line out of a
-plan — regenerate it, and confirm a referenced file exists before relying on it.
+**Test counts:** The suite collects **575** pytest tests and **155** console vitest cases as of 2026-09-06.
+Each plan file also carries 🔶 DELTA banners that override its body text, newest delta wins. Never copy a test count,
+file list, or "state at time of writing" line out of a plan — regenerate it, and confirm a referenced file exists before relying on it.
 
 ## Commands
 
