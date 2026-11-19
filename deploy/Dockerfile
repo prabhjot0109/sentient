@@ -36,7 +36,7 @@ COPY src/ src/
 # (measured 2026-09-02 on this image's shape), against a 512 MB host that idles
 # at 199. Without it, a deployment with SENTRY_DSN set logs one warning and runs
 # untracked -- which is the right failure, and still not the one you want.
-RUN uv sync --frozen --no-default-groups --group observability
+RUN uv sync --frozen --no-default-groups --group observability --group pgvector
 
 # migrations/ is required at runtime: PostgresStateStore applies every .sql file
 # in it the first time it opens a pool, so a container without this directory
