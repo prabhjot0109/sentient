@@ -364,8 +364,10 @@ class PostgresStateStore:
         pool = await self._pool_()
         async with pool.acquire() as conn:
             rows = await conn.fetch(
+                "WITH updated AS ("
                 "UPDATE documents SET status='ready', updated_at=now() "
-                "WHERE status='reindexing' RETURNING DISTINCT project_id::text"
+                "WHERE status='reindexing' RETURNING project_id"
+                ") SELECT DISTINCT project_id::text FROM updated"
             )
         return [row["project_id"] for row in rows]
 

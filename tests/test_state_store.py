@@ -319,6 +319,40 @@ class PostgresStoreSurfaceTests(unittest.TestCase):
             )
 
 
+class PostgresReconciliationQueryTests(unittest.IsolatedAsyncioTestCase):
+    async def test_restore_reindexing_documents_uses_valid_postgres_distinct_sql(self):
+        from sentient.adapters.state.postgres_store import PostgresStateStore
+
+        captured: list[str] = []
+
+        class Connection:
+            async def fetch(self, sql):
+                captured.append(sql)
+                return [{"project_id": "project-1"}]
+
+        class Acquire:
+            async def __aenter__(self):
+                return Connection()
+
+            async def __aexit__(self, exc_type, exc, tb):
+                return False
+
+        class Pool:
+            def acquire(self):
+                return Acquire()
+
+        store = PostgresStateStore("postgres://unused")
+        store._pool = Pool()
+
+        result = await store.restore_reindexing_documents()
+
+        self.assertEqual(result, ["project-1"])
+        self.assertEqual(len(captured), 1)
+        self.assertIn("WITH updated AS", captured[0])
+        self.assertIn("SELECT DISTINCT project_id::text FROM updated", captured[0])
+        self.assertNotIn("RETURNING DISTINCT", captured[0])
+
+
 class StateStoreFactoryTests(unittest.TestCase):
     def test_factory_uses_sqlite_by_default(self):
         from sentient.adapters.state import get_state_store
