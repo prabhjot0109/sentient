@@ -42,5 +42,9 @@
     "typescript-eslint": "^8.56.1",
     "vite": "^8.0.16",
     "vitest": "^4.1.11"
+  },
+  "overrides": {
+    "@tanstack/react-start": "^1.169.5",
+    "@tanstack/start-server-core": "^1.169.45"
   }
 }
